@@ -214,10 +214,22 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
 
     for (const issueProduct of issueProducts) {
       const product = products.find((p) => p.id === issueProduct.productId)
+
+      // Check if product has zero stock
+      if (product && product.currentStock === 0) {
+        toast({
+          title: t("common.error"),
+          description: `${t("bulkIssue.error.zeroStock", "مخزون صفري")}: ${product.productName}. ${t("bulkIssue.error.adjustQuantity", "يجب تعديل الكمية")}`,
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Check if requested quantity exceeds available stock
       if (product && product.currentStock < issueProduct.quantity) {
         toast({
           title: t("common.error"),
-          description: `${t("bulkIssue.error.insufficientStock")}: ${product.productName}`,
+          description: `${t("bulkIssue.error.insufficientStock")}: ${product.productName}. ${t("bulkIssue.error.adjustQuantity", "يجب تعديل الكمية")}`,
           variant: "destructive",
         })
         return

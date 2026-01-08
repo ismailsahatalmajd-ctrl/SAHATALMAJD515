@@ -17,6 +17,9 @@ import { useToast } from "@/hooks/use-toast"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Progress } from "@/components/ui/progress"
 import { db } from "@/lib/db"
+import { syncProductToCloud } from "@/lib/firebase-sync-engine"
+import { db as firestore } from "@/lib/firebase"
+import { setDoc, doc, Timestamp } from "firebase/firestore"
 
 interface BackupRestoreDialogProps {
   open: boolean
@@ -85,6 +88,49 @@ export function BackupRestoreDialog({ open, onOpenChange }: BackupRestoreDialogP
     inventory_purchase_requests: true,
     app_settings: true,
   })
+
+  // Universal sync function for any table
+  const syncToFirebase = async (tableName: string, data: any) => {
+    try {
+      if (!data.id) return
+
+      // Map table names to Firebase collections
+      const collectionMap: Record<string, string> = {
+        'products': COLLECTIONS.PRODUCTS,
+        'categories': COLLECTIONS.CATEGORIES,
+        'branches': COLLECTIONS.BRANCHES,
+        'transactions': COLLECTIONS.TRANSACTIONS,
+        'issues': COLLECTIONS.ISSUES,
+        'returns': COLLECTIONS.RETURNS,
+        'units': COLLECTIONS.UNITS,
+        'locations': COLLECTIONS.LOCATIONS,
+        'purchaseOrders': COLLECTIONS.PURCHASE_ORDERS,
+        'verificationLogs': COLLECTIONS.VERIFICATION_LOGS,
+        'inventoryAdjustments': COLLECTIONS.INVENTORY_ADJUSTMENTS,
+        'branchInvoices': COLLECTIONS.BRANCH_INVOICES,
+        'branchRequests': COLLECTIONS.BRANCH_REQUESTS,
+        'purchaseRequests': COLLECTIONS.PURCHASE_REQUESTS,
+      }
+
+      const collection = collectionMap[tableName]
+      if (!collection) {
+        console.warn(`No Firebase collection mapping for table: ${tableName}`)
+        return
+      }
+
+      // Special handling for products
+      if (tableName === 'products') {
+        return await syncProductToCloud(data)
+      }
+
+      // Generic sync for other tables
+      const ref = doc(firestore, collection, data.id)
+      await setDoc(ref, { ...data, lastSyncedAt: Timestamp.now() }, { merge: true })
+    } catch (error) {
+      console.error(`Failed to sync ${tableName}:`, error)
+      throw error
+    }
+  }
 
   const keysOrder = Object.keys(UI_LABELS)
 
@@ -256,6 +302,18 @@ export function BackupRestoreDialog({ open, onOpenChange }: BackupRestoreDialogP
             if (table) {
               await table.clear()
               await table.bulkPut(rows)
+
+              // 🔥 CRITICAL FIX: Sync restored data to Firebase
+              console.log(`Syncing ${rows.length} items from ${tableName} to Firebase...`)
+              for (const row of rows) {
+                try {
+                  await syncToFirebase(tableName, row)
+                } catch (syncError) {
+                  console.error(`Failed to sync ${tableName} item:`, syncError)
+                  // Continue with other items even if one fails
+                }
+              }
+              console.log(`✅ Synced ${tableName} to Firebase`)
             }
           }
           done++
@@ -290,6 +348,17 @@ export function BackupRestoreDialog({ open, onOpenChange }: BackupRestoreDialogP
                 if (table && Array.isArray(rows)) {
                   await table.clear()
                   await table.bulkPut(rows)
+
+                  // 🔥 FIX: Sync to Firebase
+                  console.log(`Syncing ${rows.length} items from ${tableName} (legacy) to Firebase...`)
+                  for (const row of rows) {
+                    try {
+                      await syncToFirebase(tableName, row)
+                    } catch (syncError) {
+                      console.error(`Failed to sync ${tableName} item:`, syncError)
+                    }
+                  }
+                  console.log(`✅ Synced ${tableName} (legacy) to Firebase`)
                 }
               }
             }
@@ -303,6 +372,17 @@ export function BackupRestoreDialog({ open, onOpenChange }: BackupRestoreDialogP
           const table = db[tableName]
           if (table && Array.isArray(rows)) {
             await table.bulkPut(rows)
+
+            // 🔥 FIX: Sync to Firebase
+            console.log(`Syncing ${rows.length} items from ${tableName} (idb) to Firebase...`)
+            for (const row of rows) {
+              try {
+                await syncToFirebase(tableName, row)
+              } catch (syncError) {
+                console.error(`Failed to sync ${tableName} item:`, syncError)
+              }
+            }
+            console.log(`✅ Synced ${tableName} (idb) to Firebase`)
           }
           done++
           setProgress(Math.round((done / total) * 100))

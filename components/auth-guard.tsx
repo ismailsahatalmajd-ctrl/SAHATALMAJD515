@@ -12,7 +12,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
     // Derived Logic - No useState needed for this
     const unauthenticated = !loading && !user
-    const shouldRedirectToLogin = unauthenticated && pathname !== "/login"
+    const shouldRedirectToLogin = unauthenticated && pathname !== "/login" && pathname !== "/logout"
 
     const authenticated = !loading && user
     const shouldRedirectHome = authenticated && pathname === "/login"

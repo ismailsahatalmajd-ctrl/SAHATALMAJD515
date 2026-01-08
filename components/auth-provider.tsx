@@ -129,8 +129,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch (error) {
             console.error("Error signing out", error)
         } finally {
-            // Force hard redirect to login to ensure clean state
-            window.location.href = "/login"
+            // Do not force redirect here. Let the caller (LogoutPage) handle it.
+            // This prevents race conditions.
         }
     }
 

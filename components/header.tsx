@@ -43,14 +43,14 @@ export function Header() {
   const router = useRouter()
 
   useEffect(() => {
-    if (user && user.role === 'branch') {
-      setSessionBranchId(user.branchId || "")
+    if (user && (user as any).role === 'branch') {
+      setSessionBranchId((user as any).branchId || "")
     }
   }, [user])
 
   const links = (() => {
-    if (user?.role === 'branch') {
-      const branchId = user.branchId || sessionBranchId
+    if ((user as any)?.role === 'branch') {
+      const branchId = (user as any).branchId || sessionBranchId
       return [
         ...(branchId ? [{ href: `/branch-requests`, key: "nav.branchDashboard", label: t("nav.branchDashboard") || "لوحة الفرع", icon: Building2 }] : [])
       ]
@@ -60,11 +60,10 @@ export function Header() {
 
   const handleLogout = async () => {
     try {
-      await logout()
-      router.push("/login")
-      router.refresh()
+      // Navigate to dedicated logout page for clean cleanup
+      router.push("/logout")
     } catch (error) {
-      console.error("Logout failed", error)
+      console.error("Logout navigation failed", error)
     }
   }
 

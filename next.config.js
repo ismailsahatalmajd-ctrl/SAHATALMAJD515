@@ -1,5 +1,5 @@
 const nextConfig = {
-  output: 'export',  // Enable static export - reduces build size significantly
+  // output: 'export',  // DISABLED: Causes issues with dynamic imports on Vercel
   // Disable trailing slash for Electron (files not dirs), enable for Vercel/Web
   // trailingSlash: false,
 

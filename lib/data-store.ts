@@ -144,7 +144,13 @@ export class DataStore {
 
     return this.initPromise
   }
-  // ... existing migrateImages ...
+
+  // Migrate large images from products table to separate productImages table
+  async migrateImages() {
+    // This function is intentionally empty as migration is now handled elsewhere
+    // Kept to prevent "not a function" errors from old code
+    console.log('migrateImages: Skipping (handled in firebase-sync-manager)')
+  }
 }
 
 export const store = new DataStore()

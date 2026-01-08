@@ -1,6 +1,6 @@
 {
   "name": "newproject2",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Sahat Al Majd Inventory System",
   "author": "Sahat Al Majd",
   "private": true,
@@ -30,7 +30,7 @@
     },
     "files": [
       "electron.js",
-      ".next/**/*",
+      "out/**/*",
       "public/**/*",
       "package.json",
       "!**/*.map"

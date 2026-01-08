@@ -1,0 +1,17 @@
+.next
+out
+release
+release_new
+dist
+node_modules
+.git
+.DS_Store
+*.log
+src-tauri
+app_disabled
+نسخة احتياطية
+.vercel_old
+android
+ios
+electron
+api_backup_outside_app

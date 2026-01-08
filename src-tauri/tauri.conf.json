@@ -1,0 +1,34 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/v1/schema.json",
+  "package": {
+    "productName": "SAHATALMAJD",
+    "version": "0.1.0"
+  },
+  "build": {
+    "beforeDevCommand": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$p=Test-NetConnection -ComputerName 'localhost' -Port 3004; if(-not $p.TcpTestSucceeded){ npm run dev -- -p 3004 } else { Write-Host 'Port 3004 already in use' }\"",
+    "devPath": "http://localhost:3004",
+    "beforeBuildCommand": "cross-env NEXT_PUBLIC_STATIC_EXPORT=true next build --webpack",
+    "distDir": "../out"
+  },
+  "tauri": {
+    "windows": [
+      {
+        "title": "SAHATALMAJD",
+        "width": 1280,
+        "height": 800,
+        "resizable": true,
+        "url": "http://localhost:3004"
+      }
+    ],
+    "allowlist": {
+      "all": true
+    },
+    "security": {
+      "csp": null
+    },
+    "bundle": {
+      "identifier": "com.inventory.desktop",
+      "windows": {}
+    }
+  }
+}

@@ -1,0 +1,12 @@
+[package]
+name = "inventory_desktop"
+version = "0.1.0"
+description = "Inventory Desktop wrapper for Next.js app"
+authors = ["Inventory Team"]
+edition = "2021"
+
+[dependencies]
+tauri = { version = "1", features = ["api-all"] }
+
+[build-dependencies]
+tauri-build = { version = "1", features = [] }

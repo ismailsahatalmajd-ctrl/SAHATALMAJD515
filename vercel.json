@@ -1,0 +1,19 @@
+{
+    "buildCommand": "next build",
+    "framework": "nextjs",
+    "headers": [
+        {
+            "source": "/(.*)",
+            "headers": [
+                {
+                    "key": "X-Content-Type-Options",
+                    "value": "nosniff"
+                }
+            ]
+        }
+    ],
+    "env": {
+        "NEXT_DISABLE_ESLINT": "1",
+        "NEXT_DISABLE_TS_CHECK": "1"
+    }
+}

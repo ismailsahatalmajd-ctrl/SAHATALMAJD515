@@ -4,7 +4,7 @@
   "description": "Sahat Al Majd Inventory System",
   "author": "Sahat Al Majd",
   "private": true,
-  "main": "electron/main.js",
+  "main": "electron.js",
   "scripts": {
     "build": "next build",
     "dev": "next dev --webpack",
@@ -15,12 +15,9 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "desktop:build": "npm run export && npm run tauri:build",
-    "electron": "electron ./electron/main.js",
-    "electron:nextdev": "cross-env ELECTRON_USE_EXTERNAL=true ELECTRON_EXTERNAL_URL=http://localhost:3004 electron ./electron/main.js",
-    "desktop:server-build": "cross-env DESKTOP_SERVER_BUILD=true NEXT_PUBLIC_STATIC_EXPORT=false NEXT_PUBLIC_DESKTOP_MODE=1 next build --webpack",
-    "electron:standalone": "cross-env NEXT_PUBLIC_DESKTOP_MODE=1 ELECTRON_USE_EXTERNAL=false electron ./electron/main.js",
-    "clean": "node clean.js",
-    "desktop:clean-build": "cross-env IS_ELECTRON=true next build && electron-builder --win",
+    "electron:dev": "cross-env NODE_ENV=development electron .",
+    "electron:build": "next build && electron-builder --win",
+    "electron:build-portable": "next build && electron-builder --win portable",
     "electron:build-standalone": "npm run clean && npm run desktop:server-build && electron-builder --win"
   },
   "build": {
@@ -32,12 +29,10 @@
       "output": "release_new"
     },
     "files": [
-      "electron/**",
-      "out/**",
-      ".next/standalone/**",
-      ".next/static/**",
+      "electron.js",
+      ".next/**/*",
+      "public/**/*",
       "package.json",
-      "!src-tauri/**",
       "!**/*.map"
     ],
     "asar": true,
@@ -143,7 +138,8 @@
     "@types/react-dom": "^19",
     "cross-env": "^10.1.0",
     "electron": "^31.7.7",
-    "electron-builder": "^26.0.12",
+    "electron-builder": "^26.4.0",
+    "electron-is-dev": "^3.0.1",
     "eslint": "^9.39.2",
     "eslint-config-next": "^16.1.1",
     "postcss": "^8.5",

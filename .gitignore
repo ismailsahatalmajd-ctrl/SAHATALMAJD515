@@ -1,3 +1,9 @@
+# Electron build output
+release/
+release_new/
+dist/
+out/
+
 # dependencies
 /node_modules
 /.pnp

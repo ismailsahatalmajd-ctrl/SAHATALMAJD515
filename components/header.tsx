@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils"
 import { useEffect, useState } from "react"
 import { useI18n } from "@/components/language-provider"
 import { LanguageToggle } from "@/components/language-toggle"
+import { AppControls } from "./app-controls"
 import { NotificationsCenter } from "@/components/notifications-center"
 import { Button } from "@/components/ui/button"
 import DailyBackupHook from "@/components/daily-backup"
@@ -138,6 +139,7 @@ export function Header() {
             </Button>
             <NotificationsCenter />
             <LanguageToggle />
+            <AppControls />
             <Button variant="ghost" size="icon" onClick={handleLogout} title={t("auth.logout")}>
               <LogOut className="h-4 w-4 text-destructive" />
             </Button>

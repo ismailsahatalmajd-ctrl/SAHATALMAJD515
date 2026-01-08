@@ -73,8 +73,8 @@ export function Header() {
       <div className="container mx-auto px-4">
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center gap-2">
-            {/* Mobile Menu - Hamburger for backup */}
-            <div className="md:hidden">
+            {/* Mobile/Desktop Menu - Hamburger */}
+            <div className="">
               <Sheet>
                 <SheetTrigger asChild>
                   <Button variant="ghost" size="icon">
@@ -131,36 +131,7 @@ export function Header() {
             </div>
           </div>
 
-          {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center gap-1 flex-wrap justify-center">
-            {links.map((link) => {
-              const Icon = link.icon
-              const isActive = pathname === link.href
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  prefetch
-                  className={cn(
-                    "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-transparent",
-                    isActive
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground hover:border-border",
-                  )}
-                >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  <div className="flex flex-col items-start leading-tight">
-                    <DualText
-                      k={link.key}
-                      className="block"
-                      enClassName={cn("text-xs font-bold", isActive ? "text-primary-foreground" : "text-foreground")}
-                      arClassName={cn("text-[10px] font-normal", isActive ? "text-primary-foreground opacity-90" : "text-muted-foreground")}
-                    />
-                  </div>
-                </Link>
-              )
-            })}
-          </nav>
+          {/* Desktop Navigation - Removed in favor of Sidebar */}
 
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => router.back()} aria-label={t("common.back")} title={t("common.back")}>
@@ -174,31 +145,7 @@ export function Header() {
           </div>
         </div>
 
-        {/* Mobile Navigation Row (Horizontal Scroll) */}
-        <div className="md:hidden flex overflow-x-auto pb-2 gap-2 scrollbar-hide -mx-4 px-4 border-t pt-2 scroll-smooth" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-          {links.map((link) => {
-            const Icon = link.icon
-            const isActive = pathname === link.href
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                prefetch
-                className={cn(
-                  "flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors min-w-[70px] text-center border shrink-0",
-                  isActive
-                    ? "bg-primary/10 text-primary border-primary"
-                    : "text-muted-foreground bg-secondary/30 border-transparent",
-                )}
-              >
-                <Icon className="h-4 w-4 shrink-0" />
-                <span className="whitespace-nowrap">
-                  <DualText k={link.key} />
-                </span>
-              </Link>
-            )
-          })}
-        </div>
+        {/* Mobile Navigation Row (Horizontal Scroll) - Removed in favor of Sidebar */}
 
         <DailyBackupHook />
         <BranchRequestNotifier />

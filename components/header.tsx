@@ -10,6 +10,7 @@ import { useEffect, useState } from "react"
 import { useI18n } from "@/components/language-provider"
 import { LanguageToggle } from "@/components/language-toggle"
 import { AppControls } from "./app-controls"
+import { SyncIndicator } from "./sync-indicator"
 import { NotificationsCenter } from "@/components/notifications-center"
 import { Button } from "@/components/ui/button"
 import DailyBackupHook from "@/components/daily-backup"
@@ -137,6 +138,7 @@ export function Header() {
             <Button variant="outline" size="sm" onClick={() => router.back()} aria-label={t("common.back")} title={t("common.back")}>
               <ChevronLeft className="h-4 w-4 ml-2" /> <DualText k="common.back" />
             </Button>
+            <SyncIndicator />
             <NotificationsCenter />
             <LanguageToggle />
             <AppControls />

@@ -142,9 +142,24 @@ export function BranchDashboard() {
   const handleForceRefresh = async () => {
     setLoading(true)
     try {
+      // Emit sync start event for indicator
+      window.dispatchEvent(new Event("syncstart"))
+
       await syncAllCloudToLocal((msg) => toast({ title: "Syncing / جاري المزامنة", description: msg }))
-      window.location.reload()
+
+      // Emit sync end event
+      window.dispatchEvent(new Event("syncend"))
+
+      toast({
+        title: "✅ تم التحديث",
+        description: "تم تحديث جميع البيانات بنجاح",
+        duration: 2000
+      })
+
+      // Force re-render by updating lastUpdate state instead of full reload
+      setLastUpdate(Date.now())
     } catch (e) {
+      window.dispatchEvent(new Event("syncend"))
       toast({ title: "Error", description: "Sync failed / فشل المزامنة", variant: "destructive" })
     } finally {
       setLoading(false)

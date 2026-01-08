@@ -61,22 +61,23 @@ export function FirebaseSyncManager() {
 
                     if (cloudCount === 0 && localCount > 0) {
                         addLog(`⚠️ السحابة فارغة (${localCount} عنصر محلي). بدء الرفع التلقائي...`);
-                        
+
                         // Force a small delay to ensure connection is stable
                         await new Promise(r => setTimeout(r, 1000));
 
                         await syncAllLocalToCloud((current, total) => {
-                           // Optional: show progress toast
-                           console.log(`Auto-upload: ${current}/${total}`);
-                           setUploadProgress(`${Math.round((current / total) * 100)}%`);
-                           setIsUploading(true);
+                            // Optional: show progress toast
+                            console.log(`Auto-upload: ${current}/${total}`);
+                            setUploadProgress(`${Math.round((current / total) * 100)}%`);
+                            setIsUploading(true);
                         });
                         addLog("✅ تم الرفع التلقائي للبيانات!");
                         setIsUploading(false);
                     }
                 } catch (checkErr) {
-                    console.warn("Auto-migration check failed:", checkErr);
-                    addLog("⚠️ فشل التحقق من الترحيل التلقائي");
+                    // Suppress visual error for count permission issues as long as realtime sync is active
+                    console.warn("Auto-migration check failed (likely permission issue):", checkErr);
+                    // addLog("⚠️ فشل التحقق من الترحيل التلقائي"); 
                 }
                 // -----------------------------
 

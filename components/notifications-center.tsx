@@ -7,6 +7,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { db } from "@/lib/db"
+import { useI18n } from "@/components/language-provider"
+import { DualText } from "@/components/ui/dual-text"
 
 type Notification = {
   id: string
@@ -20,6 +22,7 @@ type Notification = {
 export function NotificationsCenter() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [open, setOpen] = useState(false)
+  const { lang } = useI18n()
 
   useEffect(() => {
     const load = async () => {
@@ -27,38 +30,38 @@ export function NotificationsCenter() {
         // Migration logic
         const count = await db.notifications.count()
         if (count === 0) {
-           const raw = localStorage.getItem("notifications")
-           if (raw) {
-             const parsed = JSON.parse(raw)
-             const toAdd = parsed.map((n: any) => ({
-                id: n.id,
-                type: n.type,
-                title: n.title,
-                message: n.message,
-                date: n.date, // assuming ISO string
-                read: n.read ? 1 : 0
-             }))
-             await db.notifications.bulkAdd(toAdd)
-             localStorage.removeItem("notifications")
-           }
+          const raw = localStorage.getItem("notifications")
+          if (raw) {
+            const parsed = JSON.parse(raw)
+            const toAdd = parsed.map((n: any) => ({
+              id: n.id,
+              type: n.type,
+              title: n.title,
+              message: n.message,
+              date: n.date, // assuming ISO string
+              read: n.read ? 1 : 0
+            }))
+            await db.notifications.bulkAdd(toAdd)
+            localStorage.removeItem("notifications")
+          }
         }
 
         const list = await db.notifications.orderBy('date').reverse().toArray()
         setNotifications(list.map(n => ({
-          ...n, 
-          read: !!n.read, 
+          ...n,
+          read: !!n.read,
           date: new Date(n.date)
         })))
       } catch (e) {
         console.error("Failed to load notifications", e)
       }
     }
-    
+
     if (open) {
       load()
     } else {
-        // Initial load for badge count
-        load()
+      // Initial load for badge count
+      load()
     }
   }, [open])
 
@@ -68,7 +71,7 @@ export function NotificationsCenter() {
     try {
       await db.notifications.update(id, { read: 1 })
       setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
-    } catch {}
+    } catch { }
   }
 
   const markAllAsRead = async () => {
@@ -76,14 +79,14 @@ export function NotificationsCenter() {
       const unread = notifications.filter(n => !n.read)
       await Promise.all(unread.map(n => db.notifications.update(n.id, { read: 1 })))
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
-    } catch {}
+    } catch { }
   }
 
   const deleteNotification = async (id: string) => {
     try {
       await db.notifications.delete(id)
       setNotifications((prev) => prev.filter((n) => n.id !== id))
-    } catch {}
+    } catch { }
   }
 
   const getNotificationColor = (type: string) => {
@@ -117,31 +120,30 @@ export function NotificationsCenter() {
       <PopoverContent className="w-96" align="end">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-semibold">الإشعارات</h3>
+            <h3 className="font-semibold"><DualText k="notifications.title" /></h3>
             {unreadCount > 0 && (
               <Button variant="ghost" size="sm" onClick={markAllAsRead}>
-                تعليم الكل كمقروء
+                <DualText k="notifications.markAllRead" />
               </Button>
             )}
           </div>
 
           <ScrollArea className="h-96">
             {notifications.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">لا توجد إشعارات</div>
+              <div className="text-center py-8 text-muted-foreground"><DualText k="notifications.empty" /></div>
             ) : (
               <div className="space-y-2">
                 {notifications.map((notification) => (
                   <div
                     key={notification.id}
-                    className={`p-3 rounded-lg border ${
-                      !notification.read ? getNotificationColor(notification.type) : "bg-muted"
-                    }`}
+                    className={`p-3 rounded-lg border ${!notification.read ? getNotificationColor(notification.type) : "bg-muted"
+                      }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 space-y-1">
                         <p className="font-medium text-sm">{notification.title}</p>
                         <p className="text-sm opacity-90">{notification.message}</p>
-                        <p className="text-xs opacity-75">{notification.date.toLocaleDateString("ar-SA")}</p>
+                        <p className="text-xs opacity-75">{notification.date.toLocaleString(lang === "ar" ? "ar-SA" : "en-US")}</p>
                       </div>
                       <div className="flex gap-1">
                         {!notification.read && (

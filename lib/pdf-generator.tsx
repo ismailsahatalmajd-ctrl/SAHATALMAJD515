@@ -42,156 +42,102 @@ export async function generateIssuePDF(issue: Issue) {
   <title>فاتورة صرف ${invoiceNum}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    /* Template Base Styles */
+    :root {
+      /* Classic (Original) uses #2563eb. Modern uses #3b82f6. Thermal uses Black. */
+      --primary: ${settings.template === 'modern' ? '#3b82f6' : (settings.template === 'thermal' ? '#000' : '#2563eb')};
+      --bg-header: ${settings.template === 'modern' ? '#eff6ff' : (settings.template === 'thermal' ? '#fff' : '#2563eb')};
+      --text-header: ${settings.template === 'modern' ? '#1e40af' : (settings.template === 'thermal' ? '#000' : '#fff')};
+    }
+
     body { 
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      padding: 40px;
+      padding: ${settings.template === 'thermal' ? '10px' : '40px'};
       background: white;
+      width: ${settings.template === 'thermal' ? '80mm' : 'auto'};
+      margin: ${settings.template === 'thermal' ? '0 auto' : '0'};
     }
-    /* ... styles ... */
-    .header {
-      text-align: center;
-      margin-bottom: 40px;
-      border-bottom: 3px solid #2563eb;
-      padding-bottom: 20px;
-    }
-    .header h1 {
-      color: #2563eb;
-      font-size: 32px;
-      margin-bottom: 10px;
-    }
-    .header p {
-      color: #64748b;
-      font-size: 14px;
-    }
-    .info-section {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 30px;
-      gap: 20px;
-    }
-    .info-box {
-      flex: 1;
-      background: #f8fafc;
-      padding: 20px;
-      border-radius: 8px;
-      border-right: 4px solid #2563eb;
-    }
-    .info-box h3 {
-      color: #1e293b;
-      font-size: 14px;
-      margin-bottom: 10px;
-      font-weight: 600;
-    }
-    .info-box p {
-      color: #475569;
-      font-size: 16px;
-      margin: 5px 0;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 30px 0;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    thead {
-      background: #2563eb;
-      color: white;
-    }
-    th {
-      padding: 15px;
-      text-align: right;
-      font-weight: 600;
-      font-size: 14px;
-    }
-    td {
-      padding: 12px 15px;
-      border-bottom: 1px solid #e2e8f0;
-      color: #334155;
-    }
-    .qty-cell { color: #000 !important; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-    tbody tr:hover {
-      background: #f8fafc;
-    }
-    /* Added styles for product images in PDF */
-    .product-image {
-      width: 50px;
-      height: 50px;
-      object-fit: cover;
-      border-radius: 4px;
-      border: 1px solid #e2e8f0;
-    }
-    .no-image {
-      width: 50px;
-      height: 50px;
-      background: #f1f5f9;
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 10px;
-      color: #94a3b8;
-      border: 1px solid #e2e8f0;
-    }
-    .total-section {
-      margin-top: 30px;
-      text-align: left;
-      background: #f8fafc;
-      padding: 20px;
-      border-radius: 8px;
-    }
-    .total-row {
-      display: flex;
-      justify-content: space-between;
-      margin: 10px 0;
-      font-size: 18px;
-    }
-    .total-row.grand {
-      font-size: 24px;
-      font-weight: bold;
-      color: #2563eb;
-      border-top: 2px solid #cbd5e1;
-      padding-top: 15px;
-      margin-top: 15px;
-    }
-    .footer {
-      margin-top: 50px;
-      text-align: center;
-      color: #94a3b8;
-      font-size: 12px;
-      border-top: 1px solid #e2e8f0;
-      padding-top: 20px;
-    }
-    @media print {
-      body { padding: 20px; }
-      .info-section { page-break-inside: avoid; }
-      table { page-break-inside: auto; }
-      tr { page-break-inside: avoid; }
-    }
+
+    /* Template: Classic (Restored Original - Perfect Match) */
+    ${settings.template === 'classic' ? `
+      .header { text-align: center; margin-bottom: 20px; border-bottom: 1px solid #3b82f6; padding-bottom: 20px; }
+      .header h1 { color: #2563eb; font-size: 28px; margin-bottom: 5px; }
+      .header p { color: #3b82f6; font-size: 16px; margin: 2px 0; }
+      
+      .info-section { display: flex; justify-content: space-between; gap: 20px; margin-bottom: 30px; }
+      .info-box { flex: 1; padding: 20px; background: #f9fafb; border-radius: 12px; border-right: 4px solid #2563eb; position: relative; }
+      .info-box h3 { font-size: 14px; margin-bottom: 10px; color: #4b5563; text-align: left; opacity: 0.8; }
+      .info-box p { font-size: 14px; margin: 6px 0; line-height: 1.6; }
+      .info-box strong { color: #1f2937; }
+
+      table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+      th { background: #2563eb; color: white; padding: 12px 8px; font-weight: bold; border: 1px solid #2563eb; }
+      td { padding: 10px 8px; border-bottom: 1px solid #e5e7eb; text-align: center; }
+      
+      .product-image { width: 45px; height: 45px; object-fit: cover; border-radius: 4px; border: 1px solid #f3f4f6; }
+      .no-image { width: 45px; height: 45px; background: #f3f4f6; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #9ca3af; border-radius: 4px; margin: 0 auto; }
+      
+      .total-section { margin-top: 40px; text-align: right; }
+      .total-row { display: flex; justify-content: flex-end; align-items: center; gap: 15px; margin-bottom: 8px; font-size: 14px; color: #4b5563; }
+      .total-row.grand { margin-top: 20px; border-top: 1px solid #e5e7eb; padding-top: 15px; }
+      .total-row.grand span:last-child { font-size: 24px; font-weight: bold; color: #2563eb; }
+      .total-label { font-weight: bold; min-width: 200px; }
+    ` : ''}
+
+    /* Template: Modern */
+    ${settings.template === 'modern' ? `
+      .header { border-bottom: none; background: var(--bg-header); padding: 30px; border-radius: 12px; margin-bottom: 30px; }
+      .header h1 { color: var(--primary); }
+      .info-box { background: white; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+      .info-box h3 { color: var(--primary); }
+      table { border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); border: 1px solid #e2e8f0; }
+      thead { background: var(--bg-header); color: var(--text-header); }
+      th { font-weight: 800; }
+      tr:nth-child(even) { background-color: #f8fafc; }
+    ` : ''}
+
+    /* Template: Thermal */
+    ${settings.template === 'thermal' ? `
+      .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
+      .header h1 { font-size: 18px; margin-bottom: 5px; }
+      .header p { font-size: 12px; }
+      .info-section { display: block; margin-bottom: 10px; }
+      .info-box { padding: 5px; margin-bottom: 5px; border: none; background: transparent; }
+      .info-box h3 { font-size: 12px; border-bottom: 1px solid #eee; margin-bottom: 2px; }
+      .info-box p { font-size: 12px; margin: 2px 0; }
+      table { margin: 10px 0; font-size: 11px; width: 100%; }
+      th, td { padding: 4px 2px; border: none; border-bottom: 1px dashed #ddd; text-align: center; }
+      thead { background: transparent; color: black; border-bottom: 1px solid #000; }
+      .product-image { display: none; } /* Hide images in thermal */
+      .total-section { padding: 10px; border: 1px dashed #000; margin-top: 10px; }
+      .total-row { font-size: 12px; }
+      .total-row.grand { font-size: 16px; border-top: 1px dashed #000; }
+      .footer { font-size: 10px; margin-top: 10px; }
+    ` : ''}
+
+    /* Common Overrides */
+    .qty-cell { font-weight: bold; }
   </style>
 </head>
 <body>
   <div class="header">
-    <div style="display:flex; align-items:center; justify-content:center; gap:12px;">
-      <img src="${logoUrl}" alt="مستودع ساحة المجد" style="width:48px;height:48px;border-radius:6px;" onerror="this.style.display='none'"/>
-      <div>
-        <h1>فاتورة صرف منتجات<br><span style="font-size:20px; font-weight:normal;">Products Issue Invoice</span></h1>
-        <p>مستودع ساحة المجد<br>Sahat Almajd Warehouse</p>
-      </div>
-    </div>
+    <h1>فاتورة صرف منتجات</h1>
+    <p>Products Issue Invoice</p>
+    ${settings.headerText ? `<p style="white-space: pre-line; margin-top: 5px;">${settings.headerText}</p>` : `<p>مستودع ساحة المجد</p><p>Sahat Almajd Warehouse</p>`}
   </div>
 
   <div class="info-section">
-    <div class="info-box">
-      <h3>معلومات الفاتورة<br>Invoice Info</h3>
-      <p><strong>رقم الفاتورة / Invoice No:</strong> ${invoiceNum}</p>
-      <p><strong>التاريخ / Date:</strong> ${formatArabicGregorianDate(new Date(issue.createdAt), { year: "numeric", month: "long", day: "numeric" })}</p>
-      <p><strong>الوقت / Time:</strong> ${formatArabicGregorianTime(new Date(issue.createdAt))}</p>
-    </div>
-    <div class="info-box">
-      <h3>معلومات الفرع<br>Branch Info</h3>
+    <div class="info-box" style="text-align: right;">
+      <h3 style="text-align: right;">معلومات الفرع<br>Branch Info</h3>
       <p><strong>اسم الفرع / Branch Name:</strong> ${issue.branchName}</p>
       <p><strong>عدد المنتجات / Products Count:</strong> ${issue.products.length} منتج</p>
       ${issue.notes ? `<p><strong>ملاحظات / Notes:</strong> ${issue.notes}</p>` : ""}
+    </div>
+    <div class="info-box" style="text-align: right;">
+      <h3 style="text-align: left; position: absolute; left: 20px; top: 20px;">معلومات الفاتورة<br>Invoice Info</h3>
+      <p><strong>رقم الفاتورة / Invoice No:</strong> ${invoiceNum}</p>
+      <p><strong>التاريخ / Date:</strong> ${formatArabicGregorianDate(new Date(issue.createdAt), { year: "numeric", month: "long", day: "numeric" })}</p>
+      <p><strong>الوقت / Time:</strong> ${formatArabicGregorianTime(new Date(issue.createdAt))}</p>
     </div>
   </div>
 
@@ -245,22 +191,28 @@ export async function generateIssuePDF(issue: Issue) {
 
   <div class="total-section">
     <div class="total-row">
-      <span>عدد الأصناف / Items Count:</span>
+      <span class="total-label">عدد الأصناف / Items Count:</span>
       <span>${formatEnglishNumber(issue.products.length)}</span>
     </div>
     ${settings.showQuantity ? `
     <div class="total-row">
-      <span>إجمالي الكميات / Total Quantity:</span>
+      <span class="total-label">إجمالي الكميات / Total Quantity:</span>
       <span>${formatEnglishNumber(issue.products.reduce((sum, p) => sum + p.quantity, 0))}</span>
     </div>
     ` : ''}
     ${settings.showTotal ? `
     <div class="total-row grand">
-      <span>الإجمالي الكلي / Grand Total:</span>
+      <span class="total-label" style="font-size: 20px; color: #2563eb;">الإجمالي الكلي / Grand Total:</span>
       <span>${formatEnglishNumber(issue.totalValue.toFixed(2))} ريال</span>
     </div>
     ` : ''}
   </div>
+
+  ${settings.footerText ? `
+  <div class="footer">
+    <p style="white-space: pre-line;">${settings.footerText}</p>
+  </div>
+  ` : ''}
 
   
 

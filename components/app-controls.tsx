@@ -20,8 +20,10 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { useI18n } from "@/components/language-provider"
+import { DualText } from "@/components/ui/dual-text"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
+import { hardReset } from "@/lib/storage"
 
 export function AppControls() {
     const { t } = useI18n()
@@ -63,42 +65,51 @@ export function AppControls() {
                 <DropdownMenuItem onClick={handleRefresh} className="flex justify-between items-center text-right">
                     <div className="flex items-center gap-2">
                         <RotateCcw className="h-4 w-4" />
-                        <span>{t("common.refresh")}</span>
+                        <DualText k="common.refresh" />
                     </div>
                     <span className="text-xs text-muted-foreground">F5</span>
+                </DropdownMenuItem>
+
+                <DropdownMenuItem onClick={() => {
+                    if (confirm(t('sync.hardResetConfirm'))) {
+                        hardReset()
+                    }
+                }} className="flex items-center gap-2 text-right">
+                    <RotateCcw className="h-4 w-4 text-destructive" />
+                    <DualText k="sync.hardReset" />
                 </DropdownMenuItem>
 
                 <DropdownMenuSeparator />
 
                 <DropdownMenuItem onClick={() => handleZoom(10)} className="flex items-center gap-2 text-right">
                     <ZoomIn className="h-4 w-4" />
-                    <span>{t("common.zoomIn")}</span>
+                    <DualText k="common.zoomIn" />
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => handleZoom(-10)} className="flex items-center gap-2 text-right">
                     <ZoomOut className="h-4 w-4" />
-                    <span>{t("common.zoomOut")}</span>
+                    <DualText k="common.zoomOut" />
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleResetZoom} className="flex items-center gap-2 text-right">
                     <Maximize className="h-4 w-4" />
-                    <span>{t("common.resetZoom")}</span>
+                    <DualText k="common.resetZoom" />
                 </DropdownMenuItem>
 
                 <DropdownMenuSeparator />
 
                 <DropdownMenuItem onClick={() => router.back()} className="flex items-center gap-2 text-right">
                     <ChevronRight className="h-4 w-4" />
-                    <span>{t("common.back")}</span>
+                    <DualText k="common.back" />
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => router.forward()} className="flex items-center gap-2 text-right">
                     <ChevronLeft className="h-4 w-4" />
-                    <span>{t("common.forward")}</span>
+                    <DualText k="common.forward" />
                 </DropdownMenuItem>
 
                 <DropdownMenuSeparator />
 
                 <DropdownMenuItem onClick={handleExit} className="flex items-center gap-2 text-destructive text-right focus:text-destructive">
                     <XCircle className="h-4 w-4" />
-                    <span>{t("common.exit")}</span>
+                    <DualText k="common.exit" />
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>

@@ -255,16 +255,31 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
     setIsUploading(true)
     try {
       const storageRef = ref(storage, `products/${Date.now()}_${file.name}`)
-      const snapshot = await uploadBytes(storageRef, file)
+
+      // Add a timeout to the upload process (30 seconds)
+      const uploadPromise = uploadBytes(storageRef, file)
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("UPLOAD_TIMEOUT")), 30000)
+      )
+
+      const snapshot = (await Promise.race([uploadPromise, timeoutPromise])) as any
       const downloadURL = await getDownloadURL(snapshot.ref)
-      
+
       console.log("[v0] ✅ Image uploaded to Firebase Storage:", downloadURL)
       setFormData((prev) => ({ ...prev, image: downloadURL }))
       toast({ title: "تم رفع الصورة بنجاح" })
-    } catch (error) {
+    } catch (error: any) {
       console.error("[v0] ❌ Failed to upload image", error)
-      toast({ title: "فشل رفع الصورة", description: "تأكد من الاتصال بالإنترنت", variant: "destructive" })
-      setImagePreview(undefined) // Revert preview on failure
+      if (error.message === "UPLOAD_TIMEOUT") {
+        toast({
+          title: "فشل رفع الصورة (انتهت المهلة)",
+          description: "تأكد من استقرار الإنترنت، أو حاول إضافة المنتج بدون صورة الآن وتعديله لاحقاً.",
+          variant: "destructive"
+        })
+      } else {
+        toast({ title: "فشل رفع الصورة", description: "تأكد من الاتصال بالإنترنت", variant: "destructive" })
+      }
+      setImagePreview(undefined)
     } finally {
       setIsUploading(false)
     }

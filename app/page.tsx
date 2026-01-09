@@ -37,6 +37,7 @@ import { useAuth } from "@/components/auth-provider"
 import { useProductsRealtime, useCategoriesRealtime, useLocationsRealtime } from "@/hooks/use-store"
 import { syncProduct, deleteProductApi } from "@/lib/sync-api"
 import { useRouter } from "next/navigation"
+import { SmartAlerts } from "@/components/smart-alerts"
 
 type StockStatus = "all" | "available" | "low" | "out"
 
@@ -1308,6 +1309,7 @@ export default function Home() {
         product={editingProduct}
         categories={categories}
       />
+      <SmartAlerts />
     </div>
   )
 }

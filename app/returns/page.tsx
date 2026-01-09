@@ -270,10 +270,28 @@ export default function ReturnsPage() {
         updatedAt: new Date().toISOString(),
       }
 
-      await batchSave([
+      // Prepare Batch Operations
+      const ops: any[] = [
         { collection: "returns", data: newReturn, type: "set" },
         { collection: "branchRequests", data: { ...req, status: "approved", approvedBy: "admin", updatedAt: new Date().toISOString() }, type: "update" }
-      ])
+      ]
+
+      // Add Product Stock Adjustments (Atomic Increments)
+      const { doc, updateDoc, increment } = await import("firebase/firestore");
+      const { db: firestore } = await import("@/lib/firebase");
+
+      if (firestore) {
+        for (const p of returnProducts) {
+          const productRef = doc(firestore, "products", p.productId);
+          await updateDoc(productRef, {
+            currentStock: increment(p.quantity),
+            issues: increment(-p.quantity),
+            issuesValue: increment(-p.totalPrice)
+          }).catch(console.error);
+        }
+      }
+
+      await batchSave(ops)
     } else {
       // Local
       const res = await approveBranchRequest(req.id, "admin")
@@ -728,16 +746,17 @@ export default function ReturnsPage() {
                                     // Update Stock for each product
                                     for (const p of r.products) {
                                       const pRef = doc(firestore, "products", p.productId);
-                                      // We need to fetch current to update issues count accurately or just increment stock
                                       await updateDoc(pRef, {
-                                        currentStock: increment(p.quantity)
+                                        currentStock: increment(p.quantity),
+                                        issues: increment(-p.quantity),
+                                        issuesValue: increment(-(p.totalPrice || (p.unitPrice * p.quantity)))
                                       });
                                     }
                                     toast({ title: t("common.success"), description: t("returns.approved") });
                                     // Force refresh or let realtime handle it
                                   } else {
                                     // Local Approval
-                                    const success = approveReturn(r.id, "admin");
+                                    const success = await approveReturn(r.id, "admin");
                                     if (success) {
                                       setLocalReturns(getReturns());
                                       toast({ title: t("common.success"), description: t("returns.approved") });

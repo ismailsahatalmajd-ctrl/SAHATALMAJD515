@@ -56,6 +56,7 @@ export class DataStore {
 
   initPromise: Promise<void> | null = null
   initialized: boolean = false
+  progressListeners: ((percent: number, message: string) => void)[] = []
 
   async init(onProgress?: (percent: number, message: string) => void) {
     if (this.initialized) {
@@ -64,14 +65,23 @@ export class DataStore {
     }
     if (typeof window === 'undefined') return
 
+    if (onProgress) {
+      this.progressListeners.push(onProgress)
+    }
+
     if (this.initPromise) {
       return this.initPromise
+    }
+
+    const broadcastProgress = (percent: number, message: string) => {
+      this.progressListeners.forEach(listener => listener(percent, message))
     }
 
     this.initPromise = (async () => {
       try {
         if (!db) {
           console.error("DataStore: DB is undefined");
+          broadcastProgress(100, "Error: DB not found");
           this.initialized = true;
           return;
         }
@@ -96,37 +106,50 @@ export class DataStore {
 
         let completed = 0;
         const total = tasks.length;
+        const results: any[] = []
 
-        const results = await Promise.all(tasks.map(async (task) => {
+        console.log("DataStore: Starting sequential load...");
+        for (const task of tasks) {
           try {
-            if (onProgress) onProgress(Math.round((completed / total) * 100), `تحميل ${task.label}...`)
-            const res = await task.query.toArray()
-            completed++;
-            if (onProgress) onProgress(Math.round((completed / total) * 100), `تم تحميل ${task.label}`)
-            return res
-          } catch (e) {
-            console.error(`Failed to load ${task.name}`, e)
-            completed++;
-            return []
-          }
-        }))
+            const percent = Math.round((completed / total) * 100);
+            broadcastProgress(percent, `تحميل ${task.label}...`);
+            console.log(`DataStore: Loading ${task.name}...`);
 
-        // Map results back to cache
-        this.cache.products = results[0] || []
-        this.cache.categories = results[1] || []
-        this.cache.transactions = results[2] || []
-        this.cache.branches = results[3] || []
-        this.cache.units = results[4] || []
-        this.cache.issues = results[5] || []
-        this.cache.returns = results[6] || []
-        this.cache.locations = results[7] || []
-        this.cache.issueDrafts = results[8] || []
-        this.cache.purchaseOrders = results[9] || []
-        this.cache.adjustments = results[10] || []
-        this.cache.verificationLogs = results[11] || []
-        this.cache.branchInvoices = results[12] || []
-        this.cache.branchRequests = results[13] || []
-        this.cache.purchaseRequests = results[14] || []
+            // Add a safety timeout per table fetch
+            const tableData = await Promise.race([
+              task.query.toArray(),
+              new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout loading ${task.name}`)), 5000))
+            ]) as any[];
+
+            results.push(tableData);
+            completed++;
+            console.log(`DataStore: Done ${task.name} (${tableData.length} records)`);
+          } catch (e) {
+            console.error(`DataStore: Failed to load ${task.name}`, e);
+            results.push([]);
+            completed++;
+          }
+        }
+
+        // Map results back to cache with proper type casting
+        this.cache.products = (results[0] as Product[]) || []
+        this.cache.categories = (results[1] as Category[]) || []
+        this.cache.transactions = (results[2] as Transaction[]) || []
+        this.cache.branches = (results[3] as Branch[]) || []
+        this.cache.units = (results[4] as Unit[]) || []
+        this.cache.issues = (results[5] as Issue[]) || []
+        this.cache.returns = (results[6] as Return[]) || []
+        this.cache.locations = (results[7] as Location[]) || []
+        this.cache.issueDrafts = (results[8] as IssueDraft[]) || []
+        this.cache.purchaseOrders = (results[9] as PurchaseOrder[]) || []
+        this.cache.adjustments = (results[10] as InventoryAdjustment[]) || []
+        this.cache.verificationLogs = (results[11] as VerificationLog[]) || []
+        this.cache.branchInvoices = (results[12] as BranchInvoice[]) || []
+        this.cache.branchRequests = (results[13] as BranchRequest[]) || []
+        this.cache.purchaseRequests = (results[14] as PurchaseRequest[]) || []
+
+        broadcastProgress(100, "اكتمل التحميل");
+        console.log("DataStore: Initialization complete");
 
         this.initialized = true
         notify('change')

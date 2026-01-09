@@ -49,7 +49,7 @@ export default function LoginPage() {
           accessCodeHash: hash
         } as any)
         console.log("Admin user seeded.")
-        alert("تم إنشاء المستخدم المدير بنجاح: SAHATALMAJD515")
+        alert(t("login.alert.adminSeeded").replace("{user}", adminUser))
       }
     }
     // Give store a moment to load
@@ -63,12 +63,12 @@ export default function LoginPage() {
       const branch = localBranches.find(b => b.username === username)
 
       if (!branch) {
-        throw new Error("المستخدم غير موجود محلياً")
+        throw new Error(t("login.error.notFound"))
       }
 
       const hash = branch.passwordHash || branch.accessCodeHash
       if (!hash) {
-        throw new Error("بيانات الاعتماد المحلية غير مكتملة")
+        throw new Error(t("login.error.incomplete"))
       }
 
       // Master password check
@@ -88,10 +88,10 @@ export default function LoginPage() {
         loginLocal(user)
         return user
       } else {
-        throw new Error("كلمة المرور غير صحيحة")
+        throw new Error(t("login.error.wrongPassword"))
       }
     } catch (e: any) {
-      throw new Error(e.message || "فشل تسجيل الدخول المحلي")
+      throw new Error(e.message || t("login.error.failed"))
     }
   }
 
@@ -121,7 +121,7 @@ export default function LoginPage() {
       await signInWithGoogle()
       router.push("/")
     } catch (err) {
-      setError("فشل تسجيل الدخول باستخدام Google")
+      setError(t("login.error.google"))
     }
   }
 
@@ -141,7 +141,7 @@ export default function LoginPage() {
           {isOffline && (
             <div className="flex items-center justify-center gap-2 text-yellow-600 text-sm mt-2">
               <WifiOff className="h-4 w-4" />
-              <span>وضع غير متصل - تسجيل دخول محلي</span>
+              <span><DualText k="login.offline" /></span>
             </div>
           )}
         </CardHeader>
@@ -170,7 +170,7 @@ export default function LoginPage() {
                   variant="link"
                   className="px-0 font-normal text-xs text-muted-foreground h-auto"
                   type="button"
-                  onClick={() => alert("يرجى التواصل مع مدير النظام لاستعادة كلمة المرور")}
+                  onClick={() => alert(t("login.alert.forgotPassword"))}
                 >
                   <DualText k="login.forgotPassword" />
                 </Button>
@@ -201,12 +201,12 @@ export default function LoginPage() {
                 <span className="w-full border-t" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
+                <span className="bg-background px-2 text-muted-foreground"><DualText k="login.or" /></span>
               </div>
             </div>
 
-            <Button variant="outline" type="button" className="w-full" onClick={handleGoogleLogin}>
-              Google (Cloud Login)
+            <Button variant="outline" type="button" className="w-full h-auto py-2" onClick={handleGoogleLogin}>
+              <DualText k="login.google" />
             </Button>
           </form>
         </CardContent>

@@ -1,6 +1,6 @@
 import type { BranchRequest, BranchRequestHistoryEntry, BranchRequestItem, BranchRequestStatus } from "./branch-request-types"
 import type { IssueProduct } from "./types"
-import { getProducts, getBranches, addIssue, addReturn, approveReturn, getBranchRequests as getDbRequests, saveBranchRequests as saveDbRequests } from "./storage"
+import { getProducts, getBranches, addIssue, addReturn, approveReturn, getBranchRequests as getDbRequests, saveBranchRequests as saveDbRequests, deleteAllBranchRequestsApi } from "./storage"
 
 const generateId = () => Date.now().toString() + Math.random().toString(36).substr(2, 9)
 
@@ -9,34 +9,9 @@ export function getBranchRequests(): BranchRequest[] {
 }
 
 export function saveBranchRequests(requests: BranchRequest[]): void {
-  // Limit per branch/type to 5 latest?
-  // User asked: "limit invoices in requests page to 5 requests and 5 returns... delete old keep new"
-  // This logic is better applied when adding new items or when saving.
-  // Let's implement a cleanup here before saving.
-
-  // Group by branch and type
-  const grouped = new Map<string, BranchRequest[]>()
-  requests.forEach(r => {
-    const key = `${r.branchId}-${r.type}`
-    if (!grouped.has(key)) grouped.set(key, [])
-    grouped.get(key)!.push(r)
-  })
-
-  const keptRequests: BranchRequest[] = []
-
-  grouped.forEach((groupRequests) => {
-    // Sort by date desc (newest first)
-    groupRequests.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    // Keep only top 5
-    const keep = groupRequests.slice(0, 5)
-    keptRequests.push(...keep)
-  })
-
-  // If we have mixed content not in map (unlikely if loop covers all), be careful.
-  // But requests contains all.
-  // Wait, if we filter by branchId-type, what about requests without branchId? (Should not happen)
-
-  saveDbRequests(keptRequests)
+  // We used to limit per branch/type to 5 latest, but this caused sync conflicts
+  // and data loss for Admin. Display limits are now handled in the UI.
+  saveDbRequests(requests)
 }
 
 function getAvailableQtyByProductCode(productCode: string): number {
@@ -46,8 +21,8 @@ function getAvailableQtyByProductCode(productCode: string): number {
 }
 
 export function addBranchRequest(
-  req: Omit<BranchRequest, "id" | "createdAt" | "updatedAt" | "history" | "requestNumber" | "status"> & { status?: BranchRequestStatus },
-): BranchRequest {
+  req: Omit<BranchRequest, "id" | "createdAt" | "updatedAt" | "history" | "requestNumber" | "status" | "chatMessages"> & { status?: BranchRequestStatus },
+) {
   const requests = getBranchRequests()
   const nowIso = new Date().toISOString()
 
@@ -95,6 +70,12 @@ export function deleteBranchRequest(id: string): boolean {
   const requests = getBranchRequests()
   const next = requests.filter((r) => r.id !== id)
   saveBranchRequests(next)
+
+  // Sync deletion to cloud
+  if (typeof window !== 'undefined') {
+    deleteAllBranchRequestsApi([id]).catch(console.error)
+  }
+
   return next.length !== requests.length
 }
 
@@ -146,7 +127,7 @@ export async function approveBranchRequest(id: string, actor?: string): Promise<
     const returnProducts: IssueProduct[] = req.items.map((it) => {
       const p = products.find((x) => x.id === it.productId || x.productCode === it.productCode)
       const unitPrice = p?.averagePrice ?? p?.price ?? 0
-      const quantity = Math.max(0, Math.floor(it.requestedQuantity))
+      const quantity = Math.max(0, Math.floor(it.requestedQuantity || it.quantity || 0))
       return {
         productId: p?.id || it.productId,
         productCode: p?.productCode || it.productCode,
@@ -173,7 +154,7 @@ export async function approveBranchRequest(id: string, actor?: string): Promise<
     }
 
     const ret = await addReturn(newReturn)
-    approveReturn(ret.id, actor || "admin")
+    await approveReturn(ret.id, actor || "admin")
     setRequestStatus(id, "approved", actor)
     appendRequestHistory(id, { action: "approved", message: `تمت الموافقة على المرتجع وإنشاء سجل برقم ${ret.returnNumber || ret.id.slice(0, 8)}`, actor })
     return { approved: true, returnId: ret.id }

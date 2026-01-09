@@ -12,6 +12,7 @@ import { DualText } from "@/components/ui/dual-text"
 import { Header } from "@/components/header"
 import { BulkIssueDialog } from "@/components/bulk-issue-dialog"
 import { ReturnDialog } from "@/components/return-dialog"
+import { db } from "@/lib/db"
 import { getIssues, getReturns, getProducts, setIssueDelivered, getIssueDrafts, deleteIssueDraft, clearAllIssues, saveIssues, restoreIssues } from "@/lib/storage"
 import type { Issue, Return, Product } from "@/lib/types"
 import { generateIssuePDF } from "@/lib/pdf-generator"
@@ -535,7 +536,7 @@ export default function IssuesPage() {
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold"><DualText k="issues.title" /></h1>
-              <p className="text-muted-foreground"><DualText k="issues.subtitle" /></p>
+              <p className="text-muted-foreground"><DualText k="issues.subtitle" /> (v1.1)</p>
             </div>
             <div className="flex gap-2 flex-wrap">
               <div className="flex gap-2 mr-2 border-r pr-2">
@@ -647,7 +648,7 @@ export default function IssuesPage() {
                             <TableCell className="text-left">
                               <div className="flex items-center gap-2">
                                 <Button size="sm" variant="ghost" onClick={() => { setEditingIssue(undefined); try { localStorage.setItem('issueDraftLoadId', d.id) } catch { }; setIsIssueDialogOpen(true) }}><DualText k="common.continue" /></Button>
-                                <Button size="sm" variant="destructive" onClick={() => { deleteIssueDraft(d.id); setIssues(getIssues()); }}><DualText k="common.delete" /></Button>
+                                <Button size="sm" variant="destructive" onClick={() => { deleteIssueDraft(d.id); setLocalIssues(getIssues()); }}><DualText k="common.delete" /></Button>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -701,6 +702,7 @@ export default function IssuesPage() {
                       <TableHead className="min-w-[120px]"><DualText k="issues.table.issues.columns.productsCount" /></TableHead>
                       <TableHead className="min-w-[140px]"><DualText k="issues.table.issues.columns.total" /></TableHead>
                       <TableHead className="min-w-[120px]"><DualText k="issues.table.issues.columns.date" /></TableHead>
+                      <TableHead className="min-w-[100px]">Status / الحالة</TableHead>
                       <TableHead className="min-w-[150px]"><DualText k="issues.table.issues.columns.notes" /></TableHead>
                       <TableHead className="text-left min-w-[100px]"><DualText k="issues.table.issues.columns.actions" /></TableHead>
                     </TableRow>
@@ -730,20 +732,19 @@ export default function IssuesPage() {
                               {issue.delivered ? (
                                 <Badge variant="default" className="bg-green-600 hover:bg-green-700">
                                   <Check className="w-3 h-3 mr-1" />
-                                  {issue.deliveredBy === 'branch' ? <DualText k="issues.status.branchReceived" /> : <DualText k="issues.status.delivered" />}
+                                  <DualText k="issues.status.delivered" />
+                                </Badge>
+                              ) : issue.branchReceived ? (
+                                <Badge variant="outline" className="text-green-600 border-green-600 bg-green-50">
+                                  <Check className="w-3 h-3 mr-1" />
+                                  <DualText k="issues.status.branchReceived" />
                                 </Badge>
                               ) : (
                                 <Badge variant="secondary"><DualText k="issues.status.pending" /></Badge>
                               )}
                             </TableCell>
                             <TableCell className="text-muted-foreground">
-                              {issue.deliveredBy === 'branch' ? (
-                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                                  <DualText k="issues.status.branchReceived" />
-                                </Badge>
-                              ) : (
-                                issue.notes || "-"
-                              )}
+                              {issue.notes || "-"}
                             </TableCell>
                             <TableCell className="text-left">
                               <div className="flex items-center gap-1">

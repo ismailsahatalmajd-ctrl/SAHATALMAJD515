@@ -52,8 +52,18 @@ export const dict: Dict = {
   "common.product": { ar: "منتج", en: "Product" },
   "common.image": { ar: "الصورة", en: "Image" },
   "common.code": { ar: "الكود", en: "Code" },
-  "common.back": { ar: "رجوع", en: "Back" },
-  "auth.logout": { ar: "تسجيل الخروج", en: "Logout" },
+  "common.itemNumber": { ar: "رقم المنتج", en: "Item Number" },
+  "common.productName": { ar: "اسم المنتج", en: "Product Name" },
+  "common.location": { ar: "الموقع", en: "Location" },
+  "common.category": { ar: "التصنيف", en: "Category" },
+  "common.quantity": { ar: "الكمية", en: "Quantity" },
+  "common.unit": { ar: "الوحدة", en: "Unit" },
+  "common.dir": { ar: "rtl", en: "ltr" },
+  "common.price": { ar: "السعر", en: "Price" },
+  "common.avgPrice": { ar: "متوسط السعر", en: "Avg Price" },
+  "common.back": { ar: "رجوع / Back", en: "رجوع / Back" },
+  "auth.logout": { ar: "تسجيل الخروج / Logout", en: "تسجيل الخروج / Logout" },
+  "common.id": { ar: "المعرف", en: "ID" },
   "common.total": { ar: "الإجمالي", en: "Total" },
   "common.cancel": { ar: "إلغاء", en: "Cancel" },
   "common.add": { ar: "إضافة", en: "Add" },
@@ -68,11 +78,15 @@ export const dict: Dict = {
   "common.forward": { ar: "تقدم", en: "Forward" },
   "common.exit": { ar: "إغلاق التطبيق", en: "Exit App" },
   "common.confirm": { ar: "هل أنت متأكد؟", en: "Are you sure?" },
+  "lang.ar": { ar: "العربية / Arabic", en: "العربية / Arabic" },
+  "lang.en": { ar: "الإنجليزية / English", en: "الإنجليزية / English" },
   "sync.live": { ar: "مباشر", en: "Live" },
   "sync.syncing": { ar: "جاري التحديث", en: "Syncing" },
   "sync.offline": { ar: "غير متصل", en: "Offline" },
   "sync.connected": { ar: "متصل", en: "Connected" },
   "sync.manualRefresh": { ar: "تحديث يدوي (طوارئ)", en: "Manual Refresh (Emergency)" },
+  "sync.hardReset": { ar: "حذف الذاكرة وإعادة التحميل", en: "Clear Cache & Hard Reload" },
+  "sync.hardResetConfirm": { ar: "سيتم حذف الذاكرة المحلية وتحميل البيانات بالكامل من السحابة. هل أنت متأكد؟", en: "Local cache will be deleted and data will be fully reloaded from cloud. Are you sure?" },
   "sync.autoEnabled": { ar: "التحديث التلقائي مفعل", en: "Auto-sync Enabled" },
   "common.lowStockProduct": { ar: "منتج بمخزون منخفض", en: "Low-stock product" },
   "common.lowStock": { ar: "مخزون منخفض", en: "Low stock" },
@@ -121,6 +135,38 @@ export const dict: Dict = {
   "dashboard.lowStock.valuePrefix": { ar: "القيمة:", en: "Value:" },
   "dashboard.outOfStock.title": { ar: "نفذ المخزون", en: "Out of Stock" },
   "dashboard.outOfStock.subtitle": { ar: "منتج غير متوفر", en: "Unavailable product" },
+
+  // Notifications
+  "notifications.title": { ar: "الإشعارات", en: "Notifications" },
+  "notifications.markAllRead": { ar: "تعليم الكل كمقروء", en: "Mark all as read" },
+  "notifications.empty": { ar: "لا توجد إشعارات", en: "No notifications" },
+  "notifications.newOrder": { ar: "طلب فرع جديد", en: "New Branch Request" },
+  "notifications.orderFrom": { ar: "طلب من", en: "Order from" },
+  "notifications.statusChange": { ar: "تغيير حالة طلب", en: "Order Status Change" },
+  "notifications.orderAccepted": { ar: "قبول الطلب", en: "Order Accepted" },
+  "notifications.orderRejected": { ar: "رفض الطلب", en: "Order Rejected" },
+  "notifications.orderSent": { ar: "إرسال الطلب", en: "Order Sent" },
+
+  // Smart Alerts
+  "smartAlerts.title": { ar: "تنبيهات النظام الذكية", en: "System Smart Alerts" },
+  "smartAlerts.desc": { ar: "يرجى مراجعة التنبيهات التالية للحفاظ على سير العمل", en: "Please review the following alerts to maintain workflow" },
+  "smartAlerts.lowStock.title": { ar: "تنبيه مخزون منخفض", en: "Low Stock Alert" },
+  "smartAlerts.lowStock.desc": { ar: "يوجد {count} منتج وصل للحد الأدنى للمخزون.", en: "There are {count} products at minimum stock level." },
+  "smartAlerts.lowStock.action": { ar: "مراجعة المخزون", en: "Review Stock" },
+  "smartAlerts.pendingRequests.title": { ar: "طلبات فروع معلقة", en: "Pending Branch Requests" },
+  "smartAlerts.pendingRequests.desc": { ar: "يوجد {count} طلب فرع معلق منذ أكثر من 24 ساعة.", en: "There are {count} branch requests pending for over 24 hours." },
+  "smartAlerts.pendingRequests.action": { ar: "مراجعة الطلبات", en: "Review Requests" },
+  "smartAlerts.acknowledged": { ar: "تم الاطلاع", en: "Acknowledged" },
+
+  // Sync / App Controls
+  "sync.status.cloudConnected": { ar: "تم الاتصال بالسحابة", en: "Cloud connected" },
+  "sync.status.anonymousLogin": { ar: "تم تسجيل الدخول مجهولاً", en: "Anonymous login" },
+  "sync.status.upload": { ar: "رفع", en: "Upload" },
+  "sync.status.download": { ar: "تحميل", en: "Download" },
+
+  // Nav Extra
+  "nav.barcodeHistory": { ar: "سجل الباركود", en: "Barcode History" },
+  "nav.branchDashboard": { ar: "لوحة الفرع", en: "Branch Dashboard" },
 
   // Charts
   "charts.sales": { ar: "المبيعات", en: "Sales" },
@@ -683,10 +729,6 @@ export const dict: Dict = {
   "bulkIssue.success.updated": { ar: "تم تحديث الفاتورة بنجاح", en: "Invoice updated successfully" },
   "bulkIssue.noImage": { ar: "لا صورة", en: "No Image" },
 
-  // Language toggle
-  "lang.ar": { ar: "العربية", en: "Arabic" },
-  "lang.en": { ar: "الإنجليزية", en: "English" },
-
   // Home page filters and settings
   "home.search.placeholder": { ar: "البحث عن منتج...", en: "Search for a product..." },
   "home.filters.stockStatus": { ar: "حالة المخزون", en: "Stock Status" },
@@ -748,6 +790,34 @@ export const dict: Dict = {
   "bulk.exportScope.filtered": { ar: "الجدول المفلتر", en: "Filtered Table" },
   "bulk.exporting": { ar: "جاري التصدير...", en: "Exporting..." },
   "bulk.importing": { ar: "جاري الاستيراد...", en: "Importing..." },
+  "bulk.status.reading": { ar: "جاري قراءة الملف...", en: "Reading file..." },
+  "bulk.status.processing": { ar: "جاري المعالجة والمطابقة...", en: "Processing & matching..." },
+  "bulk.status.uploading": { ar: "جاري رفع البيانات والمنتجات...", en: "Uploading data & products..." },
+  "bulk.status.complete": { ar: "اكتملت العملية", en: "Operation complete" },
+  "bulk.error.dbNotReady": { ar: "قاعدة البيانات غير جاهزة. يرجى تحديث الصفحة.", en: "Database not ready. Please refresh." },
+  "bulk.error.loadXlsx": { ar: "فشل تحميل مكتبة Excel", en: "Failed to load Excel library" },
+  "bulk.error.noFile": { ar: "لم يتم اختيار ملف", en: "No file selected" },
+  "bulk.toast.exportCancel": { ar: "تم إلغاء التصدير", en: "Export cancelled" },
+  "bulk.toast.exportSizeWarn": { ar: "الحجم المقدر {size}MB يتجاوز حد التحذير {limit}MB", en: "Estimated size {size}MB exceeds warning limit {limit}MB" },
+  "bulk.toast.exportSuccess": { ar: "تم التصدير بنجاح", en: "Exported successfully" },
+  "bulk.toast.exportSuccessDesc": { ar: "تم تصدير {count} منتج إلى ملف Excel", en: "Exported {count} products to Excel" },
+  "bulk.toast.importSuccess": { ar: "تم الاستيراد بنجاح", en: "Imported successfully" },
+  "bulk.toast.importSuccessDesc": { ar: "تم استيراد {count} منتج جديد وتحديث {updated} منتج", en: "Imported {count} new products and updated {updated}" },
+  "bulk.confirm.largeExport": { ar: "الحجم المقدر للملف ~ {size}MB، قد يكون كبيراً. هل تريد المتابعة؟", en: "Estimated file size ~ {size}MB may be large. Continue?" },
+  "bulk.mapping.title": { ar: "مطابقة أعمدة Excel", en: "Excel Column Mapping" },
+  "bulk.mapping.desc": { ar: "قم بمطابقة أعمدة ملف Excel مع حقول النظام", en: "Match Excel columns with system fields" },
+  "bulk.mapping.suggested": { ar: "تم اقتراح مطابقة تلقائية بناءً على أسماء الأعمدة", en: "Auto-mapping suggested based on column names" },
+  "bulk.mapping.save": { ar: "حفظ واستيراد", en: "Save & Import" },
+  "bulk.mapping.systemField": { ar: "حقل النظام", en: "System Field" },
+  "bulk.mapping.excelColumn": { ar: "عمود Excel", en: "Excel Column" },
+  "bulk.mapping.selectColumn": { ar: "اختر العمود", en: "Select column" },
+  "bulk.mapping.ignore": { ar: "تجاوز", en: "Ignore" },
+  "bulk.mapping.preview": { ar: "معاينة أول 5 صفوف", en: "Preview first 5 rows" },
+  "bulk.operation.running": { ar: "جاري تنفيذ العملية...", en: "Operation in progress..." },
+  "bulk.operation.success": { ar: "تم تنفيذ العملية بنجاح", en: "Operation completed successfully" },
+  "bulk.deleteDemo.success": { ar: "تم حذف البيانات التجريبية وتنظيف الذاكرة", en: "Demo data deleted and cache cleared" },
+  "bulk.deleteAll.success": { ar: "تم حذف جميع المنتجات بنجاح", en: "All products deleted successfully" },
+  "bulk.factoryReset.success": { ar: "تمت استعادة ضبط المصنع بنجاح", en: "Factory reset completed successfully" },
   // Bulk import/export guide and column labels
   "bulk.guide.title": { ar: "دليل الاستيراد والتصدير", en: "Import & Export Guide" },
   "bulk.guide.desc": { ar: "معلومات مهمة عن ترتيب الأعمدة وصيغة البيانات", en: "Important info on column order and data format" },
@@ -933,10 +1003,6 @@ export const dict: Dict = {
   // Bulk statuses
 
 
-  // Bulk statuses
-  "bulk.status.reading": { ar: "جاري قراءة الملف...", en: "Reading file..." },
-  "bulk.status.processing": { ar: "جاري معالجة البيانات...", en: "Processing data..." },
-
   // PDF generators - common
   "pdf.common.image": { ar: "الصورة", en: "Image" },
   "pdf.common.productCode": { ar: "كود المنتج", en: "Product Code" },
@@ -1097,9 +1163,26 @@ export const dict: Dict = {
 
 
 
+  "login.title": { ar: "تسجيل الدخول", en: "Login" },
+  "login.subtitle": { ar: "أدخل بياناتك للوصول إلى النظام", en: "Enter your credentials to access the system" },
+  "login.username": { ar: "اسم المستخدم", en: "Username" },
+  "login.usernamePlaceholder": { ar: "أدخل اسم المستخدم", en: "Enter your username" },
+  "login.password": { ar: "كلمة المرور", en: "Password" },
+  "login.passwordPlaceholder": { ar: "أدخل كلمة المرور", en: "Enter your password" },
+  "login.forgotPassword": { ar: "نسيت كلمة المرور؟", en: "Forgot password?" },
   "login.submit": { ar: "دخول", en: "Login" },
   "login.verifying": { ar: "جاري التحقق...", en: "Verifying..." },
   "login.copyright": { ar: "نظام إدارة ساحة المجد ©", en: "Sahat Almajid Management System ©" },
+  "login.or": { ar: "أو المتابعة باستخدام", en: "Or continue with" },
+  "login.google": { ar: "جوجل (دخول سحابي)", en: "Google (Cloud Login)" },
+  "login.offline": { ar: "وضع غير متصل - تسجيل دخول محلي", en: "Offline Mode - Local Login" },
+  "login.error.notFound": { ar: "المستخدم غير موجود محلياً", en: "User not found locally" },
+  "login.error.wrongPassword": { ar: "كلمة المرور غير صحيحة", en: "Incorrect password" },
+  "login.error.incomplete": { ar: "بيانات الاعتماد المحلية غير مكتملة", en: "Incomplete local credentials" },
+  "login.error.failed": { ar: "فشل تسجيل الدخول المحلي", en: "Local login failed" },
+  "login.error.google": { ar: "فشل تسجيل الدخول باستخدام Google", en: "Google login failed" },
+  "login.alert.adminSeeded": { ar: "تم إنشاء المستخدم المدير بنجاح: {user}", en: "Admin user seeded successfully: {user}" },
+  "login.alert.forgotPassword": { ar: "يرجى التواصل مع مدير النظام لاستعادة كلمة المرور", en: "Please contact the system administrator to reset your password" },
 
   // Invoice Preview
   "invoice.preview.title": { ar: "معاينة حية للفاتورة", en: "Live Invoice Preview" },

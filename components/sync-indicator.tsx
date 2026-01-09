@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react"
 import { Wifi, WifiOff, RefreshCw } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { useI18n } from "./language-provider"
+import { useI18n } from "@/components/language-provider"
+import { DualText } from "@/components/ui/dual-text"
 import { cn } from "@/lib/utils"
 
 export function SyncIndicator() {
-    const { t } = useI18n()
+    const { lang } = useI18n()
     const [isOnline, setIsOnline] = useState(true)
     const [isSyncing, setIsSyncing] = useState(false)
 
@@ -45,7 +46,7 @@ export function SyncIndicator() {
         return (
             <Badge variant="destructive" className="gap-1.5 text-xs">
                 <WifiOff className="h-3 w-3" />
-                <span>{t("sync.offline")}</span>
+                <DualText k="sync.offline" />
             </Badge>
         )
     }
@@ -54,7 +55,7 @@ export function SyncIndicator() {
         return (
             <Badge variant="outline" className="gap-1.5 text-xs border-yellow-500 text-yellow-700">
                 <RefreshCw className="h-3 w-3 animate-spin" />
-                <span>{t("sync.syncing")}</span>
+                <DualText k="sync.syncing" />
             </Badge>
         )
     }
@@ -62,7 +63,7 @@ export function SyncIndicator() {
     return (
         <Badge variant="outline" className="gap-1.5 text-xs border-green-500 text-green-700">
             <Wifi className="h-3 w-3" />
-            <span>{t("sync.live")}</span>
+            <DualText k="sync.connected" />
         </Badge>
     )
 }

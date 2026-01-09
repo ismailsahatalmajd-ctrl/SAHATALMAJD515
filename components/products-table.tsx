@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Edit, Trash2, ImageIcon, Settings2, ArrowUp, ArrowDown, Filter, Loader2, Download, Printer } from 'lucide-react'
+import { Edit, Trash2, ImageIcon, Settings2, ArrowUp, ArrowDown, Filter, Loader2, Download, Printer, RotateCcw } from 'lucide-react'
 import type { Product } from "@/lib/types"
 import { generateProductsPDF } from "@/lib/products-pdf-generator"
 import {
@@ -75,6 +75,8 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
   const [uploadProgress, setUploadProgress] = useState<number>(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dropActiveId, setDropActiveId] = useState<string | null>(null)
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({})
+  const resizingRef = useRef<{ key: string; startWidth: number; startX: number } | null>(null)
 
   const [searchTerm, setSearchTerm] = useState("")
   const [turnoverFilter, setTurnoverFilter] = useState<"all" | "fast" | "normal" | "slow" | "stagnant" | "new">("all")
@@ -161,6 +163,75 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
     status: true,
     lastActivity: true,
   })
+
+  const COLUMN_WIDTHS_KEY = 'products_column_widths_v1'
+
+  useEffect(() => {
+    const loadWidths = async () => {
+      try {
+        const setting = await db.settings.get(COLUMN_WIDTHS_KEY)
+        if (setting?.value) {
+          setColumnWidths(setting.value)
+        }
+      } catch { }
+    }
+    loadWidths()
+  }, [])
+
+  const saveWidths = async (widths: Record<string, number>) => {
+    try {
+      await db.settings.put({ key: COLUMN_WIDTHS_KEY, value: widths })
+    } catch { }
+  }
+
+  const handleResizeStart = (e: React.MouseEvent, key: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const header = (e.target as HTMLElement).parentElement
+    if (!header) return
+    const startWidth = header.offsetWidth
+    resizingRef.current = { key, startWidth, startX: e.pageX }
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!resizingRef.current) return
+      const delta = moveEvent.pageX - resizingRef.current.startX
+      // Support RTL: If in RTL, delta should be reversed? Actually, browser handles offsetWidth/pageX naturally usually.
+      // But for Arabic UI (RTL), dragging left usually increases width?
+      // Let's check dir
+      const dir = document.documentElement.dir || "rtl"
+      const adjustedDelta = dir === "rtl" ? -delta : delta
+      const newWidth = Math.max(50, resizingRef.current.startWidth + adjustedDelta)
+
+      setColumnWidths(prev => ({
+        ...prev,
+        [resizingRef.current!.key]: newWidth
+      }))
+    }
+
+    const onMouseUp = () => {
+      if (resizingRef.current) {
+        setColumnWidths(prev => {
+          saveWidths(prev)
+          return prev
+        })
+      }
+      resizingRef.current = null
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+      document.body.style.cursor = 'default'
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    document.body.style.cursor = 'col-resize'
+  }
+
+  const resetColumnWidths = async () => {
+    setColumnWidths({})
+    try {
+      await db.settings.delete(COLUMN_WIDTHS_KEY)
+    } catch { }
+  }
 
   const COLUMN_LABELS_KEY = 'products_column_labels_v1'
   const [columnLabels, setColumnLabels] = useState<Record<string, string>>({})
@@ -548,6 +619,9 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
             </DropdownMenu>
             <Button variant="outline" size="sm" onClick={showAllColumns}>إظهار الكل</Button>
             <Button variant="ghost" size="sm" onClick={hideAllColumns}>إخفاء الكل</Button>
+            <Button variant="ghost" size="sm" onClick={resetColumnWidths} title="إعادة تعيين أحجام الأعمدة">
+              <RotateCcw className="h-4 w-4" />
+            </Button>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -612,14 +686,26 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
               <tr className="text-xs">
                 {Object.keys(visibleColumns).map(key => {
                   if (!(visibleColumns as any)[key]) return null
+                  const width = columnWidths[key]
                   return (
-                    <th key={key} className="text-center p-2 border cursor-pointer hover:bg-muted/50" onClick={() => handleSort(key as any)}>
+                    <th
+                      key={key}
+                      className="text-center p-2 border cursor-pointer hover:bg-muted/50 relative group select-none"
+                      style={{ width: width ? `${width}px` : 'auto', minWidth: width ? `${width}px` : 'auto' }}
+                      onClick={() => handleSort(key as any)}
+                    >
                       <div className="flex items-center justify-center gap-1">
                         {getHeaderContent(key)}
                         {sortColumn === key && (
                           sortDirection === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
                         )}
                       </div>
+                      {/* Resize Handle */}
+                      <div
+                        className="absolute top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/50 active:bg-primary bg-transparent transition-colors z-50"
+                        style={{ [t("common.dir") === 'rtl' ? 'left' : 'right']: 0 }}
+                        onMouseDown={(e) => handleResizeStart(e, key)}
+                      />
                     </th>
                   )
                 })}
@@ -703,12 +789,22 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
                           }
                           if (['price', 'averagePrice', 'currentStockValue'].includes(key)) content = formatEnglishNumber(Number(content).toFixed(2))
                           // Apply number formatting to quantity columns, BUT NOT to code/id columns
-                          if (['openingStock', 'purchases', 'issues', 'inventoryCount', 'currentStock', 'difference'].includes(key)) content = formatEnglishNumber(content)
+                          if (['openingStock', 'purchases', 'issues', 'inventoryCount', 'currentStock', 'difference'].includes(key)) {
+                            content = formatEnglishNumber(Number(content || 0))
+                          }
                           // Explicitly ensure productCode and itemNumber are NOT formatted (raw strings/numbers)
                           if (['productCode', 'itemNumber'].includes(key)) content = (product as any)[key]
 
-
-                          return <td key={key} className="p-2 text-center border align-middle">{content}</td>
+                          const cellWidth = columnWidths[key]
+                          return (
+                            <td
+                              key={key}
+                              className="p-2 text-center border align-middle overflow-hidden text-ellipsis whitespace-nowrap"
+                              style={{ width: cellWidth ? `${cellWidth}px` : 'auto', maxWidth: cellWidth ? `${cellWidth}px` : 'auto' }}
+                            >
+                              {content}
+                            </td>
+                          )
                         })}
                         <td className="p-2 text-center border align-middle">
                           <div className="flex items-center gap-1 justify-center">

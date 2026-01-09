@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 
-import { getBranches, getProducts, getIssues, addIssue, setIssueDelivered, clearAllBranchRequests, saveBranches, getBranchRequests, getBranchInvoices } from "@/lib/storage"
+import { getBranches, getProducts, getIssues, addIssue, setIssueDelivered, setIssueBranchReceived, clearAllBranchRequests, saveBranches, getBranchRequests, getBranchInvoices } from "@/lib/storage"
 import { addBranchRequest, updateBranchRequest } from "@/lib/branch-request-storage"
 import type { Product } from "@/lib/types"
 import type { BranchInvoiceItem } from "@/lib/branch-invoice-types"
@@ -231,9 +231,13 @@ export function BranchDashboard() {
 
   const [cart, setCart] = useState<BranchInvoiceItem[]>([])
   // const allRequests = mounted ? getBranchRequests() : []
-  const invoices = (allInvoicesData || []).filter(i => i.branchId === branchId).slice(0, 5)
-  const requests = (allRequests || []).filter((r) => r.branchId === branchId).slice(0, 5)
-  const issues = (allIssuesData || []).filter((i) => i.branchId === branchId).slice(0, 5)
+  const invoices = (allInvoicesData || []).filter(i => i.branchId === branchId)
+  const requests = (allRequests || []).filter((r) => r.branchId === branchId)
+  const issues = (allIssuesData || []).filter((i) => i.branchId === branchId)
+
+  const displayInvoices = invoices.slice(0, 5)
+  const displayRequests = requests.slice(0, 5)
+  const displayIssues = issues.slice(0, 5)
 
   const [requestType, setRequestType] = useState<"supply" | "return">("return")
   const [requestNotes, setRequestNotes] = useState("")
@@ -311,7 +315,7 @@ export function BranchDashboard() {
   async function confirmIssue(id: string) {
     if (!confirm("Confirm receipt? / هل أنت متأكد من استلام هذه الشحنة؟")) return
 
-    const updated = setIssueDelivered(id, "branch")
+    const updated = await setIssueBranchReceived(id)
     if (updated) {
       toast({ title: "Receipt Confirmed / تم تأكيد الاستلام", description: "Status updated successfully / تم تحديث حالة الشحنة بنجاح" })
       setLastUpdate(Date.now())
@@ -428,7 +432,6 @@ export function BranchDashboard() {
       notes: requestNotes,
       status: "submitted",
       createdBy: "branch",
-      chatMessages: []
     })
 
     // Sync Request
@@ -705,8 +708,8 @@ export function BranchDashboard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {requests.length === 0 ? <TableRow><TableCell colSpan={6} className="text-center">No Requests / لا توجد طلبات</TableCell></TableRow> :
-                    requests.map(r => (
+                  {displayRequests.length === 0 ? <TableRow><TableCell colSpan={6} className="text-center">No Requests / لا توجد طلبات</TableCell></TableRow> :
+                    displayRequests.map(r => (
                       <TableRow key={r.id}>
                         <TableCell>{r.requestNumber || r.id.slice(0, 8)}</TableCell>
                         <TableCell>
@@ -744,8 +747,8 @@ export function BranchDashboard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {issues.filter(i => !i.delivered).length === 0 ? <TableRow><TableCell colSpan={5} className="text-center">No Pending Shipments / لا توجد شحنات معلقة</TableCell></TableRow> :
-                    issues.filter(i => !i.delivered).map(i => (
+                  {displayIssues.filter(i => !i.branchReceived).length === 0 ? <TableRow><TableCell colSpan={5} className="text-center">No Pending Shipments / لا توجد شحنات معلقة</TableCell></TableRow> :
+                    displayIssues.filter(i => !i.branchReceived).map(i => (
                       <TableRow key={i.id}>
                         <TableCell>{i.id.slice(0, 8)}</TableCell>
                         <TableCell>{i.totalValue.toFixed(2)}</TableCell>

@@ -39,18 +39,18 @@ export default function RootLayout({
         <ServiceWorkerUnregister />
         <AuthProvider>
           <LanguageProvider>
-            <DataStoreInitializer>
-              <SyncManager />
-              <FirebaseSyncManager />
-              {/* <NumberNormalizer /> */}
-              <SyncProvider>
-                <AuthGuard>
+            <AuthGuard>
+              <DataStoreInitializer>
+                <SyncManager />
+                <FirebaseSyncManager />
+                {/* <NumberNormalizer /> */}
+                <SyncProvider>
                   {children}
-                </AuthGuard>
-              </SyncProvider>
-              <Footer />
-              <Toaster />
-            </DataStoreInitializer>
+                </SyncProvider>
+                <Footer />
+                <Toaster />
+              </DataStoreInitializer>
+            </AuthGuard>
           </LanguageProvider>
         </AuthProvider>
       </body>

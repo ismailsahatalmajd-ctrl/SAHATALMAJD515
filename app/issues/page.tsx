@@ -172,6 +172,25 @@ export default function IssuesPage() {
   }
 
   const handlePrintInvoice = async (issue: Issue) => {
+    // Validate stock before printing
+    for (const item of issue.products) {
+      const product = products.find(p => p.id === item.productId)
+      if (product) {
+        // If already delivered, we add back the quantity to simulate "pre-delivery" stock state for validation
+        // If not delivered, we rely on current stock
+        const effectiveStock = (product.currentStock || 0) + (issue.delivered ? (item.quantity || 0) : 0)
+
+        if ((item.quantity || 0) > effectiveStock) {
+          toast({
+            title: t("common.error"),
+            description: `${t("bulkIssue.error.insufficientStock")}: ${product.productName || item.productName}`,
+            variant: "destructive"
+          })
+          return
+        }
+      }
+    }
+
     await generateIssuePDF(issue)
   }
 

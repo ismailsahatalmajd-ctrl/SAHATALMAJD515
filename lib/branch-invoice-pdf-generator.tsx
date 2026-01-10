@@ -24,13 +24,8 @@ export async function generateBranchInvoicePDF(inv: BranchInvoice): Promise<stri
   headers += `<th style="width: 80px">الوحدة<br/><span style="font-size:10px;font-weight:normal">Unit</span></th>`
   headers += `<th style="width: 80px">الكمية<br/><span style="font-size:10px;font-weight:normal">Quantity</span></th>`
 
-  if (settings.showPrice) {
-    headers += `<th style="width: 100px">سعر الوحدة<br/><span style="font-size:10px;font-weight:normal">Unit Price</span></th>`
-  }
-
-  if (settings.showTotal) {
-    headers += `<th style="width: 100px">الإجمالي<br/><span style="font-size:10px;font-weight:normal">Total</span></th>`
-  }
+  // Add Notes column
+  headers += `<th style="width: 150px">ملاحظات<br/><span style="font-size:10px;font-weight:normal">Notes</span></th>`
 
   // Resolve images
   const itemsWithImages = await Promise.all(inv.items.map(async (it) => {
@@ -60,13 +55,8 @@ export async function generateBranchInvoicePDF(inv: BranchInvoice): Promise<stri
         row += `<td>${it.unit || ""}</td>`
         row += `<td>${it.quantity}</td>`
 
-        if (settings.showPrice) {
-          row += `<td>${it.unitPrice.toFixed(2)}</td>`
-        }
-
-        if (settings.showTotal) {
-          row += `<td>${it.totalPrice.toFixed(2)}</td>`
-        }
+        // Add Notes cell
+        row += `<td style="text-align:right; font-size:11px; color:#555;">${it.notes || "—"}</td>`
 
         row += `</tr>`
         return row
@@ -117,8 +107,6 @@ export async function generateBranchInvoicePDF(inv: BranchInvoice): Promise<stri
             ${rows}
           </tbody>
         </table>
-        
-        ${settings.showTotal ? `<div class="totals">Total Amount / إجمالي الفاتورة: ${inv.totalValue.toFixed(2)}</div>` : ""}
         
         ${settings.footerText ? `<div class="footer-text">${settings.footerText}</div>` : ""}
         

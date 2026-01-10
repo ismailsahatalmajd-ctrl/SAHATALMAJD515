@@ -137,9 +137,13 @@ export function Header() {
             <Button variant="outline" size="sm" onClick={() => router.back()} aria-label={t("common.back")} title={t("common.back")}>
               <ChevronLeft className="h-4 w-4 ml-2" /> <DualText k="common.back" />
             </Button>
-            <SyncIndicator />
-            <NotificationsCenter />
-            <AppControls />
+            {pathname !== '/branch-requests' && (
+              <>
+                <SyncIndicator />
+                <NotificationsCenter />
+                <AppControls />
+              </>
+            )}
             <Button variant="ghost" size="icon" onClick={handleLogout} title={t("auth.logout")}>
               <LogOut className="h-4 w-4 text-destructive" />
             </Button>

@@ -9,6 +9,7 @@ export interface BranchInvoiceItem {
   unitPrice: number
   totalPrice: number
   returnReason?: string
+  notes?: string
 }
 
 export interface BranchInvoice {

@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ShoppingCart, LogOut, Loader2, CheckCircle, Printer, X } from "lucide-react"
+import { ShoppingCart, LogOut, Loader2, CheckCircle, Printer, X, RotateCcw } from "lucide-react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { db } from "@/lib/db"
 import { useLiveQuery } from "dexie-react-hooks"
@@ -35,11 +35,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { useAuth } from "@/components/auth-provider"
 import { ProductImage } from "@/components/product-image"
+import { DualText, getDualString } from "@/components/ui/dual-text"
+import { useI18n } from "@/components/language-provider"
+import { hardReset } from "@/lib/storage"
 
 export function BranchDashboard() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const settings = useInvoiceSettings()
+  const { t } = useI18n()
   const { user: authUser, loading: authLoading, logout } = useAuth()
   const user = authUser as any
 
@@ -358,6 +362,12 @@ export function BranchDashboard() {
     )
   }
 
+  function updateItemNotes(idx: number, notes: string) {
+    setCart((prev) =>
+      prev.map((x, i) => (i === idx ? { ...x, notes: notes } : x)),
+    )
+  }
+
   function removeItem(idx: number) {
     setCart((prev) => prev.filter((_, i) => i !== idx))
   }
@@ -485,6 +495,19 @@ export function BranchDashboard() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-xl font-bold">Branch Dashboard / لوحة فرع: {branch.name}</h1>
         <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              if (confirm(getDualString('sync.hardResetConfirm'))) {
+                hardReset()
+              }
+            }}
+            className="text-red-500 hover:text-red-700 hover:bg-red-50 gap-2"
+          >
+            <RotateCcw className="h-4 w-4" />
+            <DualText k="sync.hardReset" />
+          </Button>
           <Button variant="outline" size="sm" onClick={handleForceRefresh} title="Sync / مزامنة">
             <Loader2 className="w-4 h-4 ml-2" /> Sync / مزامنة
           </Button>
@@ -613,6 +636,7 @@ export function BranchDashboard() {
                       {settings.showUnit && <TableHead>Unit / الوحدة</TableHead>}
                       <TableHead>Quantity / الكمية</TableHead>
                       {activeTab === 'request' && requestType === 'return' && <TableHead>Return Reason / سبب الارجاع</TableHead>}
+                      <TableHead>Notes / ملاحظات</TableHead>
                       <TableHead>Delete / حذف</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -640,6 +664,14 @@ export function BranchDashboard() {
                             />
                           </TableCell>
                         )}
+                        <TableCell>
+                          <Input
+                            placeholder="Notes... / ملاحظات..."
+                            value={it.notes || ""}
+                            onChange={(e) => updateItemNotes(idx, e.target.value)}
+                            className="w-40"
+                          />
+                        </TableCell>
                         <TableCell>
                           <Button variant="destructive" size="sm" onClick={() => removeItem(idx)}>Delete / حذف</Button>
                         </TableCell>

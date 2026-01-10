@@ -32,11 +32,12 @@ import { convertNumbersToEnglish, getSafeImageSrc } from "@/lib/utils"
 import { collectPerf, savePerf } from "@/lib/perf"
 import { saveInvoiceSettings as saveSettingsLib, getInvoiceSettings } from "@/lib/invoice-settings-store"
 import { CounterToggle } from "@/components/counter-toggle"
-import { DualText } from "@/components/ui/dual-text"
+import { DualText, getDualString } from "@/components/ui/dual-text"
 import { useAuth } from "@/components/auth-provider"
 import { useProductsRealtime, useCategoriesRealtime, useLocationsRealtime } from "@/hooks/use-store"
 import { syncProduct, deleteProductApi } from "@/lib/sync-api"
 import { useRouter } from "next/navigation"
+import { SmartAlerts } from "@/components/smart-alerts"
 
 type StockStatus = "all" | "available" | "low" | "out"
 
@@ -102,6 +103,35 @@ const SAMPLE_PRODUCTS = [
 
 const DEFAULT_INVOICE_TYPE = "فاتورة صرف"
 const DEFAULT_COLUMNS = ["itemNumber", "productName", "productCode", "price", "quantity", "unit"]
+
+const getStockStatus = (p: Product): StockStatus => {
+  if (p.currentStock <= 0) return "out"
+  const threshold = p.lowStockThresholdPercentage || 33.33
+  const limit = (p.openingStock + p.purchases) * (threshold / 100)
+  if (p.currentStock <= limit) return "low"
+  return "available"
+}
+
+const mergeDuplicateProducts = (products: Product[]): Product[] => {
+  const mergedMap = new Map<string, Product>()
+  products.forEach(p => {
+    const key = p.productCode || p.itemNumber || p.id
+    if (mergedMap.has(key)) {
+      const existing = mergedMap.get(key)!
+      mergedMap.set(key, {
+        ...existing,
+        currentStock: existing.currentStock + p.currentStock,
+        currentStockValue: existing.currentStockValue + p.currentStockValue,
+        purchases: existing.purchases + p.purchases,
+        issues: existing.issues + p.issues,
+        openingStock: existing.openingStock + p.openingStock,
+      })
+    } else {
+      mergedMap.set(key, { ...p })
+    }
+  })
+  return Array.from(mergedMap.values())
+}
 
 export default function Home() {
   const router = useRouter()
@@ -288,8 +318,8 @@ export default function Home() {
   const convertImagesToBase64 = async (productsList: Product[]) => {
     // Show toast
     toast({
-      title: "جاري تجهيز التقرير...",
-      description: `جاري معالجة صور ${productsList.length} منتج`,
+      title: getDualString("home.toast.preparingReport"),
+      description: getDualString("home.toast.processingImages").replace("{count}", String(productsList.length)),
     });
 
     const results: Product[] = [];
@@ -827,10 +857,17 @@ export default function Home() {
         columns: invoiceColumns,
       })
 
-      toast({ title: "تم الحفظ", description: "تم حفظ إعدادات الفواتير" })
+      toast({
+        title: getDualString("toast.success"),
+        description: getDualString("home.toast.saveSuccess")
+      })
     } catch (e) {
       console.error("Failed to save invoice settings", e)
-      toast({ title: "فشل الحفظ", description: "تعذّر حفظ الإعدادات. تحقّق من المتصفح أو السعة.", variant: "destructive" })
+      toast({
+        title: getDualString("common.error"),
+        description: getDualString("home.toast.saveError"),
+        variant: "destructive"
+      })
     }
   }
 
@@ -846,10 +883,17 @@ export default function Home() {
         columns: DEFAULT_COLUMNS
       })
 
-      toast({ title: "استعادة الافتراضي", description: "تمت إعادة الإعدادات الافتراضية للفواتير" })
+      toast({
+        title: getDualString("toast.success"),
+        description: getDualString("home.toast.resetSuccess")
+      })
     } catch (e) {
       console.error("Failed to reset invoice settings", e)
-      toast({ title: "فشل الاستعادة", description: "تعذّر إعادة الإعدادات الافتراضية.", variant: "destructive" })
+      toast({
+        title: getDualString("common.error"),
+        description: getDualString("home.toast.resetError"),
+        variant: "destructive"
+      })
     }
   }
 
@@ -1155,14 +1199,26 @@ export default function Home() {
                         <h3 className="font-bold mb-2 text-orange-600">إصلاح المشاكل (Maintenance)</h3>
                         <p className="text-xs text-muted-foreground mb-2">أداة لإصلاح تكرار المنتجات ودمجها تلقائياً.</p>
                         <Button variant="outline" className="w-full border-orange-200 hover:bg-orange-50 text-orange-700" onClick={async () => {
-                          if (confirm("هل تريد فحص قاعدة البيانات ودمج المنتجات المكررة (نفس الكود/الرقم)؟")) {
-                            const loadingToast = toast({ title: "جاري المعالجة", description: "يرجى الانتظار..." })
+                          if (confirm(t("home.maintenance.fixDuplicates.confirm"))) {
+                            const loadingToast = toast({
+                              title: getDualString("common.processing"),
+                              description: getDualString("common.pleaseWait")
+                            })
                             try {
                               const res = await fixDuplicates()
-                              toast({ title: "تم الانتهاء", description: `تم دمج ${res.mergedCount} منتج وحذف ${res.removedCount} تكرار.` })
+                              toast({
+                                title: getDualString("toast.success"),
+                                description: getDualString("home.maintenance.fixDuplicates.finished")
+                                  .replace("{merged}", String(res.mergedCount))
+                                  .replace("{removed}", String(res.removedCount))
+                              })
                             } catch (e) {
                               console.error(e)
-                              toast({ title: "حدث خطأ", description: "فشلت العملية", variant: "destructive" })
+                              toast({
+                                title: getDualString("common.error"),
+                                description: getDualString("common.errorOccurred"),
+                                variant: "destructive"
+                              })
                             }
                           }
                         }}>
@@ -1174,17 +1230,17 @@ export default function Home() {
                       <div className="border-t pt-4 mt-4">
                         <h3 className="font-bold mb-2 text-destructive">منطقة الخطر</h3>
                         <Button variant="destructive" onClick={async () => {
-                          if (confirm("هل أنت متأكد من رغبتك في حذف قاعدة البيانات المحلية بالكامل؟ سيتم فقد جميع البيانات غير المحفوظة في السحابة.")) {
+                          if (confirm(t("home.maintenance.dbReset.confirm"))) {
                             try {
                               await db.delete()
                               window.location.reload()
                             } catch (e) {
                               console.error(e)
-                              alert("فشل حذف قاعدة البيانات")
+                              alert(t("home.maintenance.dbReset.error"))
                             }
                           }
                         }}>
-                          حذف قاعدة البيانات وإعادة البناء
+                          <DualText k="home.maintenance.dbReset.button" />
                         </Button>
                       </div>
                     </TabsContent>
@@ -1308,6 +1364,7 @@ export default function Home() {
         product={editingProduct}
         categories={categories}
       />
+      <SmartAlerts />
     </div>
   )
 }

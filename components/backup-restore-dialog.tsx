@@ -65,7 +65,7 @@ const UI_LABELS: Record<string, string> = {
 
 export function BackupRestoreDialog({ open, onOpenChange }: BackupRestoreDialogProps) {
   const [isBackingUp, setIsBackingUp] = useState(false)
-  const [excludeImages, setExcludeImages] = useState(true) // Default to true as it's safer
+  const [excludeImages, setExcludeImages] = useState(false) // Default to false (Include images by default)
   const [isRestoring, setIsRestoring] = useState(false)
   const [isSavingToProject, setIsSavingToProject] = useState(false)
   const { toast } = useToast()
@@ -415,35 +415,48 @@ export function BackupRestoreDialog({ open, onOpenChange }: BackupRestoreDialogP
           <DialogDescription>قم بإنشاء نسخة احتياطية (يمكنك استثناء الصور لتسريع العملية)</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="flex items-center space-x-2 border p-3 rounded-md bg-muted/50 mb-2">
+        <div className="grid gap-4 py-4">
+          <div className="flex items-center space-x-2 space-x-reverse border p-4 rounded-lg bg-yellow-50/50 border-yellow-100">
             <Checkbox id="excludeImages" checked={excludeImages} onCheckedChange={(c) => setExcludeImages(!!c)} />
-            <label
-              htmlFor="excludeImages"
-              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 mx-2"
-            >
-              استثناء الصور (موصى به لتفادي المشاكل وتقليل الحجم)
-            </label>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            {keysOrder.map((k) => (
-              <label key={k} className="flex items-center gap-2">
-                <Checkbox checked={!!selected[k]} onCheckedChange={(v) => setSelected((prev) => ({ ...prev, [k]: Boolean(v) }))} />
-                <span className="text-sm">{UI_LABELS[k]}</span>
+            <div className="grid gap-1.5 leading-none mr-2">
+              <label
+                htmlFor="excludeImages"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+              >
+                استثناء الصور (تقليل الحجم)
               </label>
-            ))}
+              <p className="text-xs text-muted-foreground">
+                حدد هذا الخيار إذا كان الملف كبيراً جداً، ولكن لن يتم حفظ صور المنتجات.
+              </p>
+            </div>
           </div>
 
-          <div className="grid gap-3">
-            <Button onClick={handleBackup} disabled={isBackingUp} className="w-full">
-              <Download className="ml-2 h-4 w-4" />
-              {isBackingUp ? "جاري التصدير..." : "تحميل نسخة احتياطية (Download)"}
-            </Button>
+          <div className="rounded-lg border p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="text-sm font-medium">البيانات المشمولة</h4>
+              <div className="flex gap-2">
+                <Button variant="ghost" size="sm" onClick={() => {
+                  const all = {} as any;
+                  keysOrder.forEach(k => all[k] = true);
+                  setSelected(all);
+                }} className="text-xs h-7">تحديد الكل</Button>
+                <Button variant="ghost" size="sm" onClick={() => setSelected({})} className="text-xs h-7">إلغاء الكل</Button>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {keysOrder.map((k) => (
+                <label key={k} className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 p-1 rounded">
+                  <Checkbox checked={!!selected[k]} onCheckedChange={(v) => setSelected((prev) => ({ ...prev, [k]: Boolean(v) }))} />
+                  <span className="text-sm">{UI_LABELS[k]}</span>
+                </label>
+              ))}
+            </div>
+          </div>
 
-            <Button onClick={handleSaveToProject} disabled={isSavingToProject} className="w-full" variant="ghost">
-              <Download className="ml-2 h-4 w-4" />
-              {isSavingToProject ? "جاري الحفظ..." : "حفظ للمطورين (Dev Only)"}
+          <div className="flex flex-col gap-3 mt-2">
+            <Button onClick={handleBackup} disabled={isBackingUp} className="w-full gap-2" size="lg">
+              <Download className="h-4 w-4" />
+              {isBackingUp ? "جاري التصدير..." : "تحميل النسخة الاحتياطية"}
             </Button>
 
             <div className="relative">
@@ -455,28 +468,30 @@ export function BackupRestoreDialog({ open, onOpenChange }: BackupRestoreDialogP
                 className="hidden"
                 id="restore-file"
               />
-              <Button asChild disabled={isRestoring} variant="outline" className="w-full bg-transparent">
+              <Button asChild disabled={isRestoring} variant="outline" className="w-full gap-2 border-dashed" size="lg">
                 <label htmlFor="restore-file" className="cursor-pointer">
-                  <Upload className="ml-2 h-4 w-4" />
-                  {isRestoring ? "جاري الاستعادة..." : "استعادة من ملف"}
+                  <Upload className="h-4 w-4" />
+                  {isRestoring ? "جاري الاستعادة..." : "استعادة نسخة من ملف"}
                 </label>
               </Button>
             </div>
-            {(isBackingUp || isRestoring || isSavingToProject) && (
-              <div className="space-y-2">
-                <Progress value={progress} />
-                <div className="text-xs text-muted-foreground text-center">{progress}%</div>
-              </div>
-            )}
           </div>
 
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              تحذير: استعادة النسخة الاحتياطية ستستبدل البيانات الحالية.
-            </AlertDescription>
-          </Alert>
+          {(isBackingUp || isRestoring || isSavingToProject) && (
+            <div className="space-y-2 animate-in fade-in zoom-in">
+              <Progress value={progress} className="h-2" />
+              <p className="text-xs text-center text-muted-foreground">{progress}%</p>
+            </div>
+          )}
         </div>
+
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            تحذير: استعادة النسخة الاحتياطية ستستبدل البيانات الحالية.
+          </AlertDescription>
+        </Alert>
+
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
@@ -484,6 +499,6 @@ export function BackupRestoreDialog({ open, onOpenChange }: BackupRestoreDialogP
           </Button>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
+    </Dialog >
   )
 }

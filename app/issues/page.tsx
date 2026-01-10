@@ -8,10 +8,11 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { DualText } from "@/components/ui/dual-text"
+import { DualText, getDualString } from "@/components/ui/dual-text"
 import { Header } from "@/components/header"
 import { BulkIssueDialog } from "@/components/bulk-issue-dialog"
 import { ReturnDialog } from "@/components/return-dialog"
+import { db } from "@/lib/db"
 import { getIssues, getReturns, getProducts, setIssueDelivered, getIssueDrafts, deleteIssueDraft, clearAllIssues, saveIssues, restoreIssues } from "@/lib/storage"
 import type { Issue, Return, Product } from "@/lib/types"
 import { generateIssuePDF } from "@/lib/pdf-generator"
@@ -153,15 +154,19 @@ export default function IssuesPage() {
           }
         } catch (e) {
           console.error("Cloud sync failed", e)
-          toast({ title: "Sync Warning", description: "Updated locally but cloud sync failed", variant: "destructive" })
         }
       }
 
-      toast({ title: "تم التسليم", description: "تم خصم الكميات من المخزون بنجاح" })
-      // Force reload to reflect stock changes from server (Optional now with realtime, but good for safety)
-      // setTimeout(() => window.location.reload(), 1000) // Removed reload as realtime hooks should update UI
+      toast({
+        title: getDualString("issues.toast.delivered"),
+        description: getDualString("issues.toast.deliveredDesc")
+      })
     } else {
-      toast({ title: "فشل العملية", description: "تعذر خصم الكميات. تحقق من المخزون المتوفر", variant: "destructive" })
+      toast({
+        title: getDualString("common.error"),
+        description: getDualString("issues.toast.deliveryError"),
+        variant: "destructive"
+      })
     }
     setDeliverDialogIssueId(null)
   }
@@ -172,6 +177,26 @@ export default function IssuesPage() {
   }
 
   const handlePrintInvoice = async (issue: Issue) => {
+    // Validate stock before printing
+    for (const item of issue.products) {
+      const product = products.find(p => p.id === item.productId)
+      if (product) {
+        // If already delivered, we add back the quantity to simulate "pre-delivery" stock state for validation
+        // If not delivered, we rely on current stock
+        const effectiveStock = (product.currentStock || 0) + (issue.delivered ? (item.quantity || 0) : 0)
+
+        if ((item.quantity || 0) > effectiveStock) {
+          const productName = product.productName || item.productName
+          toast({
+            title: getDualString("common.error"),
+            description: `${getDualString("bulkIssue.error.insufficientStock")}: ${productName}. ${getDualString("bulkIssue.error.adjustQuantity")}`,
+            variant: "destructive"
+          })
+          return
+        }
+      }
+    }
+
     await generateIssuePDF(issue)
   }
 
@@ -196,12 +221,12 @@ export default function IssuesPage() {
         if (Array.isArray(json)) {
           await restoreIssues(json)
           loadData()
-          toast({ title: t("common.success"), description: "تم استعادة البيانات بنجاح" })
+          toast({ title: getDualString("common.success"), description: getDualString("issues.toast.restoreSuccess") })
         } else {
-          toast({ title: "خطأ", description: "ملف غير صالح", variant: "destructive" })
+          toast({ title: getDualString("common.error"), description: getDualString("issues.toast.restoreErrorFile"), variant: "destructive" })
         }
       } catch (err) {
-        toast({ title: "خطأ", description: "فشل قراءة الملف", variant: "destructive" })
+        toast({ title: getDualString("common.error"), description: getDualString("issues.toast.restoreErrorRead"), variant: "destructive" })
       }
     }
     reader.readAsText(file)
@@ -210,10 +235,10 @@ export default function IssuesPage() {
   }
 
   const handleFactoryResetIssues = async () => {
-    if (confirm(t("common.confirmReset", "هل أنت متأكد من حذف جميع بيانات الصرف؟ لا يمكن التراجع عن هذا الإجراء."))) {
+    if (confirm(t("home.maintenance.dbReset.confirm"))) {
       await clearAllIssues()
       loadData()
-      toast({ title: t("common.success"), description: "تم حذف البيانات بنجاح" })
+      toast({ title: getDualString("common.success"), description: getDualString("common.success") })
     }
   }
 
@@ -345,7 +370,7 @@ export default function IssuesPage() {
   }, [startDate, endDate, minQty, maxQty, categoryFilter, productMode, productSearch, productSelectedId, branchMode, branchSelected])
 
   const aggregatedInvoiceRows = useMemo(() => {
-    type Row = { productId: string; productName: string; unitPrice: number; quantity: number; subtotal: number; category?: string; unit?: string; image?: string; overRequested?: boolean }
+    type Row = { productId: string; productCode: string; productName: string; unitPrice: number; quantity: number; subtotal: number; category?: string; unit?: string; image?: string; overRequested?: boolean }
     const acc = new Map<string, Row>()
     const min = minQty ? Number(minQty) : undefined
     const max = maxQty ? Number(maxQty) : undefined
@@ -371,6 +396,7 @@ export default function IssuesPage() {
         }
         const row = acc.get(ip.productId) || {
           productId: ip.productId,
+          productCode: ip.productCode || "",
           productName: ip.productName || productNameById.get(ip.productId) || "",
           unitPrice: ip.unitPrice,
           image: productImageMap.get(ip.productId),
@@ -411,16 +437,17 @@ export default function IssuesPage() {
   const formatCurrency = (val: number) => `${formatEnglishNumber(val.toFixed(2))} ${t("common.currency")}`
 
   const exportInvoiceCSV = () => {
-    const confirmed = window.confirm(t("issues.invoice.confirm.saveBeforeExport"))
+    const confirmed = window.confirm(getDualString("issues.invoice.confirm.saveBeforeExport"))
     if (!confirmed) return
     const headers = [
+      t("issues.invoice.table.productCode") || "الكود / Code",
       t("issues.invoice.table.productName"),
       t("issues.invoice.table.unit"),
       t("issues.invoice.table.issuedQty"),
       t("issues.invoice.table.unitPrice"),
       t("issues.invoice.table.subtotal")
     ]
-    const rows = aggregatedInvoiceRows.map((r) => [r.productName, r.unit || "-", String(r.quantity), String(r.unitPrice), String(r.subtotal)])
+    const rows = aggregatedInvoiceRows.map((r) => [r.productCode, r.productName, r.unit || "-", String(r.quantity), String(r.unitPrice), String(r.subtotal)])
     const csv = [headers.join(","), ...rows.map((row) => row.join(","))].join("\n")
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
     const url = URL.createObjectURL(blob)
@@ -434,7 +461,7 @@ export default function IssuesPage() {
   }
 
   const printInvoicePDF = () => {
-    const confirmed = window.confirm(t("issues.invoice.confirm.saveBeforePrint"))
+    const confirmed = window.confirm(getDualString("issues.invoice.confirm.saveBeforePrint"))
     if (!confirmed) return
     const period = startDate && endDate
       ? `${formatArabicGregorianDate(new Date(startDate))} - ${formatArabicGregorianDate(new Date(endDate))}`
@@ -442,6 +469,7 @@ export default function IssuesPage() {
     const rowsHtml = aggregatedInvoiceRows.map((r, idx) => `
       <tr>
         <td class="index">${idx + 1}</td>
+        <td>${r.productCode}</td>
         <td class="name">${r.productName}</td>
         ${settings.showUnit ? `<td>${r.unit || '-'}</td>` : ''}
         ${settings.showQuantity ? `<td class="qty">${formatEnglishNumber(r.quantity)}</td>` : ''}
@@ -453,7 +481,7 @@ export default function IssuesPage() {
     <html dir="rtl" lang="ar">
     <head>
       <meta charset="UTF-8" />
-      <title>فاتورة إجمالية للمنتجات المصروفة</title>
+      <title>${t("issues.invoice.pdfTitle")}</title>
       <style>
         *{box-sizing:border-box}
         body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:#fff;color:#0f172a;padding:28px}
@@ -482,6 +510,7 @@ export default function IssuesPage() {
         <thead>
           <tr>
             <th>#</th>
+            <th>${t("issues.invoice.table.productCode") || "الكود / Code"}</th>
             <th>${t("issues.invoice.table.productName")}</th>
             ${settings.showUnit ? `<th>${t("issues.invoice.table.unit")}</th>` : ''}
             ${settings.showQuantity ? `<th>${t("issues.invoice.table.issuedQty")}</th>` : ''}
@@ -516,7 +545,7 @@ export default function IssuesPage() {
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold"><DualText k="issues.title" /></h1>
-              <p className="text-muted-foreground"><DualText k="issues.subtitle" /></p>
+              <p className="text-muted-foreground"><DualText k="issues.subtitle" /> (v1.1)</p>
             </div>
             <div className="flex gap-2 flex-wrap">
               <div className="flex gap-2 mr-2 border-r pr-2">
@@ -628,7 +657,7 @@ export default function IssuesPage() {
                             <TableCell className="text-left">
                               <div className="flex items-center gap-2">
                                 <Button size="sm" variant="ghost" onClick={() => { setEditingIssue(undefined); try { localStorage.setItem('issueDraftLoadId', d.id) } catch { }; setIsIssueDialogOpen(true) }}><DualText k="common.continue" /></Button>
-                                <Button size="sm" variant="destructive" onClick={() => { deleteIssueDraft(d.id); setIssues(getIssues()); }}><DualText k="common.delete" /></Button>
+                                <Button size="sm" variant="destructive" onClick={() => { deleteIssueDraft(d.id); setLocalIssues(getIssues()); }}><DualText k="common.delete" /></Button>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -682,6 +711,7 @@ export default function IssuesPage() {
                       <TableHead className="min-w-[120px]"><DualText k="issues.table.issues.columns.productsCount" /></TableHead>
                       <TableHead className="min-w-[140px]"><DualText k="issues.table.issues.columns.total" /></TableHead>
                       <TableHead className="min-w-[120px]"><DualText k="issues.table.issues.columns.date" /></TableHead>
+                      <TableHead className="min-w-[100px]"><DualText k="common.status" /></TableHead>
                       <TableHead className="min-w-[150px]"><DualText k="issues.table.issues.columns.notes" /></TableHead>
                       <TableHead className="text-left min-w-[100px]"><DualText k="issues.table.issues.columns.actions" /></TableHead>
                     </TableRow>
@@ -711,20 +741,19 @@ export default function IssuesPage() {
                               {issue.delivered ? (
                                 <Badge variant="default" className="bg-green-600 hover:bg-green-700">
                                   <Check className="w-3 h-3 mr-1" />
-                                  {issue.deliveredBy === 'branch' ? <DualText k="issues.status.branchReceived" /> : <DualText k="issues.status.delivered" />}
+                                  <DualText k="issues.status.delivered" />
+                                </Badge>
+                              ) : issue.branchReceived ? (
+                                <Badge variant="outline" className="text-green-600 border-green-600 bg-green-50">
+                                  <Check className="w-3 h-3 mr-1" />
+                                  <DualText k="issues.status.branchReceived" />
                                 </Badge>
                               ) : (
                                 <Badge variant="secondary"><DualText k="issues.status.pending" /></Badge>
                               )}
                             </TableCell>
                             <TableCell className="text-muted-foreground">
-                              {issue.deliveredBy === 'branch' ? (
-                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                                  <DualText k="issues.status.branchReceived" />
-                                </Badge>
-                              ) : (
-                                issue.notes || "-"
-                              )}
+                              {issue.notes || "-"}
                             </TableCell>
                             <TableCell className="text-left">
                               <div className="flex items-center gap-1">
@@ -844,8 +873,8 @@ export default function IssuesPage() {
                   <div>
                     <label className="block text-sm mb-1"><DualText k="issues.invoice.filters.period" /></label>
                     <div className="grid grid-cols-2 gap-2">
-                      <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} aria-label="تاريخ البدء" />
-                      <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} aria-label="تاريخ الانتهاء" />
+                      <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} aria-label={t("reports.date.start")} />
+                      <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} aria-label={t("reports.date.end")} />
                     </div>
                   </div>
                   <div>
@@ -928,6 +957,7 @@ export default function IssuesPage() {
                           {filtersActive && (
                             <TableHead className="min-w-[100px]"><DualText k="issues.invoice.table.image" /></TableHead>
                           )}
+                          <TableHead className="min-w-[100px]"><DualText k="issues.invoice.table.productCode" /></TableHead>
                           <TableHead className="min-w-[200px]"><DualText k="issues.invoice.table.productName" /></TableHead>
                           {settings.showUnit && <TableHead className="min-w-[100px]"><DualText k="issues.invoice.table.unit" /></TableHead>}
                           {settings.showQuantity && <TableHead className="min-w-[120px]"><DualText k="issues.invoice.table.issuedQty" /></TableHead>}
@@ -955,6 +985,7 @@ export default function IssuesPage() {
                                     />
                                   </TableCell>
                                 )}
+                                <TableCell className="font-medium">{row.productCode}</TableCell>
                                 <TableCell className="font-medium">{row.productName}</TableCell>
                                 {settings.showUnit && <TableCell>{row.unit || '-'}</TableCell>}
                                 {settings.showQuantity && <TableCell className="font-semibold">{formatEnglishNumber(row.quantity)}</TableCell>}

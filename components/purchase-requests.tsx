@@ -31,6 +31,7 @@ import { addPurchaseRequest, getPurchaseRequests, setRequestStatus, updatePurcha
 import { formatEnglishNumber, getNumericInvoiceNumber } from "@/lib/utils"
 import { generatePurchaseRequestPDF } from "@/lib/purchase-request-pdf-generator"
 import { useI18n } from "@/components/language-provider"
+import { DualText, getDualString } from "@/components/ui/dual-text"
 
 import { useInvoiceSettings } from "@/lib/invoice-settings-store"
 import { useProductsRealtime, usePurchaseRequestsRealtime } from "@/hooks/use-store"
@@ -60,7 +61,7 @@ export function PurchaseRequestsSection() {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const role = typeof window !== 'undefined' ? (localStorage.getItem('user_role') || 'user') : 'user'
-  const hasPermission = (action: 'submit'|'delete'|'received'|'edit') => {
+  const hasPermission = (action: 'submit' | 'delete' | 'received' | 'edit') => {
     // بسيط: المدير أو المسؤول فقط للعمليات الحساسة
     if (action === 'submit' || action === 'delete' || action === 'received' || action === 'edit') {
       return role === 'admin' || role === 'manager'
@@ -74,8 +75,8 @@ export function PurchaseRequestsSection() {
       const matchesSearch = !q
         ? true
         : r.items.some((i) => i.productName.toLowerCase().includes(q) || i.productCode.toLowerCase().includes(q)) ||
-          (r.notes || "").toLowerCase().includes(q) ||
-          (r.requestNumber ? String(r.requestNumber).includes(q) : false)
+        (r.notes || "").toLowerCase().includes(q) ||
+        (r.requestNumber ? String(r.requestNumber).includes(q) : false)
       const matchesStatus = statusFilter === 'all' ? true : r.status === statusFilter
       return matchesSearch && matchesStatus
     })
@@ -86,7 +87,11 @@ export function PurchaseRequestsSection() {
     const p = products.find((pp) => pp.id === selectedProductId)
     if (!p) return
     if (!requestedQty || requestedQty <= 0) {
-      toast({ title: t("purchaseRequests.toast.invalidQty"), description: t("purchaseRequests.toast.invalidQtyDesc"), variant: "destructive" })
+      toast({
+        title: getDualString("purchaseRequests.toast.invalidQty"),
+        description: getDualString("purchaseRequests.toast.invalidQtyDesc"),
+        variant: "destructive"
+      })
       return
     }
     const existingIndex = items.findIndex((i) => i.productId === p.id)
@@ -132,7 +137,11 @@ export function PurchaseRequestsSection() {
 
   const persistDraft = async () => {
     if (items.length === 0) {
-      toast({ title: t("purchaseRequests.toast.noItems"), description: t("purchaseRequests.toast.addItemsFirst"), variant: "destructive" })
+      toast({
+        title: getDualString("purchaseRequests.toast.noItems"),
+        description: getDualString("purchaseRequests.toast.addItemsFirst"),
+        variant: "destructive"
+      })
       return
     }
     if (isSubmitting) return
@@ -142,11 +151,17 @@ export function PurchaseRequestsSection() {
       if (editingId) {
         const updated = updatePurchaseRequest(editingId, { items, notes })
         if (updated) {
-          toast({ title: t("purchaseRequests.toast.draftSaved"), description: t("purchaseRequests.toast.draftUpdated") })
+          toast({
+            title: getDualString("purchaseRequests.toast.draftSaved"),
+            description: getDualString("purchaseRequests.toast.draftUpdated")
+          })
         }
       } else {
         const created = addPurchaseRequest({ items, notes, createdBy: "system" })
-        toast({ title: t("purchaseRequests.toast.draftCreated"), description: t("purchaseRequests.toast.requestSaved") })
+        toast({
+          title: getDualString("purchaseRequests.toast.draftCreated"),
+          description: getDualString("purchaseRequests.toast.requestSaved")
+        })
       }
       setIsDialogOpen(false)
     } catch (e) {
@@ -158,16 +173,24 @@ export function PurchaseRequestsSection() {
 
   const submitRequest = async () => {
     if (items.length === 0) {
-      toast({ title: t("purchaseRequests.toast.noItems"), description: t("purchaseRequests.toast.addItemsFirstSubmit"), variant: "destructive" })
+      toast({
+        title: getDualString("purchaseRequests.toast.noItems"),
+        description: getDualString("purchaseRequests.toast.addItemsFirstSubmit"),
+        variant: "destructive"
+      })
       return
     }
     if (!hasPermission('submit')) {
-      toast({ title: t("purchaseRequests.toast.noPermission"), description: t("purchaseRequests.toast.noPermissionSubmit"), variant: "destructive" })
+      toast({
+        title: getDualString("purchaseRequests.toast.noPermission"),
+        description: getDualString("purchaseRequests.toast.noPermissionSubmit"),
+        variant: "destructive"
+      })
       return
     }
-    
+
     if (isSubmitting) return
-    
+
     const confirmed = window.confirm(t("purchaseRequests.confirm.submit"))
     if (!confirmed) return
 
@@ -177,12 +200,18 @@ export function PurchaseRequestsSection() {
         const updated = setRequestStatus(editingId, "submitted", "system")
         if (updated) {
           setRequests((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
-          toast({ title: t("purchaseRequests.toast.submitted"), description: t("purchaseRequests.toast.submittedDesc") })
+          toast({
+            title: getDualString("purchaseRequests.toast.submitted"),
+            description: getDualString("purchaseRequests.toast.submittedDesc")
+          })
         }
       } else {
         const created = addPurchaseRequest({ items, notes, createdBy: "system", status: "submitted" })
         setRequests((prev) => [created, ...prev])
-        toast({ title: t("purchaseRequests.toast.submitted"), description: t("purchaseRequests.toast.submittedDesc") })
+        toast({
+          title: getDualString("purchaseRequests.toast.submitted"),
+          description: getDualString("purchaseRequests.toast.submittedDesc")
+        })
       }
       setIsDialogOpen(false)
     } catch (e) {
@@ -194,7 +223,11 @@ export function PurchaseRequestsSection() {
 
   const markReceived = (id: string) => {
     if (!hasPermission('received')) {
-      toast({ title: t("purchaseRequests.toast.noPermission"), description: t("purchaseRequests.toast.noPermissionReceive"), variant: "destructive" })
+      toast({
+        title: getDualString("purchaseRequests.toast.noPermission"),
+        description: getDualString("purchaseRequests.toast.noPermissionReceive"),
+        variant: "destructive"
+      })
       return
     }
     const ok = window.confirm(t("purchaseRequests.confirm.receive"))
@@ -202,7 +235,10 @@ export function PurchaseRequestsSection() {
     const updated = setRequestStatus(id, 'received', 'system')
     if (updated) {
       setRequests((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
-      toast({ title: t("purchaseRequests.toast.received"), description: t("purchaseRequests.toast.receivedDesc") })
+      toast({
+        title: getDualString("purchaseRequests.toast.received"),
+        description: getDualString("purchaseRequests.toast.receivedDesc")
+      })
     }
   }
 
@@ -210,7 +246,10 @@ export function PurchaseRequestsSection() {
     const ok = window.confirm(t("purchaseRequests.confirm.delete"))
     if (!ok) return
     if (deletePurchaseRequest(id)) {
-      toast({ title: t("purchaseRequests.toast.deleted"), description: t("purchaseRequests.toast.deletedDesc") })
+      toast({
+        title: getDualString("purchaseRequests.toast.deleted"),
+        description: getDualString("purchaseRequests.toast.deletedDesc")
+      })
     }
   }
 
@@ -259,7 +298,7 @@ export function PurchaseRequestsSection() {
                             {products.map((p) => {
                               const stock = Number(p.currentStock ?? 0)
                               const isOutOfStock = stock <= 0
-                              
+
                               let isLowStock = p.isLowStock
                               if (isLowStock === undefined) {
                                 const threshold = p.lowStockThresholdPercentage || 33.33
@@ -276,10 +315,10 @@ export function PurchaseRequestsSection() {
                                     setOpen(false)
                                   }}
                                   className={cn(
-                                    isOutOfStock 
-                                      ? "text-red-900 font-medium" 
-                                      : isLowStock 
-                                        ? "text-red-500" 
+                                    isOutOfStock
+                                      ? "text-red-900 font-medium"
+                                      : isLowStock
+                                        ? "text-red-500"
                                         : ""
                                   )}
                                 >
@@ -424,7 +463,10 @@ export function PurchaseRequestsSection() {
                       <TableCell className="space-x-2">
                         <Button size="sm" onClick={() => openEditRequest(r)} disabled={!hasPermission('edit')} title={!hasPermission('edit') ? t("common.notAllowed") : undefined}><Edit className="ml-2 h-4 w-4" /> {t("purchaseRequests.actions.edit")}</Button>
                         <Button size="sm" variant="secondary" onClick={async () => {
-                          toast({ title: t("common.processing"), description: t("common.pleaseWait") })
+                          toast({
+                            title: getDualString("common.processing"),
+                            description: getDualString("common.pleaseWait")
+                          })
                           await generatePurchaseRequestPDF(r, lang, products)
                         }}><FileText className="ml-2 h-4 w-4" /> {t("purchaseRequests.actions.pdf")}</Button>
                         <Button size="sm" variant="default" onClick={() => markReceived(r.id)} disabled={!hasPermission('received')} title={!hasPermission('received') ? t("common.notAllowed") : undefined}><CheckCircle className="ml-2 h-4 w-4" /> {t("purchaseRequests.actions.receive")}</Button>

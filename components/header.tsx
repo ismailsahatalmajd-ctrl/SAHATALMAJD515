@@ -8,7 +8,6 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { useEffect, useState } from "react"
 import { useI18n } from "@/components/language-provider"
-import { LanguageToggle } from "@/components/language-toggle"
 import { AppControls } from "./app-controls"
 import { SyncIndicator } from "./sync-indicator"
 import { NotificationsCenter } from "@/components/notifications-center"
@@ -82,11 +81,11 @@ export function Header() {
                     <Menu className="h-6 w-6" />
                   </Button>
                 </SheetTrigger>
-                <SheetContent side="right" className="w-[300px] sm:w-[400px]">
+                <SheetContent side="right" className="w-[300px] sm:w-[400px] overflow-y-auto">
                   <SheetHeader>
                     <SheetTitle><DualText k="brand.name" /></SheetTitle>
                   </SheetHeader>
-                  <nav className="flex flex-col gap-4 mt-6">
+                  <nav className="flex flex-col gap-4 mt-6 pb-20">
                     {links.map((link) => {
                       const Icon = link.icon
                       const isActive = pathname === link.href
@@ -140,7 +139,6 @@ export function Header() {
             </Button>
             <SyncIndicator />
             <NotificationsCenter />
-            <LanguageToggle />
             <AppControls />
             <Button variant="ghost" size="icon" onClick={handleLogout} title={t("auth.logout")}>
               <LogOut className="h-4 w-4 text-destructive" />

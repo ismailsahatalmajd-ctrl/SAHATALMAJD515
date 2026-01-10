@@ -13,6 +13,7 @@ export interface InvoiceSettings {
   headerText: string
   footerText: string
   logoUrl?: string
+  template: 'classic' | 'modern' | 'thermal' // New field
 }
 
 export const DEFAULT_INVOICE_SETTINGS: InvoiceSettings = {
@@ -25,6 +26,7 @@ export const DEFAULT_INVOICE_SETTINGS: InvoiceSettings = {
   showTotal: true,
   headerText: "",
   footerText: "",
+  template: 'classic', // Default
 }
 
 import { db } from "./db"
@@ -44,7 +46,7 @@ export async function getInvoiceSettings(): Promise<InvoiceSettings> {
       const data = JSON.parse(raw)
       const settings = { ...DEFAULT_INVOICE_SETTINGS, ...(data.invoiceSettings || {}) }
       // Migrate to Dexie
-      await saveInvoiceSettings(settings) 
+      await saveInvoiceSettings(settings)
       return settings
     }
     const data = setting.value
@@ -60,30 +62,30 @@ export async function saveInvoiceSettings(settings: Partial<InvoiceSettings>, us
   try {
     const current = await getInvoiceSettings()
     const updated = { ...current, ...settings }
-    
+
     // Get full app settings to preserve other keys
     let appSettings: any = {}
     try {
-        const setting = await db.settings.get(SETTINGS_KEY)
-        if (setting) appSettings = setting.value
-    } catch {}
+      const setting = await db.settings.get(SETTINGS_KEY)
+      if (setting) appSettings = setting.value
+    } catch { }
 
     // Also check localStorage for any keys we might have missed if we didn't fully migrate yet
     if (Object.keys(appSettings).length === 0) {
-        const rawApp = localStorage.getItem(SETTINGS_KEY)
-        if (rawApp) appSettings = JSON.parse(rawApp)
+      const rawApp = localStorage.getItem(SETTINGS_KEY)
+      if (rawApp) appSettings = JSON.parse(rawApp)
     }
-    
+
     const newAppSettings = {
       ...appSettings,
       invoiceSettings: updated
     }
 
     await db.settings.put({ key: SETTINGS_KEY, value: newAppSettings })
-    
+
     // Dispatch event for same-tab updates
     window.dispatchEvent(new Event(EVENT_KEY))
-    
+
     // Audit log
     const changes = Object.entries(settings).map(([key, value]) => ({
       field: key,
@@ -92,15 +94,15 @@ export async function saveInvoiceSettings(settings: Partial<InvoiceSettings>, us
     }))
 
     await addAuditLog(
-      "system", 
-      username, 
-      "update", 
-      "settings", 
-      "global_settings", 
-      "إعدادات الفواتير", 
+      "system",
+      username,
+      "update",
+      "settings",
+      "global_settings",
+      "إعدادات الفواتير",
       changes
     )
-    
+
     // Sync to server (fire and forget)
     fetch('/api/settings', {
       method: 'POST',
@@ -130,7 +132,7 @@ export function useInvoiceSettings() {
 
     // Listen for local events (same tab)
     window.addEventListener(EVENT_KEY, handleUpdate)
-    
+
     // Listen for storage events (other tabs)
     window.addEventListener("storage", (e) => {
       if (e.key === SETTINGS_KEY) {

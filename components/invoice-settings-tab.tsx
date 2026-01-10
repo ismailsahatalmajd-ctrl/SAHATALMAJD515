@@ -101,6 +101,13 @@ export function InvoiceSettingsTab() {
 
         <Separator />
 
+        <InvoiceTemplateSelector
+          value={settings.template || 'classic'}
+          onChange={(v) => handleSave({ template: v })}
+        />
+
+        <Separator />
+
         <div className="space-y-3">
           <Label className="text-base">خيارات العرض</Label>
           <div className="grid grid-cols-2 gap-4">
@@ -215,3 +222,4 @@ export function InvoiceSettingsTab() {
   )
 }
 import { ImageMigrationTool } from "@/components/image-migration-tool"
+import { InvoiceTemplateSelector } from "@/components/invoice-template-selector"

@@ -1,7 +1,8 @@
 import type { Return } from "./types"
 import { getProducts } from "@/lib/storage"
-import { formatArabicGregorianDate, formatArabicGregorianTime, formatEnglishNumber, getNumericInvoiceNumber } from "@/lib/utils"
+import { formatArabicGregorianDate, formatArabicGregorianTime, formatEnglishNumber, getNumericInvoiceNumber, getSafeImageSrc } from "@/lib/utils"
 import { getInvoiceSettings } from "./invoice-settings-store"
+import { db } from "@/lib/db"
 
 export async function generateReturnPDF(ret: Return) {
   const settings = await getInvoiceSettings()
@@ -15,6 +16,27 @@ export async function generateReturnPDF(ret: Return) {
 
   const dateStrEn = new Date(ret.createdAt).toLocaleDateString('en-GB')
   const timeStrEn = new Date(ret.createdAt).toLocaleTimeString('en-GB')
+
+  // Resolve images from DB
+  const productsWithImages = await Promise.all(ret.products.map(async (p) => {
+    let imgSrc = p.image || ""
+    if (p.image === 'DB_IMAGE') {
+      try {
+        const rec = await db.productImages.get(p.productId)
+        if (rec && rec.data) {
+          imgSrc = getSafeImageSrc(rec.data)
+        } else {
+          imgSrc = ""
+        }
+      } catch (e) {
+        console.error("Failed to load image for return PDF", e)
+        imgSrc = ""
+      }
+    } else if (p.image) {
+      imgSrc = getSafeImageSrc(p.image)
+    }
+    return { ...p, resolvedImage: imgSrc }
+  }))
 
   // Create PDF content as Arabic HTML
   const pdfContent = `
@@ -96,6 +118,7 @@ export async function generateReturnPDF(ret: Return) {
     <thead>
       <tr>
         <th style="width: 50px">#</th>
+        <th>الصورة<br>Image</th>
         <th>كود المنتج<br>Product Code</th>
         <th>اسم المنتج<br>Product Name</th>
         <th>الوحدة<br>Unit</th>
@@ -106,7 +129,7 @@ export async function generateReturnPDF(ret: Return) {
       </tr>
     </thead>
     <tbody>
-      ${ret.products
+      ${productsWithImages
       .map((product, index) => {
         let unit = product.unit
         if (!unit) {
@@ -116,6 +139,12 @@ export async function generateReturnPDF(ret: Return) {
         return `
         <tr>
           <td>${formatEnglishNumber(index + 1)}</td>
+          <td>
+            ${product.resolvedImage
+            ? `<img src="${product.resolvedImage}" alt="${product.productName}" style="width:50px;height:50px;object-fit:cover;border-radius:4px;border:1px solid #e2e8f0;" />`
+            : '<div style="width:50px;height:50px;background:#f1f5f9;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#94a3b8;border:1px solid #e2e8f0;">لا صورة</div>'
+          }
+          </td>
           <td>${product.productCode}</td>
           <td><strong>${product.productName}</strong></td>
           <td>${unit || "-"}</td>

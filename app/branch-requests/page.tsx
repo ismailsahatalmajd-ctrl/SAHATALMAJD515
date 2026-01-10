@@ -4,15 +4,18 @@ export const dynamic = "force-dynamic"
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Loader2, AlertTriangle, Check, X, Eye, FileText, MessageSquare, Send } from "lucide-react"
+import { Loader2, AlertTriangle, Check, X, Eye, FileText, MessageSquare, Send, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { getBranchRequests, approveBranchRequest, setRequestStatus, addBranchRequestMessage } from "@/lib/branch-request-storage"
+import { hardReset } from "@/lib/storage"
 import { useBranchRequestsRealtime } from "@/hooks/use-store"
 import type { BranchRequest } from "@/lib/branch-request-types"
 import { useToast } from "@/hooks/use-toast"
+import { DualText, getDualString } from "@/components/ui/dual-text"
+import { useI18n } from "@/components/language-provider"
 import { generateBranchRequestPDF } from "@/lib/branch-request-pdf-generator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
@@ -23,6 +26,7 @@ import { useAuth } from "@/components/auth-provider"
 
 export default function BranchRequestsPage() {
     const router = useRouter()
+    const { t } = useI18n()
     const { toast } = useToast()
     const { user, loading: authLoading } = useAuth()
 
@@ -108,8 +112,27 @@ export default function BranchRequestsPage() {
     return (
         <div className="container mx-auto py-10 space-y-6" dir="rtl">
             <div className="flex justify-between items-center">
-                <h1 className="text-3xl font-bold">طلبات الفروع</h1>
-                <Button variant="outline" onClick={() => router.push("/")}>العودة</Button>
+                <h1 className="text-3xl font-bold">
+                    <DualText k="branchRequests.title" fallback="طلبات الفروع" />
+                </h1>
+                <div className="flex gap-2 items-center">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                            if (confirm(getDualString('sync.hardResetConfirm'))) {
+                                hardReset()
+                            }
+                        }}
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 gap-2"
+                    >
+                        <RotateCcw className="h-4 w-4" />
+                        <DualText k="sync.hardReset" />
+                    </Button>
+                    <Button variant="outline" onClick={() => router.push("/")}>
+                        <DualText k="common.back" fallback="العودة" />
+                    </Button>
+                </div>
             </div>
 
             <Card>
@@ -196,8 +219,8 @@ export default function BranchRequestsPage() {
                                 {(activeChatRequest?.chatMessages || []).map((msg, idx) => (
                                     <div key={idx} className={`flex ${msg.sender === 'admin' ? 'justify-end' : 'justify-start'}`}>
                                         <div className={`max-w-[80%] p-3 rounded-lg ${msg.sender === 'admin'
-                                                ? 'bg-primary text-primary-foreground rounded-tl-none'
-                                                : 'bg-white border rounded-tr-none'
+                                            ? 'bg-primary text-primary-foreground rounded-tl-none'
+                                            : 'bg-white border rounded-tr-none'
                                             }`}>
                                             <p className="text-sm font-bold mb-1">{msg.senderName}</p>
                                             <p className="text-sm">{msg.message}</p>

@@ -40,8 +40,8 @@ export async function generateBranchRequestPDF(request: BranchRequest): Promise<
         : ''
 
       const qty = it.requestedQuantity || it.quantity || 0
-      const unitPrice = it.unitPrice || it.price || 0
-      const totalPrice = unitPrice * qty
+      // const unitPrice = it.unitPrice || it.price || 0
+      // const totalPrice = unitPrice * qty
 
       return `
       <tr>
@@ -52,8 +52,6 @@ export async function generateBranchRequestPDF(request: BranchRequest): Promise<
         ${settings.showUnit ? `<td>${it.unit || ""}</td>` : ''}
         ${settings.showQuantity ? `<td>${qty}</td>` : ''}
         ${!isReturn ? `<td>${it.availableQuantity ?? "-"}</td>` : ''}
-        ${settings.showPrice ? `<td>${unitPrice.toFixed(2)}</td>` : ''}
-        ${settings.showTotal ? `<td>${totalPrice.toFixed(2)}</td>` : ''}
         ${reasonCell}
         ${noteCell}
       </tr>
@@ -103,8 +101,6 @@ export async function generateBranchRequestPDF(request: BranchRequest): Promise<
             ${settings.showUnit ? `<th>Unit / الوحدة</th>` : ''}
             ${settings.showQuantity ? `<th>Qty / الكمية</th>` : ''}
             ${!isReturn ? '<th>Available / المتوفر</th>' : ''}
-            ${settings.showPrice ? `<th>Price / السعر</th>` : ''}
-            ${settings.showTotal ? `<th>Total / الإجمالي</th>` : ''}
             ${isReturn ? '<th>Return Reason / سبب الارجاع</th>' : ''}
             ${hasExceeded ? '<th>Note / ملاحظة</th>' : ''}
           </tr>

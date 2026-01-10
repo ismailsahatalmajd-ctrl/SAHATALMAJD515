@@ -17,6 +17,7 @@ import { getIssues, addReturn } from "@/lib/storage"
 import type { Issue } from "@/lib/types"
 import { useToast } from "@/hooks/use-toast"
 import { useI18n } from "@/components/language-provider"
+import { DualText, getDualString } from "@/components/ui/dual-text"
 
 interface ReturnDialogProps {
   open: boolean
@@ -39,12 +40,12 @@ export function ReturnDialog({ open, onOpenChange, onSuccess }: ReturnDialogProp
 
   const handleSubmit = () => {
     if (!selectedIssueId) {
-      toast({ title: t("toast.error"), description: t("returnDialog.selectIssue"), variant: "destructive" })
+      toast({ title: getDualString("toast.error"), description: getDualString("returnDialog.selectIssue"), variant: "destructive" })
       return
     }
 
     if (!reason.trim()) {
-      toast({ title: t("toast.error"), description: t("returnDialog.enterReason"), variant: "destructive" })
+      toast({ title: getDualString("toast.error"), description: getDualString("returnDialog.enterReason"), variant: "destructive" })
       return
     }
 
@@ -60,7 +61,7 @@ export function ReturnDialog({ open, onOpenChange, onSuccess }: ReturnDialogProp
       reason,
     })
 
-    toast({ title: t("toast.success"), description: t("returnDialog.addedSuccess") })
+    toast({ title: getDualString("toast.success"), description: getDualString("returnDialog.addedSuccess") })
     resetForm()
     onSuccess()
   }
@@ -76,13 +77,19 @@ export function ReturnDialog({ open, onOpenChange, onSuccess }: ReturnDialogProp
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[95vw] w-full sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{t("returnDialog.title")}</DialogTitle>
-          <DialogDescription>{t("returnDialog.description")}</DialogDescription>
+          <DialogTitle>
+            <DualText k="returnDialog.title" />
+          </DialogTitle>
+          <DialogDescription>
+            <DualText k="returnDialog.description" />
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label>{t("returnDialog.issueLabel")}</Label>
+            <Label>
+              <DualText k="returnDialog.issueLabel" />
+            </Label>
             <Select value={selectedIssueId} onValueChange={setSelectedIssueId}>
               <SelectTrigger>
                 <SelectValue placeholder={t("returnDialog.issuePlaceholder")} />
@@ -100,22 +107,30 @@ export function ReturnDialog({ open, onOpenChange, onSuccess }: ReturnDialogProp
           {selectedIssue && (
             <div className="rounded-lg border p-4 space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{t("returnDialog.branchLabel")}</span>
+                <span className="text-muted-foreground">
+                  <DualText k="returnDialog.branchLabel" />
+                </span>
                 <span className="font-medium">{selectedIssue.branchName}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{t("returnDialog.productsCount")}</span>
+                <span className="text-muted-foreground">
+                  <DualText k="returnDialog.productsCount" />
+                </span>
                 <span className="font-medium">{selectedIssue.products.length}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{t("returnDialog.totalValue")}</span>
+                <span className="text-muted-foreground">
+                  <DualText k="returnDialog.totalValue" />
+                </span>
                 <span className="font-medium">{selectedIssue.totalValue.toFixed(2)} {t("common.currency")}</span>
               </div>
             </div>
           )}
 
           <div className="space-y-2">
-            <Label>{t("returnDialog.reasonLabel")}</Label>
+            <Label>
+              <DualText k="returnDialog.reasonLabel" />
+            </Label>
             <Textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
@@ -127,9 +142,11 @@ export function ReturnDialog({ open, onOpenChange, onSuccess }: ReturnDialogProp
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            {t("common.cancel")}
+            <DualText k="common.cancel" />
           </Button>
-          <Button onClick={handleSubmit}>{t("returnDialog.addReturnBtn")}</Button>
+          <Button onClick={handleSubmit}>
+            <DualText k="returnDialog.addReturnBtn" />
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -82,6 +82,11 @@ export async function generateIssuePDF(issue: Issue) {
       .total-row.grand { margin-top: 20px; border-top: 1px solid #e5e7eb; padding-top: 15px; }
       .total-row.grand span:last-child { font-size: 24px; font-weight: bold; color: #2563eb; }
       .total-label { font-weight: bold; min-width: 200px; }
+
+      .signatures-section { margin-top: 50px; display: flex; justify-content: space-between; gap: 20px; border-top: 1px solid #e5e7eb; padding-top: 20px; }
+      .sig-box { flex: 1; text-align: center; }
+      .sig-line { margin-top: 40px; border-top: 1px dashed #9ca3af; width: 80%; margin-left: auto; margin-right: auto; }
+      .sig-label { font-size: 12px; color: #4b5563; margin-top: 5px; }
     ` : ''}
 
     /* Template: Modern */
@@ -206,6 +211,27 @@ export async function generateIssuePDF(issue: Issue) {
       <span>${formatEnglishNumber(issue.totalValue.toFixed(2))} ريال</span>
     </div>
     ` : ''}
+  </div>
+
+  <div class="signatures-section">
+    <div class="sig-box">
+      <p><strong>المرسل من المستودع</strong></p>
+      <p style="font-size: 11px; color: #6b7280;">Warehouse Dispatcher</p>
+      <div class="sig-line"></div>
+      <p class="sig-label">الاسم والتوقيع / Name & Signature</p>
+    </div>
+    <div class="sig-box">
+      <p><strong>السائق</strong></p>
+      <p style="font-size: 11px; color: #6b7280;">Driver</p>
+      <div class="sig-line"></div>
+      <p class="sig-label">الاسم والتوقيع / Name & Signature</p>
+    </div>
+    <div class="sig-box">
+      <p><strong>المستلم من الفرع</strong></p>
+      <p style="font-size: 11px; color: #6b7280;">Branch Receiver</p>
+      <div class="sig-line"></div>
+      <p class="sig-label">الاسم والتوقيع / Name & Signature</p>
+    </div>
   </div>
 
   ${settings.footerText ? `

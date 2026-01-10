@@ -11,8 +11,10 @@ import type {
   Location,
   IssueDraft,
   PurchaseOrder,
+  PurchaseOrderItem,
   VerificationLog,
 } from "./types"
+export type { PurchaseOrder, PurchaseOrderItem }
 import type { BranchInvoice } from './branch-invoice-types'
 import type { BranchRequest } from './branch-request-types'
 import type { PurchaseRequest } from './purchase-request-types'
@@ -657,10 +659,42 @@ export function deletePurchaseRequest(id: string) {
   store.cache.purchaseRequests = store.cache.purchaseRequests.filter(p => p.id !== id)
   db.purchaseRequests.delete(id).catch(console.error)
 }
-
 export function savePurchaseRequests(requests: PurchaseRequest[]): void {
   store.cache.purchaseRequests = requests
   db.purchaseRequests.bulkPut(requests).catch(console.error)
+  notify('change')
+}
+
+// Purchase Orders
+export function getPurchaseOrders(): PurchaseOrder[] { return store.cache.purchaseOrders }
+
+export function addPurchaseOrder(po: Omit<PurchaseOrder, "id" | "createdAt" | "updatedAt">): PurchaseOrder {
+  const list = getPurchaseOrders()
+  const newItem = { ...po, id: generateId(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+  list.push(newItem)
+  store.cache.purchaseOrders = list
+  db.purchaseOrders.put(newItem).catch(console.error)
+  return newItem
+}
+
+export function updatePurchaseOrder(id: string, updates: Partial<PurchaseOrder>): PurchaseOrder | null {
+  const list = getPurchaseOrders()
+  const idx = list.findIndex(p => p.id === id)
+  if (idx === -1) return null
+  list[idx] = { ...list[idx], ...updates, updatedAt: new Date().toISOString() }
+  store.cache.purchaseOrders = list
+  db.purchaseOrders.put(list[idx]).catch(console.error)
+  return list[idx]
+}
+
+export function deletePurchaseOrder(id: string) {
+  store.cache.purchaseOrders = store.cache.purchaseOrders.filter(p => p.id !== id)
+  db.purchaseOrders.delete(id).catch(console.error)
+}
+
+export function savePurchaseOrders(orders: PurchaseOrder[]): void {
+  store.cache.purchaseOrders = orders
+  db.purchaseOrders.bulkPut(orders).catch(console.error)
   notify('change')
 }
 

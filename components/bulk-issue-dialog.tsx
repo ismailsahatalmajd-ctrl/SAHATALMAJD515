@@ -6,6 +6,7 @@ import { Plus, Trash2, Search } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { DualText, getDualString } from "@/components/ui/dual-text"
 import {
   Dialog,
   DialogContent,
@@ -203,12 +204,12 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
 
   const handleSubmit = async () => {
     if (!selectedBranchId) {
-      toast({ title: t("common.error"), description: t("bulkIssue.error.selectBranch"), variant: "destructive" })
+      toast({ title: getDualString("common.error"), description: getDualString("bulkIssue.error.selectBranch"), variant: "destructive" })
       return
     }
 
     if (issueProducts.length === 0 || issueProducts.some((p) => !p.productId || p.quantity <= 0)) {
-      toast({ title: t("common.error"), description: t("bulkIssue.error.noProducts"), variant: "destructive" })
+      toast({ title: getDualString("common.error"), description: getDualString("bulkIssue.error.noProducts"), variant: "destructive" })
       return
     }
 
@@ -218,8 +219,8 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
       // Check if product has zero stock
       if (product && product.currentStock === 0) {
         toast({
-          title: t("common.error"),
-          description: `${t("bulkIssue.error.zeroStock", "مخزون صفري")}: ${product.productName}. ${t("bulkIssue.error.adjustQuantity", "يجب تعديل الكمية")}`,
+          title: getDualString("common.error"),
+          description: `${getDualString("bulkIssue.error.zeroStock")}: ${product.productName}. ${getDualString("bulkIssue.error.adjustQuantity")}`,
           variant: "destructive",
         })
         return
@@ -228,8 +229,8 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
       // Check if requested quantity exceeds available stock
       if (product && product.currentStock < issueProduct.quantity) {
         toast({
-          title: t("common.error"),
-          description: `${t("bulkIssue.error.insufficientStock")}: ${product.productName}. ${t("bulkIssue.error.adjustQuantity", "يجب تعديل الكمية")}`,
+          title: getDualString("common.error"),
+          description: `${getDualString("bulkIssue.error.insufficientStock")}: ${product.productName}. ${getDualString("bulkIssue.error.adjustQuantity")}`,
           variant: "destructive",
         })
         return
@@ -260,7 +261,7 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
         try { syncIssue(updatedIssue) } catch (e) { console.error("Sync failed", e) }
       }
 
-      toast({ title: t("common.success"), description: t("bulkIssue.success.updated") })
+      toast({ title: getDualString("common.success"), description: getDualString("bulkIssue.success.updated") })
     } else {
       const newIssue = await addIssue({
         branchId: selectedBranchId,
@@ -277,7 +278,7 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
         try { await syncIssue(newIssue) } catch (e) { console.error("Sync failed", e) }
       }
 
-      toast({ title: t("common.success"), description: t("bulkIssue.success.issued") })
+      toast({ title: getDualString("common.success"), description: getDualString("bulkIssue.success.issued") })
     }
 
     // احذف المسودة المرتبطة بعد الحفظ النهائي
@@ -319,7 +320,7 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
                     : addIssueDraft({ branchId: selectedBranchId || undefined, branchName: bname, products: issueProducts, notes, extractorName, inspectorName } as any)
                   setCurrentDraftId(saved.id)
                   setDraftSaved(true)
-                  toast({ title: t("bulkIssue.saveAsDraft"), description: t("bulkIssue.autoSaved") })
+                  toast({ title: getDualString("bulkIssue.saveAsDraft"), description: getDualString("bulkIssue.autoSaved") })
                 } catch { }
               }}>{t("bulkIssue.saveAsDraft")}</Button>
               {currentDraftId && (
@@ -453,7 +454,9 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
                               placeholder="0"
                             />
                             {isOverStock && (
-                              <p className="text-xs text-red-500 mt-1 font-medium">{t("bulkIssue.error.insufficientStock")}</p>
+                              <p className="text-xs text-red-500 mt-1 font-medium">
+                                <DualText k="bulkIssue.error.insufficientStock" />
+                              </p>
                             )}
                           </TableCell>
                           {settings.showPrice && (

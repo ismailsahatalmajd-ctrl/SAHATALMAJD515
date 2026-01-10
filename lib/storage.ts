@@ -1023,10 +1023,15 @@ export async function approveReturn(returnId: string, approvedBy: string): Promi
 
   // Restock Products - FETCH FRESH
   try {
+    console.log(`[RETURN APPROVAL] Processing ${ret.products.length} products for return ${returnId}`)
+
     await Promise.all(ret.products.map(async (rp) => {
       const p = await db.products.get(rp.productId)
       if (p) {
+        const oldStock = p.currentStock || 0
         p.currentStock = (p.currentStock || 0) + rp.quantity
+
+        console.log(`[STOCK RESTORE] ${p.productName}: ${oldStock} + ${rp.quantity} = ${p.currentStock}`)
 
         // Decrement issues count/value if those fields exist (Reverse the issue)
         // @ts-ignore
@@ -1049,8 +1054,12 @@ export async function approveReturn(returnId: string, approvedBy: string): Promi
         } catch (e) {
           console.error("Sync Error updateProduct (approveReturn):", e)
         }
+      } else {
+        console.warn(`[STOCK RESTORE] Product not found: ${rp.productId}`)
       }
     }))
+
+    console.log(`[RETURN APPROVAL] ✅ Stock restoration completed for return ${returnId}`)
     notify('products_change')
   } catch (err) {
     console.error("Failed to update products for return approval:", err);

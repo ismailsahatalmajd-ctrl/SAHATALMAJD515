@@ -16,7 +16,7 @@ export async function generateBranchInvoicePDF(inv: BranchInvoice): Promise<stri
     hour12: true
   })
 
-  // Generate headers based on settings
+  // Headers are fixed without price and total
   let headers = `<th style="width: 40px">#</th>`
   headers += `<th style="width: 60px">الصورة<br/><span style="font-size:10px;font-weight:normal">Image</span></th>`
   headers += `<th style="width: 100px">كود المنتج<br/><span style="font-size:10px;font-weight:normal">Product Code</span></th>`
@@ -107,6 +107,8 @@ export async function generateBranchInvoicePDF(inv: BranchInvoice): Promise<stri
             ${rows}
           </tbody>
         </table>
+        
+        <!-- Bottom total removed per user request -->
         
         ${settings.footerText ? `<div class="footer-text">${settings.footerText}</div>` : ""}
         

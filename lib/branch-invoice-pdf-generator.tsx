@@ -16,21 +16,13 @@ export async function generateBranchInvoicePDF(inv: BranchInvoice): Promise<stri
     hour12: true
   })
 
-  // Generate headers based on settings
+  // Headers are fixed without price and total
   let headers = `<th style="width: 40px">#</th>`
   headers += `<th style="width: 60px">الصورة<br/><span style="font-size:10px;font-weight:normal">Image</span></th>`
   headers += `<th style="width: 100px">كود المنتج<br/><span style="font-size:10px;font-weight:normal">Product Code</span></th>`
   headers += `<th>اسم المنتج<br/><span style="font-size:10px;font-weight:normal">Product Name</span></th>`
   headers += `<th style="width: 80px">الوحدة<br/><span style="font-size:10px;font-weight:normal">Unit</span></th>`
   headers += `<th style="width: 80px">الكمية<br/><span style="font-size:10px;font-weight:normal">Quantity</span></th>`
-
-  if (settings.showPrice) {
-    headers += `<th style="width: 100px">سعر الوحدة<br/><span style="font-size:10px;font-weight:normal">Unit Price</span></th>`
-  }
-
-  if (settings.showTotal) {
-    headers += `<th style="width: 100px">الإجمالي<br/><span style="font-size:10px;font-weight:normal">Total</span></th>`
-  }
 
   // Resolve images
   const itemsWithImages = await Promise.all(inv.items.map(async (it) => {

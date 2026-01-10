@@ -41,7 +41,7 @@ import { getSafeImageSrc, formatArabicGregorianDate, formatEnglishNumber } from 
 import { useI18n } from "@/components/language-provider"
 import { toast } from "@/hooks/use-toast"
 import { db } from "@/lib/db"
-import { DualText } from "@/components/ui/dual-text"
+import { DualText, getDualString } from "@/components/ui/dual-text"
 import { ProductImage } from "@/components/product-image"
 
 const convertNumbersToEnglish = (value: any): string => {
@@ -395,14 +395,20 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
     // Validate format
     const allowedFormats = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
     if (!allowedFormats.includes(file.type)) {
-      toast({ title: "فشل إضافة الصورة", description: "صيغة غير مدعومة. استخدم JPG أو PNG أو GIF" })
+      toast({
+        title: getDualString("products.table.image.invalidFormat"),
+        description: getDualString("products.table.image.invalidFormatDesc")
+      })
       setUploadingImageId(null)
       return
     }
 
     // Validate size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
-      toast({ title: "فشل إضافة الصورة", description: "حجم الصورة كبير جداً (أقصى حد 5 ميجابايت)" })
+      toast({
+        title: getDualString("products.table.image.tooLarge"),
+        description: getDualString("products.table.image.tooLargeDesc")
+      })
       setUploadingImageId(null)
       return
     }
@@ -429,7 +435,10 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
         })
 
         if (updated) {
-          toast({ title: "تم حفظ الصورة", description: "تم رفع الصورة للسحابة بنجاح" })
+          toast({
+            title: getDualString("products.table.image.saveSuccess"),
+            description: getDualString("products.table.image.saveDesc")
+          })
           try {
             sessionStorage.setItem("productFormFocusSection", "image")
             sessionStorage.setItem("productFormAutoCloseMs", String(1500))
@@ -437,7 +446,11 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
         }
       } catch (err) {
         console.error("Firebase Storage Error:", err)
-        toast({ title: "فشل رفع الصورة", description: "تأكد من الاتصال بالإنترنت", variant: "destructive" })
+        toast({
+          title: getDualString("products.table.image.uploadError"),
+          description: getDualString("products.table.image.uploadErrorDesc"),
+          variant: "destructive"
+        })
       } finally {
         setUploadingImageId(null)
         setUploadProgress(0)
@@ -521,9 +534,17 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
       const count = dataset.length
-      toast({ title: 'تم التصدير', description: `تم تصدير ${count} صف إلى Excel (${exportMode === 'filtered' ? 'المفلتر' : 'الكامل'})` })
+      const modeKey = exportMode === 'filtered' ? "products.table.export.mode.filtered" : "products.table.export.mode.all"
+      toast({
+        title: getDualString("products.table.export.success"),
+        description: getDualString("products.table.export.excelDesc", undefined, undefined, { count, mode: getDualString(modeKey) })
+      })
     } catch (err) {
-      toast({ title: 'فشل التصدير', description: 'تعذر إنشاء ملف Excel', variant: 'destructive' })
+      toast({
+        title: getDualString("products.table.export.error"),
+        description: getDualString("products.table.export.excelError"),
+        variant: 'destructive'
+      })
     }
   }
 
@@ -548,9 +569,16 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-      toast({ title: 'تم التصدير', description: `تم تصدير ${rows.length} صف أبعاد إلى CSV` })
+      toast({
+        title: getDualString("products.table.export.success"),
+        description: getDualString("products.table.export.csvDesc", undefined, undefined, { count: rows.length })
+      })
     } catch (err) {
-      toast({ title: 'فشل التصدير', description: 'تعذر إنشاء ملف CSV', variant: 'destructive' })
+      toast({
+        title: getDualString("products.table.export.error"),
+        description: getDualString("products.table.export.csvError"),
+        variant: 'destructive'
+      })
     }
   }
 

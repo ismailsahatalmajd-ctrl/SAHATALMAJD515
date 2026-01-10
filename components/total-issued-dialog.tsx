@@ -19,6 +19,8 @@ import type { Branch, Issue } from "@/lib/types"
 import { generateTotalIssuedPDF } from "@/lib/total-issued-pdf-generator"
 import { useToast } from "@/hooks/use-toast"
 import { useI18n } from "@/components/language-provider"
+import { DualText, getDualString } from "@/components/ui/dual-text"
+import { formatEnglishNumber } from "@/lib/utils"
 
 interface TotalIssuedDialogProps {
   open: boolean
@@ -67,14 +69,15 @@ export function TotalIssuedDialog({ open, onOpenChange, issues }: TotalIssuedDia
   const handleGeneratePDF = async () => {
     if (getFilteredCount() === 0) {
       toast({
-        title: "لا توجد بيانات",
-        description: "لا توجد فواتير صرف في الفترة المحددة",
+        title: getDualString("totalIssued.noData"),
+        description: getDualString("totalIssued.noIssuesFound"),
         variant: "destructive",
       })
       return
     }
 
-    await generateTotalIssuedPDF(issues, { lang,
+    await generateTotalIssuedPDF(issues, {
+      lang,
       dateFrom,
       dateTo,
       branchFilter: selectedBranch,
@@ -113,21 +116,23 @@ export function TotalIssuedDialog({ open, onOpenChange, issues }: TotalIssuedDia
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            فاتورة إجمالي المنتجات المصروفة
+            <DualText k="totalIssued.title" />
           </DialogTitle>
-          <DialogDescription>حدد الفترة الزمنية والفرع لإنشاء فاتورة إجمالي المنتجات المصروفة</DialogDescription>
+          <DialogDescription>
+            <DualText k="totalIssued.description" />
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
           <div className="flex gap-2">
             <Button type="button" variant="outline" size="sm" onClick={handleSetThisMonth}>
-              هذا الشهر
+              <DualText k="totalIssued.thisMonth" />
             </Button>
             <Button type="button" variant="outline" size="sm" onClick={handleSetLastMonth}>
-              الشهر الماضي
+              <DualText k="totalIssued.lastMonth" />
             </Button>
             <Button type="button" variant="outline" size="sm" onClick={handleSetThisYear}>
-              هذه السنة
+              <DualText k="totalIssued.thisYear" />
             </Button>
           </div>
 
@@ -135,14 +140,14 @@ export function TotalIssuedDialog({ open, onOpenChange, issues }: TotalIssuedDia
             <div className="space-y-2">
               <Label className="flex items-center gap-1">
                 <Calendar className="h-4 w-4" />
-                من تاريخ
+                <DualText k="totalIssued.from" />
               </Label>
               <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label className="flex items-center gap-1">
                 <Calendar className="h-4 w-4" />
-                إلى تاريخ
+                <DualText k="totalIssued.to" />
               </Label>
               <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
             </div>
@@ -151,14 +156,14 @@ export function TotalIssuedDialog({ open, onOpenChange, issues }: TotalIssuedDia
           <div className="space-y-2">
             <Label className="flex items-center gap-1">
               <Filter className="h-4 w-4" />
-              الفرع
+              <DualText k="totalIssued.branch" />
             </Label>
             <Select value={selectedBranch} onValueChange={setSelectedBranch}>
               <SelectTrigger>
-                <SelectValue placeholder="جميع الفروع" />
+                <SelectValue placeholder={lang === "ar" ? "جميع الفروع" : "All Branches"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">جميع الفروع</SelectItem>
+                <SelectItem value="all"><DualText k="totalIssued.allBranches" /></SelectItem>
                 {branches.map((branch) => (
                   <SelectItem key={branch.id} value={branch.id}>
                     {branch.name}
@@ -170,19 +175,22 @@ export function TotalIssuedDialog({ open, onOpenChange, issues }: TotalIssuedDia
 
           <div className="rounded-lg bg-muted p-4">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">عدد الفواتير المحددة:</span>
-              <span className="text-lg font-bold">{getFilteredCount()} فاتورة</span>
+              <span className="text-sm text-muted-foreground"><DualText k="totalIssued.selectedCount" /></span>
+              <span className="text-lg font-bold flex items-center gap-1">
+                {formatEnglishNumber(getFilteredCount())}
+                <DualText k="totalIssued.invoiceSuffix" />
+              </span>
             </div>
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            إلغاء
+            <DualText k="common.cancel" />
           </Button>
           <Button onClick={handleGeneratePDF} disabled={getFilteredCount() === 0}>
             <FileText className="h-4 w-4 ml-1" />
-            إنشاء الفاتورة
+            <DualText k="totalIssued.generate" />
           </Button>
         </DialogFooter>
       </DialogContent>

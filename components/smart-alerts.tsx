@@ -5,8 +5,6 @@ import { Bell, Clock, Package, Check } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Badge } from "@/components/ui/badge"
-// Removed unused import
 import { getProducts } from "@/lib/storage"
 import { getBranchRequests } from "@/lib/branch-request-storage"
 import { useRouter } from "next/navigation"
@@ -16,10 +14,11 @@ import { DualText } from "@/components/ui/dual-text"
 interface AlertItem {
     id: string
     type: 'low-stock' | 'pending-request'
-    title: string
-    description: string
+    titleKey: string
+    descKey: string
+    count?: number
     severity: 'high' | 'medium'
-    actionLabel?: string
+    actionLabelKey?: string
     actionUrl?: string
 }
 
@@ -30,7 +29,6 @@ export function SmartAlerts() {
     const { t } = useI18n()
 
     useEffect(() => {
-        // Check for alerts on mount
         const checkAlerts = () => {
             const newAlerts: AlertItem[] = []
 
@@ -44,10 +42,11 @@ export function SmartAlerts() {
                 newAlerts.push({
                     id: 'low-stock-summary',
                     type: 'low-stock',
-                    title: t("smartAlerts.lowStock.title"),
-                    description: t("smartAlerts.lowStock.desc").replace("{count}", String(lowStockProducts.length)),
+                    titleKey: "smartAlerts.lowStock.title",
+                    descKey: "smartAlerts.lowStock.desc",
+                    count: lowStockProducts.length,
                     severity: 'high',
-                    actionLabel: t("smartAlerts.lowStock.action"),
+                    actionLabelKey: "smartAlerts.lowStock.action",
                     actionUrl: '/?filter=low'
                 })
             }
@@ -66,24 +65,23 @@ export function SmartAlerts() {
                 newAlerts.push({
                     id: 'pending-requests-summary',
                     type: 'pending-request',
-                    title: t("smartAlerts.pendingRequests.title"),
-                    description: t("smartAlerts.pendingRequests.desc").replace("{count}", String(pendingOldRequests.length)),
+                    titleKey: "smartAlerts.pendingRequests.title",
+                    descKey: "smartAlerts.pendingRequests.desc",
+                    count: pendingOldRequests.length,
                     severity: 'medium',
-                    actionLabel: t("smartAlerts.pendingRequests.action"),
+                    actionLabelKey: "smartAlerts.pendingRequests.action",
                     actionUrl: '/branch-requests'
                 })
             }
 
             setAlerts(newAlerts)
 
-            // Auto-open if we have alerts and haven't dismissed them this session
             const dismissed = sessionStorage.getItem('smart_alerts_dismissed')
             if (newAlerts.length > 0 && !dismissed) {
                 setOpen(true)
             }
         }
 
-        // Run check after a short delay to ensure data load
         const timer = setTimeout(checkAlerts, 1000)
         return () => clearTimeout(timer)
     }, [t])
@@ -97,7 +95,6 @@ export function SmartAlerts() {
 
     return (
         <>
-            {/* Floating Bell Icon for Manual Trigger if alerts exist */}
             <Button
                 variant="secondary"
                 size="icon"
@@ -133,15 +130,19 @@ export function SmartAlerts() {
                                         {alert.type === 'low-stock' ? (
                                             <Package className={`h-5 w-5 mt-0.5 ${alert.severity === 'high' ? 'text-red-600' : 'text-yellow-600'}`} />
                                         ) : (
-                                            <Clock className={`h-5 w-5 mt-0.5 ${alert.severity === 'high' ? 'text-red-600' : 'text-yellow-600'}`} />
+                                            <Clock className={`h-5 w-5 mt-0.5 ${alert.severity === 'high' ? 'text-red-900' : 'text-yellow-600'}`} />
                                         )}
                                         <div className="flex-1">
-                                            <h4 className={`text-sm font-semibold ${alert.severity === 'high' ? 'text-red-900' : 'text-yellow-900'}`}>
-                                                {alert.title}
-                                            </h4>
-                                            <p className={`text-sm mt-1 ${alert.severity === 'high' ? 'text-red-700' : 'text-yellow-700'}`}>
-                                                {alert.description}
-                                            </p>
+                                            <DualText
+                                                k={alert.titleKey}
+                                                className={`text-sm font-semibold ${alert.severity === 'high' ? 'text-red-900' : 'text-yellow-900'}`}
+                                            />
+                                            <div className={`text-sm mt-1 ${alert.severity === 'high' ? 'text-red-700' : 'text-yellow-700'}`}>
+                                                <DualText
+                                                    k={alert.descKey}
+                                                    params={{ count: alert.count || 0 }}
+                                                />
+                                            </div>
 
                                             {alert.actionUrl && (
                                                 <Button
@@ -152,7 +153,8 @@ export function SmartAlerts() {
                                                         router.push(alert.actionUrl!)
                                                     }}
                                                 >
-                                                    {alert.actionLabel} &larr;
+                                                    <DualText k={alert.actionLabelKey || ""} />
+                                                    <span className="ml-1 text-[10px] opacity-70">→</span>
                                                 </Button>
                                             )}
                                         </div>

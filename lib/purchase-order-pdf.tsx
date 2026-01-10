@@ -190,6 +190,7 @@ export async function generatePurchaseOrderPDF(order: PurchaseOrder, lang: Lang 
       <p><strong>${translate("pdf.purchaseOrder.orderNo", lang)}</strong> ${order.id.slice(-8)}</p>
       <p><strong>${translate("pdf.common.date", lang)}</strong> ${dateStr}</p>
     </div>
+    ${settings.headerText ? `<div style="margin-top: 15px; text-align: center; white-space: pre-wrap; color: #4b5563;">${settings.headerText}</div>` : ''}
   </div>
 
   <table>
@@ -199,15 +200,15 @@ export async function generatePurchaseOrderPDF(order: PurchaseOrder, lang: Lang 
         <th style="width: 55px">${translate("pdf.common.headers.image", lang)}</th>
         <th style="width: 90px">${translate("pdf.common.headers.code", lang)}</th>
         <th>${translate("pdf.common.headers.name", lang)}</th>
-        <th style="width: 70px">الوحدة<br>Unit</th>
-        <th style="width: 90px">الكمية المطلوبة<br>Requested Qty</th>
+        ${settings.showUnit ? `<th style="width: 70px">الوحدة<br>Unit</th>` : ''}
+        ${settings.showQuantity ? `<th style="width: 90px">الكمية المطلوبة<br>Requested Qty</th>` : ''}
         <th style="width: 90px">الكمية المتبقية<br>Remaining Qty</th>
       </tr>
     </thead>
     <tbody>
       ${order.items
       .map(
-        (item, index) => `
+        (item: any, index: number) => `
         <tr>
           <td>${index + 1}</td>
           <td>
@@ -215,8 +216,8 @@ export async function generatePurchaseOrderPDF(order: PurchaseOrder, lang: Lang 
           </td>
           <td>${item.productCode}</td>
           <td class="product-name">${item.productName}</td>
-          <td>${item.unit || '-'}</td>
-          <td style="font-weight: bold; color: #7c3aed;">${item.requestedQuantity}</td>
+          ${settings.showUnit ? `<td>${item.unit || '-'}</td>` : ''}
+          ${settings.showQuantity ? `<td style="font-weight: bold; color: #7c3aed;">${item.requestedQuantity}</td>` : ''}
           <td>${item.availableQuantity}</td>
         </tr>
       `,
@@ -232,7 +233,7 @@ export async function generatePurchaseOrderPDF(order: PurchaseOrder, lang: Lang 
     </div>
     <div class="summary-row total">
       <span>${translate("pdf.purchaseOrder.totalRequestedQty", lang)}</span>
-      <span>${order.items.reduce((sum, item) => sum + item.requestedQuantity, 0)}</span>
+      <span>${order.items.reduce((sum: number, item: any) => sum + item.requestedQuantity, 0)}</span>
     </div>
   </div>
 
@@ -256,6 +257,7 @@ export async function generatePurchaseOrderPDF(order: PurchaseOrder, lang: Lang 
   </div>
 
   <div class="footer">
+    ${settings.footerText ? `<p style="margin-bottom: 8px; white-space: pre-wrap;">${settings.footerText}</p>` : ''}
     <p>${translate("pdf.purchaseOrder.footer.system", lang)}</p>
   </div>
 

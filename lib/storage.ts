@@ -11,8 +11,10 @@ import type {
   Location,
   IssueDraft,
   PurchaseOrder,
+  PurchaseOrderItem,
   VerificationLog,
 } from "./types"
+export type { PurchaseOrder, PurchaseOrderItem }
 import type { BranchInvoice } from './branch-invoice-types'
 import type { BranchRequest } from './branch-request-types'
 import type { PurchaseRequest } from './purchase-request-types'
@@ -60,6 +62,12 @@ import { notify } from "./events"
 import type { StoreEvent } from "./events"
 import { store, initDataStore, reloadFromDb } from './data-store'
 export { store, initDataStore, reloadFromDb, updateStoreCache, removeFromStoreCache, initDataStoreWithProgress } from './data-store'
+export {
+  deleteAllTransactionsApi, deleteAllIssuesApi, deleteAllReturnsApi,
+  deleteAllBranchesApi, deleteAllCategoriesApi, deleteAllLocationsApi,
+  deleteAllUnitsApi, deleteAllAdjustmentsApi, deleteAllBranchRequestsApi,
+  deleteAllBranchInvoicesApi, deleteAllPurchaseRequestsApi, deleteAllProductImagesApi
+} from './sync-api'
 
 const generateId = () => Date.now().toString() + Math.random().toString(36).substr(2, 9)
 
@@ -197,6 +205,22 @@ export async function factoryReset() {
 
 export async function deleteDemoData() {
   return factoryReset()
+}
+
+export async function hardReset() {
+  if (typeof window === 'undefined') return
+  try {
+    console.warn("Hard Reset: Deleting local database and clearing storage...");
+    await db.delete()
+    localStorage.clear()
+    sessionStorage.clear()
+    window.location.reload()
+  } catch (e) {
+    console.error('Hard reset failed:', e)
+    // Fallback: clear what we can and reload
+    localStorage.clear()
+    window.location.reload()
+  }
 }
 
 if (typeof window !== 'undefined') {
@@ -635,21 +659,70 @@ export function deletePurchaseRequest(id: string) {
   store.cache.purchaseRequests = store.cache.purchaseRequests.filter(p => p.id !== id)
   db.purchaseRequests.delete(id).catch(console.error)
 }
-
 export function savePurchaseRequests(requests: PurchaseRequest[]): void {
   store.cache.purchaseRequests = requests
   db.purchaseRequests.bulkPut(requests).catch(console.error)
   notify('change')
 }
 
+// Purchase Orders
+export function getPurchaseOrders(): PurchaseOrder[] { return store.cache.purchaseOrders }
+
+export function addPurchaseOrder(po: Omit<PurchaseOrder, "id" | "createdAt" | "updatedAt">): PurchaseOrder {
+  const list = getPurchaseOrders()
+  const newItem = { ...po, id: generateId(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+  list.push(newItem)
+  store.cache.purchaseOrders = list
+  db.purchaseOrders.put(newItem).catch(console.error)
+  return newItem
+}
+
+export function updatePurchaseOrder(id: string, updates: Partial<PurchaseOrder>): PurchaseOrder | null {
+  const list = getPurchaseOrders()
+  const idx = list.findIndex(p => p.id === id)
+  if (idx === -1) return null
+  list[idx] = { ...list[idx], ...updates, updatedAt: new Date().toISOString() }
+  store.cache.purchaseOrders = list
+  db.purchaseOrders.put(list[idx]).catch(console.error)
+  return list[idx]
+}
+
+export function deletePurchaseOrder(id: string) {
+  store.cache.purchaseOrders = store.cache.purchaseOrders.filter(p => p.id !== id)
+  db.purchaseOrders.delete(id).catch(console.error)
+}
+
+export function savePurchaseOrders(orders: PurchaseOrder[]): void {
+  store.cache.purchaseOrders = orders
+  db.purchaseOrders.bulkPut(orders).catch(console.error)
+  notify('change')
+}
+
 // Calculate Product Values
 export function calculateProductValues(product: Product) {
-  const inventoryCount = (product.openingStock || 0) + (product.purchases || 0) - (product.issues || 0)
+  const openingStock = Number(product.openingStock || 0)
+  const purchases = Number(product.purchases || 0)
+  const issues = Number(product.issues || 0)
+  const price = Number(product.price || 0)
+  const averagePrice = Number(product.averagePrice || price || 0)
+
+  // Logic: currentStock and quantity should be the same in this system
+  const currentStock = Number(product.currentStock ?? product.quantity ?? 0)
+  const quantity = currentStock
+
+  const inventoryCount = openingStock + purchases - issues
 
   return {
     ...product,
+    openingStock,
+    purchases,
+    issues,
+    currentStock,
+    quantity,
+    price,
+    averagePrice,
     inventoryCount,
-    currentStockValue: product.currentStock * product.averagePrice
+    currentStockValue: currentStock * averagePrice
   }
 }
 
@@ -884,6 +957,30 @@ export async function setIssueDelivered(issueId: string, deliveredBy: string): P
   return true
 }
 
+export async function setIssueBranchReceived(issueId: string): Promise<boolean> {
+  const issue = await db.issues.get(issueId);
+  if (!issue) return false
+
+  if (issue.branchReceived) return true
+
+  // Update Issue Status ONLY (No Stock Deduction)
+  issue.branchReceived = true
+  issue.branchReceivedAt = new Date().toISOString()
+  issue.updatedAt = new Date().toISOString()
+  issue.lastModifiedBy = getDeviceId()
+
+  // Update cache
+  const iIdx = store.cache.issues.findIndex(i => i.id === issueId)
+  if (iIdx !== -1) store.cache.issues[iIdx] = issue
+
+  await db.issues.put(issue)
+
+  if (typeof window !== 'undefined') {
+    await syncIssue(issue).catch(console.error)
+  }
+  return true
+}
+
 // Returns
 export function getReturns(): Return[] { return store.cache.returns }
 export function saveReturns(returns: Return[]) {
@@ -938,9 +1035,9 @@ export async function approveReturn(returnId: string, approvedBy: string): Promi
 
         // Decrement issues count/value if those fields exist (Reverse the issue)
         // @ts-ignore
-        if (typeof p.issues === 'number') p.issues -= rp.quantity
+        p.issues = (p.issues || 0) - rp.quantity
         // @ts-ignore
-        if (typeof p.issuesValue === 'number') p.issuesValue -= rp.totalPrice
+        p.issuesValue = (p.issuesValue || 0) - rp.totalPrice
 
         p.inventoryCount = (p.openingStock || 0) + (p.purchases || 0) - (p.issues || 0)
         p.currentStockValue = p.currentStock * p.averagePrice
@@ -1015,9 +1112,13 @@ export function saveBranchRequests(reqs: BranchRequest[]) {
 // Clear all Branch Requests
 export async function clearAllBranchRequests() {
   try {
+    const all = store.cache.branchRequests
     store.cache.branchRequests = []
     await db.branchRequests.clear()
     notify('branch_requests_change')
+    if (typeof window !== 'undefined' && all.length > 0) {
+      await deleteAllBranchRequestsApi(all.map(r => r.id)).catch(console.error)
+    }
   } catch (e) {
     console.error('Failed to clear branch requests:', e)
   }

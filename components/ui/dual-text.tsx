@@ -10,14 +10,24 @@ interface DualTextProps {
   fallback?: string
   enClassName?: string
   arClassName?: string
+  params?: Record<string, string | number>
 }
 
-export function DualText({ k, className, fallback, enClassName, arClassName }: DualTextProps) {
+export function DualText({ k, className, fallback, enClassName, arClassName, params }: DualTextProps) {
   const { lang } = useI18n()
   const entry = dict[k]
-  
+
   if (!entry) {
     return <span className={className}>{fallback || k}</span>
+  }
+
+  const format = (text: string) => {
+    if (!params) return text
+    let formatted = text
+    Object.entries(params).forEach(([key, value]) => {
+      formatted = formatted.replace(`{${key}}`, String(value))
+    })
+    return formatted
   }
 
   const isAr = lang === "ar"
@@ -26,10 +36,10 @@ export function DualText({ k, className, fallback, enClassName, arClassName }: D
     return (
       <span className={cn("block leading-tight", className)}>
         <span className={cn("ar-translation block text-[0.85em]", arClassName)}>
-          {entry.ar}
+          {format(entry.ar)}
         </span>
         <span className={cn("block text-[1em]", enClassName)}>
-          {entry.en}
+          {format(entry.en)}
         </span>
       </span>
     )
@@ -38,21 +48,34 @@ export function DualText({ k, className, fallback, enClassName, arClassName }: D
   return (
     <span className={cn("block leading-tight", className)}>
       <span className={cn("block text-[1em]", enClassName)}>
-        {entry.en}
+        {format(entry.en)}
       </span>
       <span className={cn("ar-translation block text-[0.85em]", arClassName)}>
-        {entry.ar}
+        {format(entry.ar)}
       </span>
     </span>
   )
 }
 
 // Helper to get string format "English (Arabic)" for placeholders
-export function getDualString(k: string, fallback?: string, lang?: Lang): string {
+export function getDualString(k: string, fallback?: string, lang?: Lang, params?: Record<string, string | number>): string {
   const entry = dict[k]
   if (!entry) return fallback || k
-  if (lang === "ar") {
-    return `${entry.ar} (${entry.en})`
+
+  const format = (text: string) => {
+    if (!params) return text
+    let formatted = text
+    Object.entries(params).forEach(([key, value]) => {
+      formatted = formatted.replace(`{${key}}`, String(value))
+    })
+    return formatted
   }
-  return `${entry.en} (${entry.ar})`
+
+  const ar = format(entry.ar)
+  const en = format(entry.en)
+
+  if (lang === "ar") {
+    return `${ar} (${en})`
+  }
+  return `${en} (${ar})`
 }

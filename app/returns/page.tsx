@@ -6,7 +6,7 @@ import { Header } from "@/components/header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { DualText } from "@/components/ui/dual-text"
+import { DualText, getDualString } from "@/components/ui/dual-text"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -184,12 +184,20 @@ export default function ReturnsPage() {
 
   const handleSubmit = async () => {
     if (returnItems.length === 0) {
-      toast({ title: t("common.error", "تنبيه"), description: t("returns.error.addItemsFirst", "أضف منتجات للإرجاع أولًا"), variant: "destructive" })
+      toast({
+        title: getDualString("common.error"),
+        description: getDualString("returns.error.addItemsFirst"),
+        variant: "destructive"
+      })
       return
     }
 
     if (!reasonKey) {
-      toast({ title: t("common.error", "تنبيه"), description: t("returns.enterReason", "اختر سبب الإرجاع"), variant: "destructive" })
+      toast({
+        title: getDualString("common.error"),
+        description: getDualString("returns.enterReason"),
+        variant: "destructive"
+      })
       return
     }
 
@@ -221,7 +229,11 @@ export default function ReturnsPage() {
       setLocalReturns(getReturns())
     }
 
-    toast({ title: t("common.success", "تم"), description: t("returns.added", "تم إنشاء طلب الإرجاع"), duration: 3000 })
+    toast({
+      title: getDualString("common.success"),
+      description: getDualString("returns.added"),
+      duration: 3000
+    })
 
     // إعادة تعيين النموذج
     setReturnItems([])
@@ -270,10 +282,28 @@ export default function ReturnsPage() {
         updatedAt: new Date().toISOString(),
       }
 
-      await batchSave([
+      // Prepare Batch Operations
+      const ops: any[] = [
         { collection: "returns", data: newReturn, type: "set" },
         { collection: "branchRequests", data: { ...req, status: "approved", approvedBy: "admin", updatedAt: new Date().toISOString() }, type: "update" }
-      ])
+      ]
+
+      // Add Product Stock Adjustments (Atomic Increments)
+      const { doc, updateDoc, increment } = await import("firebase/firestore");
+      const { db: firestore } = await import("@/lib/firebase");
+
+      if (firestore) {
+        for (const p of returnProducts) {
+          const productRef = doc(firestore, "products", p.productId);
+          await updateDoc(productRef, {
+            currentStock: increment(p.quantity),
+            issues: increment(-p.quantity),
+            issuesValue: increment(-p.totalPrice)
+          }).catch(console.error);
+        }
+      }
+
+      await batchSave(ops)
     } else {
       // Local
       const res = await approveBranchRequest(req.id, "admin")
@@ -282,7 +312,10 @@ export default function ReturnsPage() {
         setLocalReturns(getReturns())
       }
     }
-    toast({ title: t("common.success"), description: t("returns.request.approved", "تم قبول طلب المرتجع") })
+    toast({
+      title: getDualString("common.success"),
+      description: getDualString("returns.request.approved")
+    })
   }
 
   const handleRejectRequest = async (req: BranchRequest) => {
@@ -294,7 +327,10 @@ export default function ReturnsPage() {
       setRequestStatus(req.id, "cancelled", "admin")
       setLocalBranchRequests(prev => prev.filter(r => r.id !== req.id))
     }
-    toast({ title: t("common.success"), description: t("returns.request.rejected", "تم رفض طلب المرتجع") })
+    toast({
+      title: getDualString("common.success"),
+      description: getDualString("returns.request.rejected")
+    })
   }
 
   const handleBackupReturns = () => {
@@ -314,12 +350,12 @@ export default function ReturnsPage() {
         if (Array.isArray(json)) {
           await restoreReturns(json)
           setLocalReturns(getReturns())
-          toast({ title: t("common.success"), description: "تم استعادة البيانات بنجاح" })
+          toast({ title: getDualString("common.success"), description: getDualString("issues.toast.restoreSuccess") })
         } else {
-          toast({ title: "خطأ", description: "ملف غير صالح", variant: "destructive" })
+          toast({ title: getDualString("common.error"), description: getDualString("issues.toast.restoreErrorFile"), variant: "destructive" })
         }
       } catch (err) {
-        toast({ title: "خطأ", description: "فشل قراءة الملف", variant: "destructive" })
+        toast({ title: getDualString("common.error"), description: getDualString("issues.toast.restoreErrorRead"), variant: "destructive" })
       }
     }
     reader.readAsText(file)
@@ -327,10 +363,10 @@ export default function ReturnsPage() {
   }
 
   const handleFactoryResetReturns = async () => {
-    if (confirm(t("common.confirmReset", "هل أنت متأكد من حذف جميع بيانات المرتجعات؟ لا يمكن التراجع عن هذا الإجراء."))) {
+    if (confirm(getDualString("sync.hardResetConfirm"))) {
       await clearAllReturns()
       setLocalReturns([])
-      toast({ title: t("common.success"), description: "تم حذف البيانات بنجاح" })
+      toast({ title: getDualString("common.success"), description: getDualString("common.success") })
     }
   }
 
@@ -728,16 +764,17 @@ export default function ReturnsPage() {
                                     // Update Stock for each product
                                     for (const p of r.products) {
                                       const pRef = doc(firestore, "products", p.productId);
-                                      // We need to fetch current to update issues count accurately or just increment stock
                                       await updateDoc(pRef, {
-                                        currentStock: increment(p.quantity)
+                                        currentStock: increment(p.quantity),
+                                        issues: increment(-p.quantity),
+                                        issuesValue: increment(-(p.totalPrice || (p.unitPrice * p.quantity)))
                                       });
                                     }
                                     toast({ title: t("common.success"), description: t("returns.approved") });
                                     // Force refresh or let realtime handle it
                                   } else {
                                     // Local Approval
-                                    const success = approveReturn(r.id, "admin");
+                                    const success = await approveReturn(r.id, "admin");
                                     if (success) {
                                       setLocalReturns(getReturns());
                                       toast({ title: t("common.success"), description: t("returns.approved") });

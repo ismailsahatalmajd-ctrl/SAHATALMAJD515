@@ -183,6 +183,9 @@ export interface Issue {
   delivered?: boolean
   deliveredAt?: string
   deliveredBy?: string
+  // Branch receipt confirmation (independent of stock deduction)
+  branchReceived?: boolean
+  branchReceivedAt?: string
   // حالة العملية (اختياري): مسودة/قيد التنفيذ/تم التسليم
   status?: "draft" | "pending" | "delivered"
   updatedAt?: string

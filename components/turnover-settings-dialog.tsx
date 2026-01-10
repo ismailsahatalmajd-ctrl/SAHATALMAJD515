@@ -13,6 +13,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
+import { DualText, getDualString } from "@/components/ui/dual-text"
+import { useI18n } from "@/components/language-provider"
 
 interface TurnoverThresholds {
   stagnant: number
@@ -31,6 +33,7 @@ interface TurnoverSettingsDialogProps {
 export function TurnoverSettingsDialog({ open, onOpenChange, thresholds, onSave }: TurnoverSettingsDialogProps) {
   const [localThresholds, setLocalThresholds] = useState<TurnoverThresholds>(thresholds)
   const { toast } = useToast()
+  const { lang } = useI18n()
 
   useEffect(() => {
     if (open) {
@@ -41,8 +44,8 @@ export function TurnoverSettingsDialog({ open, onOpenChange, thresholds, onSave 
   const handleSave = () => {
     if (localThresholds.slow <= 0 || localThresholds.normal <= localThresholds.slow) {
       toast({
-        title: "خطأ",
-        description: "يجب أن تكون القيم صحيحة ومتدرجة",
+        title: getDualString("common.error"),
+        description: getDualString("turnover.toast.invalidValues"),
         variant: "destructive",
       })
       return
@@ -50,8 +53,8 @@ export function TurnoverSettingsDialog({ open, onOpenChange, thresholds, onSave 
 
     onSave(localThresholds)
     toast({
-      title: "تم الحفظ",
-      description: "تم حفظ إعدادات معدل الدوران بنجاح",
+      title: getDualString("toast.success"),
+      description: getDualString("turnover.toast.saveSuccess"),
     })
     onOpenChange(false)
   }
@@ -60,8 +63,10 @@ export function TurnoverSettingsDialog({ open, onOpenChange, thresholds, onSave 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[95vw] w-full sm:max-w-[425px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>إعدادات معدل الدوران</DialogTitle>
-          <DialogDescription>تعديل عتبات معدل الدوران لتصنيف حالة المنتجات</DialogDescription>
+          <DialogTitle><DualText k="turnover.title" /></DialogTitle>
+          <DialogDescription>
+            <DualText k="turnover.description" />
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
@@ -69,16 +74,16 @@ export function TurnoverSettingsDialog({ open, onOpenChange, thresholds, onSave 
             <div className="flex items-center justify-between p-3 rounded-lg bg-gray-100">
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-gray-500"></div>
-                <span className="font-medium">راكد</span>
+                <span className="font-medium"><DualText k="turnover.stagnant" /></span>
               </div>
-              <span className="text-sm text-muted-foreground">0% من المخزون</span>
+              <span className="text-sm text-muted-foreground">0% <DualText k="turnover.ofStock" className="inline" /></span>
             </div>
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-orange-500"></div>
-                  <Label>بطيء (أقل من)</Label>
+                  <Label><DualText k="turnover.slow" /></Label>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -90,7 +95,7 @@ export function TurnoverSettingsDialog({ open, onOpenChange, thresholds, onSave 
                   onChange={(e) => setLocalThresholds({ ...localThresholds, slow: Number(e.target.value) })}
                   className="w-24"
                 />
-                <span className="text-sm text-muted-foreground">% من المخزون</span>
+                <span className="text-sm text-muted-foreground"><DualText k="turnover.ofStock" /></span>
               </div>
             </div>
 
@@ -98,7 +103,7 @@ export function TurnoverSettingsDialog({ open, onOpenChange, thresholds, onSave 
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-                  <Label>عادي (أقل من)</Label>
+                  <Label><DualText k="turnover.normal" /></Label>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -109,32 +114,32 @@ export function TurnoverSettingsDialog({ open, onOpenChange, thresholds, onSave 
                   onChange={(e) => setLocalThresholds({ ...localThresholds, normal: Number(e.target.value) })}
                   className="w-24"
                 />
-                <span className="text-sm text-muted-foreground">% من المخزون</span>
+                <span className="text-sm text-muted-foreground"><DualText k="turnover.ofStock" /></span>
               </div>
             </div>
 
             <div className="flex items-center justify-between p-3 rounded-lg bg-green-50">
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                <span className="font-medium">سريع</span>
+                <span className="font-medium"><DualText k="turnover.fast" /></span>
               </div>
               <span className="text-sm text-muted-foreground">
-                {">="} {localThresholds.normal}% من المخزون
+                {">="} {localThresholds.normal}% <DualText k="turnover.ofStock" className="inline" />
               </span>
             </div>
           </div>
 
           <div className="rounded-lg border p-4 bg-muted/50">
-            <h4 className="font-medium mb-2">معادلة حساب معدل الدوران:</h4>
-            <p className="text-sm text-muted-foreground">معدل الدوران = (المصروفات / المخزون الحالي) × 100</p>
+            <h4 className="font-medium mb-2"><DualText k="turnover.formula.header" /></h4>
+            <p className="text-sm text-muted-foreground"><DualText k="turnover.formula.text" /></p>
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            إلغاء
+            <DualText k="common.cancel" />
           </Button>
-          <Button onClick={handleSave}>حفظ الإعدادات</Button>
+          <Button onClick={handleSave}><DualText k="common.save" /></Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

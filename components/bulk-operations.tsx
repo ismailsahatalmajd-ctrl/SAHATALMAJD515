@@ -32,7 +32,17 @@ import {
 } from "@/components/ui/dialog"
 import { Progress } from "@/components/ui/progress"
 import { useI18n } from "@/components/language-provider"
+import { DualText } from "@/components/ui/dual-text"
 import { BackupRestoreDialog } from "@/components/backup-restore-dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { ShieldCheck, MoreHorizontal, AlertTriangle, Database } from "lucide-react"
 
 interface BulkOperationsProps {
   products: Product[]
@@ -52,6 +62,11 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
   const [opProgress, setOpProgress] = useState(0)
   const [opStatus, setOpStatus] = useState("")
   const [opRunning, setOpRunning] = useState<null | 'delete' | 'factory' | 'demo'>(null)
+
+  // Dialog States
+  const [deleteDemoOpen, setDeleteDemoOpen] = useState(false)
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false)
+  const [factoryResetOpen, setFactoryResetOpen] = useState(false)
 
   const LOG_KEY = 'action_logs_v1'
   const MAPPING_PREF_KEY = 'excel_import_mapping_v1'
@@ -159,24 +174,24 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
   const [autoMappingSuggested, setAutoMappingSuggested] = useState<Record<string, number>>({})
   const [mappingSignature, setMappingSignature] = useState<string>("")
 
-  const expectedFields: { key: keyof Product | 'image'; label: string; required?: boolean; type: 'text' | 'number' }[] = [
-    { key: 'productCode', label: 'كود المنتج', required: false, type: 'text' },
-    { key: 'itemNumber', label: 'رقم المنتج', required: false, type: 'text' },
-    { key: 'productName', label: 'اسم المنتج', required: false, type: 'text' },
-    { key: 'location', label: 'الموقع', required: false, type: 'text' },
-    { key: 'category', label: 'التصنيف', required: false, type: 'text' },
-    { key: 'unit', label: 'الوحدة', required: false, type: 'text' },
-    { key: 'openingStock', label: 'المخزون الابتدائي', required: false, type: 'number' },
-    { key: 'purchases', label: 'المشتريات', required: false, type: 'number' },
-    { key: 'issues', label: 'المصروفات', required: false, type: 'number' },
-    { key: 'inventoryCount', label: 'الجرد', required: false, type: 'number' },
-    { key: 'currentStock', label: 'المخزون الحالي', required: false, type: 'number' },
-    { key: 'difference', label: 'الفرق', required: false, type: 'number' },
-    { key: 'price', label: 'السعر', required: false, type: 'number' },
-    { key: 'averagePrice', label: 'متوسط السعر', required: false, type: 'number' },
-    { key: 'currentStockValue', label: 'قيمة المخزون الحالي', required: false, type: 'number' },
-    { key: 'issuesValue', label: 'قيمة المصروفات', required: false, type: 'number' },
-    { key: 'image', label: 'الصورة', required: false, type: 'text' },
+  const expectedFields: { key: keyof Product | 'image'; label: string; k: string; required?: boolean; type: 'text' | 'number' }[] = [
+    { key: 'productCode', label: 'كود المنتج', k: 'common.code', required: false, type: 'text' },
+    { key: 'itemNumber', label: 'رقم المنتج', k: 'common.itemNumber', required: false, type: 'text' },
+    { key: 'productName', label: 'اسم المنتج', k: 'common.productName', required: false, type: 'text' },
+    { key: 'location', label: 'الموقع', k: 'common.location', required: false, type: 'text' },
+    { key: 'category', label: 'التصنيف', k: 'common.category', required: false, type: 'text' },
+    { key: 'unit', label: 'الوحدة', k: 'common.unit', required: false, type: 'text' },
+    { key: 'openingStock', label: 'المخزون الابتدائي', k: 'products.columns.openingStock', required: false, type: 'number' },
+    { key: 'purchases', label: 'المشتريات', k: 'products.columns.purchases', required: false, type: 'number' },
+    { key: 'issues', label: 'المصروفات', k: 'products.columns.issues', required: false, type: 'number' },
+    { key: 'inventoryCount', label: 'الجرد', k: 'products.columns.inventoryCount', required: false, type: 'number' },
+    { key: 'currentStock', label: 'المخزون الحالي', k: 'products.columns.currentStock', required: false, type: 'number' },
+    { key: 'difference', label: 'الفرق', k: 'products.columns.difference', required: false, type: 'number' },
+    { key: 'price', label: 'السعر', k: 'common.price', required: false, type: 'number' },
+    { key: 'averagePrice', label: 'متوسط السعر', k: 'common.avgPrice', required: false, type: 'number' },
+    { key: 'currentStockValue', label: 'قيمة المخزون الحالي', k: 'products.columns.currentStockValue', required: false, type: 'number' },
+    { key: 'issuesValue', label: 'قيمة المصروفات', k: 'products.columns.issuesValue', required: false, type: 'number' },
+    { key: 'image', label: 'الصورة', k: 'common.image', required: false, type: 'text' },
   ]
 
   const normalizeHeader = (h: string) => String(h || '').trim().toLowerCase()
@@ -435,13 +450,16 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       const estBytes = estimateExportSizeBytes(imageExportMode)
       const warnBytes = EXPORT_SIZE_WARN_MB * 1024 * 1024
       if (estBytes > warnBytes) {
+        const estMB = (estBytes / (1024 * 1024)).toFixed(1)
         const proceed = typeof window !== 'undefined'
-          ? window.confirm(`الحجم المقدر للملف ~ ${(estBytes / (1024 * 1024)).toFixed(1)}MB، قد يكون كبيراً. هل تريد المتابعة؟`)
+          ? window.confirm(t("bulk.confirm.largeExport").replace("{size}", estMB))
           : true
         if (!proceed) {
           toast({
-            title: "تم إلغاء التصدير",
-            description: `الحجم المقدر ${(estBytes / (1024 * 1024)).toFixed(1)}MB يتجاوز حد التحذير ${EXPORT_SIZE_WARN_MB}MB`,
+            title: t("bulk.toast.exportCancel"),
+            description: t("bulk.toast.exportSizeWarn")
+              .replace("{size}", estMB)
+              .replace("{limit}", String(EXPORT_SIZE_WARN_MB)),
           })
           setIsExporting(false)
           return
@@ -622,8 +640,8 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
 
           // أخبر المستخدم بسبب السقوط إلى URL فقط
           toast({
-            title: "تم التصدير بدون تضمين صور",
-            description: "exceljs غير مثبت؛ تم تصدير الصور كنص/رابط فقط",
+            title: t("bulk.toast.exportSuccess") + " (No Images)",
+            description: "exceljs not found; images exported as text/url only",
           })
           return
         }
@@ -712,8 +730,9 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       }
 
       toast({
-        title: "تم التصدير بنجاح",
-        description: `تم تصدير ${(exportScope === 'filtered' && filteredProducts ? filteredProducts.length : products.length)} منتج إلى ملف Excel`,
+        title: t("bulk.toast.exportSuccess"),
+        description: t("bulk.toast.exportSuccessDesc")
+          .replace("{count}", String(exportScope === 'filtered' && filteredProducts ? filteredProducts.length : products.length)),
       })
     } catch (error) {
       console.error("[v0] Export error:", error)
@@ -1080,10 +1099,13 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       await db.settings.put({ key: 'demo_data_deleted', value: true })
 
       log({ action: 'delete_all_products', count: total, status: 'success' })
-      toast({ title: 'تم حذف جميع المنتجات', description: `تم حذف ${total} منتج من الجهاز والسحابة` })
+      toast({
+        title: t("bulk.deleteAll.success"),
+        description: t("bulk.toast.deleteAllDesc") || `Deleted ${total} products from local and cloud`
+      })
     } catch (err: any) {
       log({ action: 'delete_all_products', status: 'error', error: String(err?.message || err) })
-      toast({ title: 'فشل الحذف', description: 'حدث خطأ أثناء حذف المنتجات', variant: 'destructive' })
+      toast({ title: t("common.error"), description: String(err?.message || err), variant: 'destructive' })
     } finally {
       setOpRunning(null)
       setOpProgress(0)
@@ -1131,17 +1153,17 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       setOpProgress(100)
       log({ action: 'delete_demo_data', status: 'success', logs })
       toast({
-        title: 'تم حذف البيانات التجريبية',
+        title: t("bulk.deleteDemo.success"),
         description: (
           <div className="max-h-[200px] overflow-auto text-xs space-y-1">
-            <div className="text-green-600">تم حذف البيانات واستعادة ضبط المصنع بنجاح</div>
+            <div className="text-green-600">{t("bulk.operation.success")}</div>
           </div>
         ),
         duration: 5000,
       })
     } catch (err: any) {
       log({ action: 'delete_demo_data', status: 'error', error: String(err?.message || err) })
-      toast({ title: 'فشل الحذف', description: 'حدث خطأ أثناء العملية', variant: 'destructive' })
+      toast({ title: t("common.error"), description: t("common.error"), variant: 'destructive' })
     } finally {
       setOpRunning(null)
       setOpProgress(0)
@@ -1323,294 +1345,342 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
 
         {/* واجهة مطابقة الأعمدة يدوياً ومعاينة قبل الاستيراد */}
         {mappingDialogOpen && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white p-6 rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] overflow-y-auto">
-              <h3 className="text-lg font-semibold mb-2 text-right">مطابقة الأعمدة يدوياً</h3>
-              <p className="text-sm text-muted-foreground mb-4 text-right">اختر العمود المناسب لكل حقل. سيتم حفظ اختيارك للاستخدام لاحقاً.</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-                {expectedFields.map((f) => (
-                  <div key={String(f.key)} className="flex flex-col items-end">
-                    <label className="text-sm mb-1">{f.label}</label>
-                    <select
-                      className="border rounded px-2 py-1 text-sm w-full"
-                      value={columnMapping[String(f.key)] ?? -1}
-                      onChange={(e) => setColumnMapping((m) => ({ ...m, [String(f.key)]: Number(e.target.value) }))}
-                    >
-                      <option value={-1}>— غير محدد —</option>
-                      {importHeaders.map((h, idx) => (
-                        <option key={idx} value={idx}>{h || `عمود ${idx + 1}`}</option>
-                      ))}
-                    </select>
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-xs text-muted-foreground">التفضيلات تحفظ تلقائياً بعد التأكيد</div>
-                <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => { setColumnMapping(autoMappingSuggested) }}>مطابقة تلقائية</Button>
-                  <Button variant="secondary" onClick={() => { setMappingDialogOpen(false); setImportHeaders([]); setImportPreviewRows([]) }}>إلغاء</Button>
-                  <Button onClick={async () => {
-                    saveMappingPref(mappingSignature, columnMapping)
-                    setMappingDialogOpen(false)
-                    setIsImporting(true)
-                    setConversionProgress(0)
-                    setConversionStatus(t("bulk.status.processing"))
-                    try {
-                      if (importAllRows.length === 0) {
-                        toast({ title: "تنبيه", description: "لم يتم العثور على صفوف في الملف", variant: "destructive" })
-                        throw new Error("No rows found")
-                      }
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full h-[95vh] md:h-auto md:max-h-[90vh] md:max-w-6xl flex flex-col overflow-hidden">
+              <div className="p-4 sm:p-6 overflow-y-auto flex-1">
+                <h3 className="text-lg sm:text-xl font-bold mb-2 text-right"><DualText k="bulk.mapping.title" /></h3>
+                <p className="text-sm text-muted-foreground mb-6 text-right"><DualText k="bulk.mapping.desc" /></p>
 
-                      const importedProducts = await parseExcelData(importAllRows, importImagesMap, columnMapping)
-                      toast({ title: "نتيجة التحليل", description: `تم العثور على ${importedProducts.length} منتج من أصل ${importAllRows.length} صف` })
-
-                      if (importedProducts.length === 0) {
-                        throw new Error("لم يتم العثور على منتجات صالحة في الملف")
-                      }
-                      setConversionStatus(t("bulk.status.convertImages"))
-                      let convertedCount = 0
-                      let failedCount = 0
-                      let completed = 0
-                      const CONCURRENCY = 6
-                      const productsWithImages = await asyncPool(CONCURRENCY, importedProducts, async (product, idx) => {
-                        let out = product
-                        if (product.image && (product.image.startsWith('http://') || product.image.startsWith('https://'))) {
-                          const base64Image = await convertImageToBase64(product.image)
-                          if (base64Image) {
-                            out = { ...product, image: base64Image }
-                            convertedCount++
-                          } else {
-                            failedCount++
-                          }
-                        }
-                        completed++
-                        const pct = Math.round((completed / importedProducts.length) * 100)
-                        setConversionProgress(pct)
-                        setConversionStatus(
-                          t("bulk.status.convertImagesProgress")
-                            .replace("{completed}", String(completed))
-                            .replace("{total}", String(importedProducts.length))
-                        )
-                        return out
-                      })
-
-                      // ... existing code ...
-
-                      // Optimize Images: Split large images to side table
-                      const optimizedProducts: typeof productsWithImages = []
-                      const imageRecords: { productId: string; data: string }[] = []
-
-                      for (const p of productsWithImages) {
-                        if (p.image && p.image.length > 500 && !p.image.startsWith('http')) {
-                          imageRecords.push({ productId: p.id, data: p.image })
-                          optimizedProducts.push({ ...p, image: 'DB_IMAGE' })
-                        } else {
-                          optimizedProducts.push(p)
-                        }
-                      }
-
-                      if (imageRecords.length > 0) {
-                        await db.productImages.bulkPut(imageRecords)
-                      }
-
-                      const existingCategories = getCategories()
-                      const existingCategoryNames = new Set(existingCategories.map((c) => c.name.toLowerCase().trim()))
-                      const newCategories = new Set<string>()
-                      optimizedProducts.forEach((product) => {
-                        if (product.category && !existingCategoryNames.has(product.category.toLowerCase().trim())) {
-                          newCategories.add(product.category.trim())
-                        }
-                      })
-                      const colors = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#06b6d4", "#ec4899", "#14b8a6"]
-                      let addedCategoriesCount = 0
-                      newCategories.forEach((categoryName) => {
-                        const randomColor = colors[Math.floor(Math.random() * colors.length)]
-                        addCategory({ name: categoryName, color: randomColor })
-                        addedCategoriesCount++
-                      })
-
-                      const existingLocations = getLocations()
-                      const existingLocationNames = new Set(existingLocations.map((l: any) => l.name.toLowerCase().trim()))
-                      const newLocations = new Set<string>()
-                      optimizedProducts.forEach((product) => {
-                        if (product.location && !existingLocationNames.has(product.location.toLowerCase().trim())) {
-                          newLocations.add(product.location.trim())
-                        }
-                      })
-                      let addedLocationsCount = 0
-                      newLocations.forEach((locationName) => {
-                        addLocation({ name: locationName, description: "تم الإضافة تلقائياً من الاستيراد", createdAt: new Date().toISOString() })
-                        addedLocationsCount++
-                      })
-
-                      const normalize = (str: string) => {
-                        if (!str) return ""
-                        return str.trim().toLowerCase()
-                          .replace(/[\u064B-\u065F\u0670]/g, "") // Remove Arabic diacritics
-                          .replace(/[^\w\s\u0600-\u06FF]/g, "") // Remove special chars
-                          .replace(/\s+/g, " ") // Normalize spaces
-                      }
-
-                      // Create a key based on characteristics: Name + Category + Price + Unit
-                      const getCharKey = (p: import("@/lib/types").Product) => {
-                        return `${normalize(p.productName)}|${normalize(p.category || '')}|${p.price || 0}|${normalize(p.unit || '')}`
-                      }
-
-                      // Deduplicate and merge logic - DISABLED as per user request to always import as new
-                      /*
-                      let existingProducts = getProducts()
-                      if (existingProducts.length === 0) {
-                        existingProducts = await db.products.toArray()
-                      }
-                      const codeMap = new Map<string, string>()
-                      const itemNumMap = new Map<string, string>()
-                      const nameMap = new Map<string, string>()
-                      const charMap = new Map<string, string>()
-                      const idMap = new Map<string, import("@/lib/types").Product>()
-                      
-                      // Build maps from EXISTING products only
-                      existingProducts.forEach(p => {
-                        idMap.set(p.id, p)
-                        if (p.productCode) codeMap.set(normalize(p.productCode), p.id)
-                        if (p.itemNumber) itemNumMap.set(normalize(p.itemNumber), p.id)
-                        if (p.productName) nameMap.set(normalize(p.productName), p.id)
-                        charMap.set(getCharKey(p), p.id)
-                      })
-                      */
-
-                      // We will just use a map for the NEW products to be added, to ensure we can bulkPut them.
-                      // Since we want to keep duplicates, we rely on the unique IDs generated during parseExcelData.
-                      const newProductsMap = new Map<string, import("@/lib/types").Product>()
-
-                      // Also need to keep existing products in the DB? 
-                      // db.products.bulkPut will overwrite if ID matches. 
-                      // Since we generate random IDs for new products, they won't overwrite existing ones by ID.
-                      // But we need to make sure we don't lose existing data if we are supposed to 'saveProducts(allProducts)'.
-                      // 'saveProducts' usually expects the FULL list of products (for localStorage sync/cache).
-
-                      // So we must load existing products to append to them, but NOT to merge with them.
-                      let currentAllProducts = getProducts()
-                      if (currentAllProducts.length === 0) {
-                        currentAllProducts = await db.products.toArray()
-                      }
-
-                      // Add existing products to the map so they are preserved
-                      const idMap = new Map<string, import("@/lib/types").Product>()
-                      currentAllProducts.forEach(p => idMap.set(p.id, p))
-
-                      optimizedProducts.forEach(newP => {
-                        // FORCE ADD NEW - No matching check
-                        // Ensure ID is truly unique (it should be from parseExcelData)
-                        // Just in case of collision (unlikely with Date.now + random), regenerate?
-                        // parseExcelData uses: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-                        // It is safe enough.
-
-                        idMap.set(newP.id, newP)
-                      })
-
-                      const allProducts = Array.from(idMap.values())
-                      // await db.products.bulkPut(allProducts) // Removed redundant double-write
-                      saveProducts(allProducts)
-
-                      // --- START CLOUD SYNC FIX ---
-                      setConversionStatus("جاري المزامنة مع السحابة... (قد يستغرق وقتاً)")
-
-                      // 1. Sync Products (Optimized Pool)
-                      let syncedCount = 0
-                      const SYNC_CONCURRENCY = 10
-                      await asyncPool(SYNC_CONCURRENCY, optimizedProducts, async (p) => {
-                        try {
-                          await syncProduct(p)
-                          syncedCount++
-                          const progress = Math.round((syncedCount / (optimizedProducts.length + imageRecords.length)) * 100)
-                          setConversionProgress(progress)
-                        } catch (e) {
-                          console.error("Failed to sync product", p.productName, e)
-                        }
-                      })
-
-                      // 2. Sync Images (Optimized Pool)
-                      let syncedImages = 0
-                      const IMG_SYNC_CONCURRENCY = 5
-                      await asyncPool(IMG_SYNC_CONCURRENCY, imageRecords, async (img) => {
-                        try {
-                          await syncProductImageToCloud(img.productId, img.data)
-                          syncedImages++
-                          const progress = Math.round(((syncedCount + syncedImages) / (optimizedProducts.length + imageRecords.length)) * 100)
-                          setConversionProgress(progress)
-                        } catch (e) {
-                          console.error("Failed to sync image for product", img.productId, e)
-                        }
-                      })
-
-                      console.log(`[Bulk Import] Synced ${syncedCount} products and ${syncedImages} images to cloud.`)
-                      // --- END CLOUD SYNC FIX ---
-
-                      // onProductsUpdate(allProducts) // Removed to prevent blocking UI with granular updates
-
-                      // Prevent auto-seeding of demo data after import
-                      if (typeof window !== 'undefined') {
-                        localStorage.setItem('demo_data_deleted', 'true')
-                      }
-                      await db.settings.put({ key: 'demo_data_deleted', value: true })
-
-                      let message = `تم استيراد ${productsWithImages.length} منتج`
-                      if (convertedCount > 0) {
-                        message += ` وتحويل ${convertedCount} صورة`
-                      }
-                      if (failedCount > 0) {
-                        message += ` (فشل تحويل ${failedCount} صورة)`
-                      }
-                      if (addedCategoriesCount > 0) {
-                        message += ` وإضافة ${addedCategoriesCount} تصنيف جديد`
-                      }
-                      if (addedLocationsCount > 0) {
-                        message += ` و${addedLocationsCount} موقع جديد`
-                      }
-
-                      toast({ title: "تم الاستيراد بنجاح", description: message })
-                    } catch (error) {
-                      console.error("[v0] Import error:", error)
-                      toast({ title: "خطأ في الاستيراد", description: error instanceof Error ? error.message : "تأكد من صحة تنسيق الملف", variant: "destructive" })
-                    } finally {
-                      setIsImporting(false)
-                      setConversionProgress(0)
-                      setConversionStatus("")
-                      setImportHeaders([])
-                      setImportPreviewRows([])
-                      setImportAllRows([])
-                      setImportImagesMap({})
-                    }
-                  }}>تأكيد المطابقة</Button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                  {expectedFields.map((f) => (
+                    <div key={String(f.key)} className="flex flex-col items-end">
+                      <label className="text-xs sm:text-sm font-medium mb-1.5 text-gray-700">
+                        <DualText k={f.k} />
+                      </label>
+                      <select
+                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                        value={columnMapping[String(f.key)] ?? -1}
+                        onChange={(e) => setColumnMapping((m) => ({ ...m, [String(f.key)]: Number(e.target.value) }))}
+                      >
+                        <option value={-1}>— {t("bulk.mapping.ignore")} —</option>
+                        {importHeaders.map((h, idx) => (
+                          <option key={idx} value={idx}>{h || `عمود ${idx + 1}`}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
                 </div>
-              </div>
-              <div className="border rounded p-3 overflow-auto max-h-[40vh]">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr>
-                      {importHeaders.map((h, i) => (<th key={i} className="border px-2 py-1 text-right bg-gray-50">{h || `عمود ${i + 1}`}</th>))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {importPreviewRows.map((r, ri) => (
-                      <tr key={ri}>
-                        {r.map((c, ci) => (<td key={ci} className="border px-2 py-1 text-right">{String(c ?? '')}</td>))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+
+                <div className="flex flex-col-reverse sm:flex-row items-center justify-between gap-4 mb-4 border-t pt-4">
+                  <div className="text-xs text-muted-foreground text-center sm:text-right w-full sm:w-auto"><DualText k="bulk.mapping.suggested" /></div>
+                  <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                    <Button variant="outline" size="sm" onClick={() => { setColumnMapping(autoMappingSuggested) }} className="w-full sm:w-auto"><DualText k="bulk.mapping.auto" /></Button>
+                    <div className="flex gap-2 w-full sm:w-auto">
+                      <Button variant="secondary" size="sm" onClick={() => { setMappingDialogOpen(false); setImportHeaders([]); setImportPreviewRows([]) }} className="flex-1 sm:flex-none"><DualText k="common.cancel" /></Button>
+                      <Button size="sm" className="flex-1 sm:flex-none" onClick={async () => {
+                        saveMappingPref(mappingSignature, columnMapping)
+                        setMappingDialogOpen(false)
+                        setIsImporting(true)
+                        setConversionProgress(0)
+                        setConversionStatus(t("bulk.status.processing"))
+                        try {
+                          if (importAllRows.length === 0) {
+                            toast({ title: "تنبيه", description: "لم يتم العثور على صفوف في الملف", variant: "destructive" })
+                            throw new Error("No rows found")
+                          }
+
+                          const importedProducts = await parseExcelData(importAllRows, importImagesMap, columnMapping)
+                          toast({ title: "نتيجة التحليل", description: `تم العثور على ${importedProducts.length} منتج من أصل ${importAllRows.length} صف` })
+
+                          if (importedProducts.length === 0) {
+                            throw new Error("لم يتم العثور على منتجات صالحة في الملف")
+                          }
+                          setConversionStatus(t("bulk.status.convertImages"))
+                          let convertedCount = 0
+                          let failedCount = 0
+                          let completed = 0
+                          const CONCURRENCY = 6
+                          const productsWithImages = await asyncPool(CONCURRENCY, importedProducts, async (product, idx) => {
+                            let out = product
+                            if (product.image && (product.image.startsWith('http://') || product.image.startsWith('https://'))) {
+                              const base64Image = await convertImageToBase64(product.image)
+                              if (base64Image) {
+                                out = { ...product, image: base64Image }
+                                convertedCount++
+                              } else {
+                                failedCount++
+                              }
+                            }
+                            completed++
+                            const pct = Math.round((completed / importedProducts.length) * 100)
+                            setConversionProgress(pct)
+                            setConversionStatus(
+                              t("bulk.status.convertImagesProgress")
+                                .replace("{completed}", String(completed))
+                                .replace("{total}", String(importedProducts.length))
+                            )
+                            return out
+                          })
+
+                          // ... existing code ...
+
+                          // Optimize Images: Split large images to side table
+                          const optimizedProducts: typeof productsWithImages = []
+                          const imageRecords: { productId: string; data: string }[] = []
+
+                          for (const p of productsWithImages) {
+                            if (p.image && p.image.length > 500 && !p.image.startsWith('http')) {
+                              imageRecords.push({ productId: p.id, data: p.image })
+                              optimizedProducts.push({ ...p, image: 'DB_IMAGE' })
+                            } else {
+                              optimizedProducts.push(p)
+                            }
+                          }
+
+                          if (imageRecords.length > 0) {
+                            await db.productImages.bulkPut(imageRecords)
+                          }
+
+                          const existingCategories = getCategories()
+                          const existingCategoryNames = new Set(existingCategories.map((c) => c.name.toLowerCase().trim()))
+                          const newCategories = new Set<string>()
+                          optimizedProducts.forEach((product) => {
+                            if (product.category && !existingCategoryNames.has(product.category.toLowerCase().trim())) {
+                              newCategories.add(product.category.trim())
+                            }
+                          })
+                          const colors = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#06b6d4", "#ec4899", "#14b8a6"]
+                          let addedCategoriesCount = 0
+                          newCategories.forEach((categoryName) => {
+                            const randomColor = colors[Math.floor(Math.random() * colors.length)]
+                            addCategory({ name: categoryName, color: randomColor })
+                            addedCategoriesCount++
+                          })
+
+                          const existingLocations = getLocations()
+                          const existingLocationNames = new Set(existingLocations.map((l: any) => l.name.toLowerCase().trim()))
+                          const newLocations = new Set<string>()
+                          optimizedProducts.forEach((product) => {
+                            if (product.location && !existingLocationNames.has(product.location.toLowerCase().trim())) {
+                              newLocations.add(product.location.trim())
+                            }
+                          })
+                          let addedLocationsCount = 0
+                          newLocations.forEach((locationName) => {
+                            addLocation({ name: locationName, description: "تم الإضافة تلقائياً من الاستيراد", createdAt: new Date().toISOString() })
+                            addedLocationsCount++
+                          })
+
+                          const normalize = (str: string) => {
+                            if (!str) return ""
+                            return str.trim().toLowerCase()
+                              .replace(/[\u064B-\u065F\u0670]/g, "") // Remove Arabic diacritics
+                              .replace(/[^\w\s\u0600-\u06FF]/g, "") // Remove special chars
+                              .replace(/\s+/g, " ") // Normalize spaces
+                          }
+
+                          // Create a key based on characteristics: Name + Category + Price + Unit
+                          const getCharKey = (p: import("@/lib/types").Product) => {
+                            return `${normalize(p.productName)}|${normalize(p.category || '')}|${p.price || 0}|${normalize(p.unit || '')}`
+                          }
+
+                          // Deduplicate and merge logic - DISABLED as per user request to always import as new
+                          /*
+                          let existingProducts = getProducts()
+                          if (existingProducts.length === 0) {
+                            existingProducts = await db.products.toArray()
+                          }
+                          const codeMap = new Map<string, string>()
+                          const itemNumMap = new Map<string, string>()
+                          const nameMap = new Map<string, string>()
+                          const charMap = new Map<string, string>()
+                          const idMap = new Map<string, import("@/lib/types").Product>()
+                          
+                          // Build maps from EXISTING products only
+                          existingProducts.forEach(p => {
+                            idMap.set(p.id, p)
+                            if (p.productCode) codeMap.set(normalize(p.productCode), p.id)
+                            if (p.itemNumber) itemNumMap.set(normalize(p.itemNumber), p.id)
+                            if (p.productName) nameMap.set(normalize(p.productName), p.id)
+                            charMap.set(getCharKey(p), p.id)
+                          })
+                          */
+
+                          // We will just use a map for the NEW products to be added, to ensure we can bulkPut them.
+                          // Since we want to keep duplicates, we rely on the unique IDs generated during parseExcelData.
+                          const newProductsMap = new Map<string, import("@/lib/types").Product>()
+
+                          // Also need to keep existing products in the DB? 
+                          // db.products.bulkPut will overwrite if ID matches. 
+                          // Since we generate random IDs for new products, they won't overwrite existing ones by ID.
+                          // But we need to make sure we don't lose existing data if we are supposed to 'saveProducts(allProducts)'.
+                          // 'saveProducts' usually expects the FULL list of products (for localStorage sync/cache).
+
+                          // So we must load existing products to append to them, but NOT to merge with them.
+                          let currentAllProducts = getProducts()
+                          if (currentAllProducts.length === 0) {
+                            currentAllProducts = await db.products.toArray()
+                          }
+
+                          // Add existing products to the map so they are preserved
+                          const idMap = new Map<string, import("@/lib/types").Product>()
+                          currentAllProducts.forEach(p => idMap.set(p.id, p))
+
+                          optimizedProducts.forEach(newP => {
+                            // FORCE ADD NEW - No matching check
+                            // Ensure ID is truly unique (it should be from parseExcelData)
+                            // Just in case of collision (unlikely with Date.now + random), regenerate?
+                            // parseExcelData uses: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+                            // It is safe enough.
+
+                            idMap.set(newP.id, newP)
+                          })
+
+                          const allProducts = Array.from(idMap.values())
+                          // await db.products.bulkPut(allProducts) // Removed redundant double-write
+                          saveProducts(allProducts)
+
+                          // --- START CLOUD SYNC FIX ---
+                          setConversionStatus("جاري المزامنة مع السحابة... (قد يستغرق وقتاً)")
+
+                          // 1. Sync Products (Optimized Pool)
+                          let syncedCount = 0
+                          const SYNC_CONCURRENCY = 10
+                          await asyncPool(SYNC_CONCURRENCY, optimizedProducts, async (p) => {
+                            try {
+                              await syncProduct(p)
+                              syncedCount++
+                              const progress = Math.round((syncedCount / (optimizedProducts.length + imageRecords.length)) * 100)
+                              setConversionProgress(progress)
+                            } catch (e) {
+                              console.error("Failed to sync product", p.productName, e)
+                            }
+                          })
+
+                          // 2. Sync Images (Optimized Pool)
+                          let syncedImages = 0
+                          const IMG_SYNC_CONCURRENCY = 5
+                          await asyncPool(IMG_SYNC_CONCURRENCY, imageRecords, async (img) => {
+                            try {
+                              await syncProductImageToCloud(img.productId, img.data)
+                              syncedImages++
+                              const progress = Math.round(((syncedCount + syncedImages) / (optimizedProducts.length + imageRecords.length)) * 100)
+                              setConversionProgress(progress)
+                            } catch (e) {
+                              console.error("Failed to sync image for product", img.productId, e)
+                            }
+                          })
+
+                          console.log(`[Bulk Import] Synced ${syncedCount} products and ${syncedImages} images to cloud.`)
+                          // --- END CLOUD SYNC FIX ---
+
+                          // onProductsUpdate(allProducts) // Removed to prevent blocking UI with granular updates
+
+                          // Prevent auto-seeding of demo data after import
+                          if (typeof window !== 'undefined') {
+                            localStorage.setItem('demo_data_deleted', 'true')
+                          }
+                          await db.settings.put({ key: 'demo_data_deleted', value: true })
+
+                          let message = `تم استيراد ${productsWithImages.length} منتج`
+                          if (convertedCount > 0) {
+                            message += ` وتحويل ${convertedCount} صورة`
+                          }
+                          if (failedCount > 0) {
+                            message += ` (فشل تحويل ${failedCount} صورة)`
+                          }
+                          if (addedCategoriesCount > 0) {
+                            message += ` وإضافة ${addedCategoriesCount} تصنيف جديد`
+                          }
+                          if (addedLocationsCount > 0) {
+                            message += ` و${addedLocationsCount} موقع جديد`
+                          }
+
+                          toast({ title: "تم الاستيراد بنجاح", description: message })
+                        } catch (error) {
+                          console.error("[v0] Import error:", error)
+                          toast({ title: "خطأ في الاستيراد", description: error instanceof Error ? error.message : "تأكد من صحة تنسيق الملف", variant: "destructive" })
+                        } finally {
+                          setIsImporting(false)
+                          setConversionProgress(0)
+                          setConversionStatus("")
+                          setImportHeaders([])
+                          setImportPreviewRows([])
+                          setImportAllRows([])
+                          setImportImagesMap({})
+                        }
+                      }}>تأكيد المطابقة</Button>
+                    </div>
+                  </div>
+                </div>
+
+                <h4 className="text-sm font-semibold mb-2 text-right">معاينة البيانات (أول 20 صف)</h4>
+                <div className="border rounded-md w-full overflow-hidden">
+                  <div className="overflow-x-auto max-h-[30vh]">
+                    <table className="w-full text-xs sm:text-sm whitespace-nowrap">
+                      <thead>
+                        <tr className="bg-muted/50 sticky top-0">
+                          {importHeaders.map((h, i) => (<th key={i} className="border px-3 py-2 text-right font-medium text-muted-foreground">{h || `عمود ${i + 1}`}</th>))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importPreviewRows.map((r, ri) => (
+                          <tr key={ri} className="hover:bg-muted/10">
+                            {r.map((c, ci) => (<td key={ci} className="border px-3 py-1.5 text-right">{String(c ?? '')}</td>))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button variant="destructive" className="bg-red-100 text-red-900 hover:bg-red-200 border-red-200 ml-2">
-              <Trash2 className="ml-2 h-4 w-4" />
-              {t("bulk.deleteAutoData")}
-            </Button>
-          </AlertDialogTrigger>
+
+        {/* Maintenance Actions Group */}
+        <div className="flex items-center gap-2 border-r pr-2 mr-1">
+          <Button
+            variant="outline"
+            className="gap-2 border-primary/20 hover:bg-primary/5 hover:text-primary"
+            onClick={() => setBackupOpen(true)}
+          >
+            <ShieldCheck className="h-4 w-4 text-primary" />
+            <span className="font-semibold">{t("bulk.backup")}</span>
+          </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" className="h-9 w-9">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>إدارة النظام</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+
+              <DropdownMenuItem onClick={() => setDeleteDemoOpen(true)} className="text-red-600 focus:text-red-600 focus:bg-red-50">
+                <Trash2 className="mr-2 h-4 w-4" />
+                <span>{t("bulk.deleteAutoData")}</span>
+              </DropdownMenuItem>
+
+              <DropdownMenuItem onClick={() => setDeleteAllOpen(true)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                <AlertTriangle className="mr-2 h-4 w-4" />
+                <span>{t("bulk.deleteAll")}</span>
+              </DropdownMenuItem>
+
+              <DropdownMenuSeparator />
+
+              <DropdownMenuItem onClick={() => setFactoryResetOpen(true)}>
+                <RotateCcw className="mr-2 h-4 w-4" />
+                <span>{t("bulk.factoryReset")}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        <AlertDialog open={deleteDemoOpen} onOpenChange={setDeleteDemoOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>{t("bulk.deleteAutoDataDialog.title")}</AlertDialogTitle>
@@ -1620,20 +1690,14 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-              <AlertDialogAction onClick={handleDeleteDemoData} className="bg-red-600 hover:bg-red-700">
+              <AlertDialogAction onClick={() => { handleDeleteDemoData(); setDeleteDemoOpen(false) }} className="bg-red-600 hover:bg-red-700">
                 {t("bulk.deleteAutoDataDialog.confirm")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
 
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button variant="destructive" disabled={products.length === 0}>
-              <Trash2 className="ml-2 h-4 w-4" />
-              {t("bulk.deleteAll")}
-            </Button>
-          </AlertDialogTrigger>
+        <AlertDialog open={deleteAllOpen} onOpenChange={setDeleteAllOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>{t("bulk.deleteAllDialog.title")}</AlertDialogTitle>
@@ -1643,20 +1707,14 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-              <AlertDialogAction onClick={handleClearAll} className="bg-destructive text-destructive-foreground">
+              <AlertDialogAction onClick={() => { handleClearAll(); setDeleteAllOpen(false) }} className="bg-destructive text-destructive-foreground">
                 {t("common.delete")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
 
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button variant="outline">
-              <RotateCcw className="ml-2 h-4 w-4" />
-              {t("bulk.factoryReset")}
-            </Button>
-          </AlertDialogTrigger>
+        <AlertDialog open={factoryResetOpen} onOpenChange={setFactoryResetOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>{t("bulk.factoryResetDialog.title")}</AlertDialogTitle>
@@ -1666,15 +1724,13 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-              <AlertDialogAction onClick={handleFactoryReset}>
+              <AlertDialogAction onClick={() => { handleFactoryReset(); setFactoryResetOpen(false) }}>
                 {t("bulk.factoryResetDialog.confirm")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-        <Button variant="outline" onClick={() => setBackupOpen(true)}>
-          {t("bulk.backup")}
-        </Button>
+
         <div className="flex items-center gap-2">
           <label className="text-sm text-muted-foreground">{t("bulk.exportScope")}</label>
           <select

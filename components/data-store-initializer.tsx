@@ -1,14 +1,20 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { initDataStoreWithProgress } from "@/lib/storage"
-import { Loader2 } from "lucide-react"
+import { initDataStoreWithProgress, hardReset } from "@/lib/storage"
+import { Loader2, RefreshCcw } from "lucide-react"
+import { usePathname } from "next/navigation"
+import { useI18n } from "@/components/language-provider"
 
 export function DataStoreInitializer({ children }: { children: React.ReactNode }) {
+  const { t } = useI18n()
   const [initialized, setInitialized] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState(0)
   const [message, setMessage] = useState("بدء التحميل...")
+  const pathname = usePathname()
+
+  const isLoginPage = pathname === "/login" || pathname === "/logout" || pathname.includes("branch-login")
 
   useEffect(() => {
     // Safety timeout: 10 seconds
@@ -39,7 +45,7 @@ export function DataStoreInitializer({ children }: { children: React.ReactNode }
     return () => clearTimeout(safetyTimer);
   }, []);
 
-  if (!initialized) {
+  if (!initialized && !isLoginPage) {
     return (
       <div className="fixed inset-0 flex flex-col items-center justify-center bg-background text-foreground z-50" dir="rtl">
         <div className="w-full max-w-sm px-4 flex flex-col items-center gap-6">
@@ -65,12 +71,26 @@ export function DataStoreInitializer({ children }: { children: React.ReactNode }
             <p className="text-xs text-muted-foreground animate-pulse">جاري معالجة الصور الكبيرة...</p>
           )}
 
-          <button
-            onClick={() => setInitialized(true)}
-            className="mt-8 text-xs text-muted-foreground underline hover:text-foreground"
-          >
-            تخطي الانتظار (في حال التعليق)
-          </button>
+          <div className="mt-8 flex flex-col items-center gap-4">
+            <button
+              onClick={() => setInitialized(true)}
+              className="text-xs text-muted-foreground underline hover:text-foreground"
+            >
+              تخطي الانتظار (في حال التعليق)
+            </button>
+
+            <button
+              onClick={() => {
+                if (window.confirm(t('sync.hardResetConfirm'))) {
+                  hardReset()
+                }
+              }}
+              className="flex items-center gap-1.5 text-xs text-destructive/70 hover:text-destructive underline decoration-destructive/30"
+            >
+              <RefreshCcw className="h-3.5 w-3.5" />
+              {t('sync.hardReset')}
+            </button>
+          </div>
         </div>
       </div>
     )

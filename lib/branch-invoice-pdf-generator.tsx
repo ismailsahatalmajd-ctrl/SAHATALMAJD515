@@ -60,14 +60,6 @@ export async function generateBranchInvoicePDF(inv: BranchInvoice): Promise<stri
         row += `<td>${it.unit || ""}</td>`
         row += `<td>${it.quantity}</td>`
 
-        if (settings.showPrice) {
-          row += `<td>${it.unitPrice.toFixed(2)}</td>`
-        }
-
-        if (settings.showTotal) {
-          row += `<td>${it.totalPrice.toFixed(2)}</td>`
-        }
-
         row += `</tr>`
         return row
       }
@@ -118,7 +110,7 @@ export async function generateBranchInvoicePDF(inv: BranchInvoice): Promise<stri
           </tbody>
         </table>
         
-        ${settings.showTotal ? `<div class="totals">Total Amount / إجمالي الفاتورة: ${inv.totalValue.toFixed(2)}</div>` : ""}
+        <!-- Bottom total removed per user request -->
         
         ${settings.footerText ? `<div class="footer-text">${settings.footerText}</div>` : ""}
         

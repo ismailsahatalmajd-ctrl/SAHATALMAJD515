@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { Plus, Trash2, Search } from 'lucide-react'
+import { Plus, Trash2, Search, Loader2 } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -60,6 +60,7 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
   const [openComboboxIndex, setOpenComboboxIndex] = useState<number | null>(null)
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null)
   const [draftSaved, setDraftSaved] = useState<boolean>(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
     if (open) {
@@ -203,6 +204,8 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
   }, [open, issueToEdit, selectedBranchId, issueProducts, notes, extractorName, inspectorName, branches, currentDraftId])
 
   const handleSubmit = async () => {
+    if (isSubmitting) return
+
     if (!selectedBranchId) {
       toast({ title: getDualString("common.error"), description: getDualString("bulkIssue.error.selectBranch"), variant: "destructive" })
       return
@@ -242,50 +245,60 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
 
     const totalValue = issueProducts.reduce((sum, p) => sum + p.totalPrice, 0)
 
-    if (issueToEdit) {
-      const updatedIssue = {
-        ...issueToEdit,
-        branchId: selectedBranchId,
-        branchName: branch.name,
-        products: issueProducts,
-        totalValue,
-        notes,
-        extractorName,
-        inspectorName,
-        updatedAt: new Date().toISOString()
+    setIsSubmitting(true)
+
+    // Yield to main thread so UI can update (show loading state, etc.)
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    try {
+      if (issueToEdit) {
+        const updatedIssue = {
+          ...issueToEdit,
+          branchId: selectedBranchId,
+          branchName: branch.name,
+          products: issueProducts,
+          totalValue,
+          notes,
+          extractorName,
+          inspectorName,
+          updatedAt: new Date().toISOString()
+        }
+
+        updateIssue(issueToEdit.id, updatedIssue)
+
+        if (user) {
+          try { syncIssue(updatedIssue) } catch (e) { console.error("Sync failed", e) }
+        }
+
+        toast({ title: getDualString("common.success"), description: getDualString("bulkIssue.success.updated") })
+      } else {
+        const newIssue = await addIssue({
+          branchId: selectedBranchId,
+          branchName: branch.name,
+          products: issueProducts,
+          totalValue,
+          notes,
+          extractorName,
+          inspectorName,
+          status: "pending",
+        })
+
+        if (user) {
+          try { await syncIssue(newIssue) } catch (e) { console.error("Sync failed", e) }
+        }
+
+        toast({ title: getDualString("common.success"), description: getDualString("bulkIssue.success.issued") })
       }
 
-      updateIssue(issueToEdit.id, updatedIssue)
-
-      if (user) {
-        try { syncIssue(updatedIssue) } catch (e) { console.error("Sync failed", e) }
+      // احذف المسودة المرتبطة بعد الحفظ النهائي
+      if (currentDraftId) {
+        try { deleteIssueDraft(currentDraftId) } catch { }
+        setCurrentDraftId(null)
+        setDraftSaved(false)
       }
 
-      toast({ title: getDualString("common.success"), description: getDualString("bulkIssue.success.updated") })
-    } else {
-      const newIssue = await addIssue({
-        branchId: selectedBranchId,
-        branchName: branch.name,
-        products: issueProducts,
-        totalValue,
-        notes,
-        extractorName,
-        inspectorName,
-        status: "pending",
-      })
-
-      if (user) {
-        try { await syncIssue(newIssue) } catch (e) { console.error("Sync failed", e) }
-      }
-
-      toast({ title: getDualString("common.success"), description: getDualString("bulkIssue.success.issued") })
-    }
-
-    // احذف المسودة المرتبطة بعد الحفظ النهائي
-    if (currentDraftId) {
-      try { deleteIssueDraft(currentDraftId) } catch { }
-      setCurrentDraftId(null)
-      setDraftSaved(false)
+    } finally {
+      setIsSubmitting(false)
     }
 
     resetForm()
@@ -519,11 +532,18 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
         </div>
 
         <DialogFooter className="mt-4">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="h-11 px-6">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="h-11 px-6" disabled={isSubmitting}>
             {t("bulkIssue.cancel")}
           </Button>
-          <Button onClick={handleSubmit} disabled={issueProducts.length === 0 || !selectedBranchId} className="h-11 px-6">
-            {issueToEdit ? t("bulkIssue.updateBtn") : t("bulkIssue.issueBtn")}
+          <Button onClick={handleSubmit} disabled={isSubmitting || issueProducts.length === 0 || !selectedBranchId} className="h-11 px-6">
+            {isSubmitting ? (
+              <span className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {t("common.saving", "جاري الحفظ...")}
+              </span>
+            ) : (
+              issueToEdit ? t("bulkIssue.updateBtn") : t("bulkIssue.issueBtn")
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

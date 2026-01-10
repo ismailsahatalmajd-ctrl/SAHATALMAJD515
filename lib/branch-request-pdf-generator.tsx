@@ -53,6 +53,9 @@ export async function generateBranchRequestPDF(request: BranchRequest): Promise<
         : ''
 
       const qty = it.requestedQuantity || it.quantity || 0
+      // const unitPrice = it.unitPrice || it.price || 0
+      // const totalPrice = unitPrice * qty
+
       return `
       <tr>
         <td>${idx + 1}</td>
@@ -60,7 +63,7 @@ export async function generateBranchRequestPDF(request: BranchRequest): Promise<
         <td>${it.productCode}</td>
         <td>${it.productName}</td>
         ${settings.showUnit ? `<td>${it.unit || ""}</td>` : ''}
-        <td>${qty}</td>
+        ${settings.showQuantity ? `<td>${qty}</td>` : ''}
         ${!isReturn ? `<td>${it.availableQuantity ?? "-"}</td>` : ''}
         ${reasonCell}
         ${noteCell}
@@ -139,7 +142,7 @@ export async function generateBranchRequestPDF(request: BranchRequest): Promise<
             <th>Code / الكود</th>
             <th>Product Name / اسم المنتج</th>
             ${settings.showUnit ? `<th>Unit / الوحدة</th>` : ''}
-            <th>Qty / الكمية</th>
+            ${settings.showQuantity ? `<th>Qty / الكمية</th>` : ''}
             ${!isReturn ? '<th>Available / المتوفر</th>' : ''}
             ${isReturn ? '<th>Return Reason / سبب الارجاع</th>' : ''}
             ${hasExceeded ? '<th>Note / ملاحظة</th>' : ''}

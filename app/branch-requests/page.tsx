@@ -40,6 +40,7 @@ export default function BranchRequestsPage() {
     const [chatDialogOpen, setChatDialogOpen] = useState(false)
     const [activeChatRequest, setActiveChatRequest] = useState<BranchRequest | null>(null)
     const [chatMessage, setChatMessage] = useState("")
+    const [processingId, setProcessingId] = useState<string | null>(null)
 
     useEffect(() => {
         if (authLoading) return
@@ -63,12 +64,21 @@ export default function BranchRequestsPage() {
     }
 
     const handleApprove = async (id: string) => {
-        const res = await approveBranchRequest(id, "admin")
-        if (res.approved) {
-            toast({ title: "تمت الموافقة", description: "تم اعتماد الطلب بنجاح." })
-            // Hook updates automatically
-        } else {
-            toast({ title: "خطأ", description: "فشل الاعتماد.", variant: "destructive" })
+        if (processingId) return
+        setProcessingId(id)
+
+        // Yield to main thread for UI update
+        await new Promise(r => setTimeout(r, 10))
+
+        try {
+            const res = await approveBranchRequest(id, "admin")
+            if (res.approved) {
+                toast({ title: "تمت الموافقة", description: "تم اعتماد الطلب بنجاح." })
+            } else {
+                toast({ title: "خطأ", description: "فشل الاعتماد.", variant: "destructive" })
+            }
+        } finally {
+            setProcessingId(null)
         }
     }
 
@@ -90,9 +100,18 @@ export default function BranchRequestsPage() {
         }
     }
 
-    const handleReject = (id: string) => {
-        setRequestStatus(id, "cancelled", "admin")
-        toast({ title: "تم الرفض", description: "تم إلغاء الطلب." })
+    const handleReject = async (id: string) => {
+        if (processingId) return
+        setProcessingId(id)
+
+        await new Promise(r => setTimeout(r, 10))
+
+        try {
+            setRequestStatus(id, "cancelled", "admin")
+            toast({ title: "تم الرفض", description: "تم إلغاء الطلب." })
+        } finally {
+            setProcessingId(null)
+        }
     }
 
     if (loading) return (
@@ -189,11 +208,21 @@ export default function BranchRequestsPage() {
                                                     </Button>
                                                     {req.status === 'submitted' && (
                                                         <>
-                                                            <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApprove(req.id)}>
-                                                                <Check className="h-4 w-4" />
+                                                            <Button
+                                                                size="sm"
+                                                                className="bg-green-600 hover:bg-green-700"
+                                                                onClick={() => handleApprove(req.id)}
+                                                                disabled={processingId === req.id}
+                                                            >
+                                                                {processingId === req.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                                                             </Button>
-                                                            <Button size="sm" variant="destructive" onClick={() => handleReject(req.id)}>
-                                                                <X className="h-4 w-4" />
+                                                            <Button
+                                                                size="sm"
+                                                                variant="destructive"
+                                                                onClick={() => handleReject(req.id)}
+                                                                disabled={processingId === req.id}
+                                                            >
+                                                                {processingId === req.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
                                                             </Button>
                                                         </>
                                                     )}

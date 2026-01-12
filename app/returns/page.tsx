@@ -19,7 +19,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Search, Undo2, FileText, Download, Printer } from "lucide-react"
 import { generateReturnPDF } from "@/lib/return-pdf-generator"
 import { generateBranchRequestPDF } from "@/lib/branch-request-pdf-generator"
-import { formatArabicGregorianDate, downloadJSON } from "@/lib/utils"
+import { formatArabicGregorianDate, formatArabicGregorianDateTime, downloadJSON } from "@/lib/utils"
 import { useRef } from "react"
 import { useI18n } from "@/components/language-provider"
 import { useInvoiceSettings } from "@/lib/invoice-settings-store"
@@ -409,42 +409,51 @@ export default function ReturnsPage() {
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
-                  <Table>
+                  <Table className="table-fixed">
                     <TableHeader>
                       <TableRow>
-                        <TableHead><DualText k="returns.request.branch" fallback="الفرع" /></TableHead>
-                        <TableHead><DualText k="returns.request.items" fallback="عدد الأصناف" /></TableHead>
-                        <TableHead><DualText k="returns.request.notes" fallback="ملاحظات" /></TableHead>
-                        <TableHead><DualText k="returns.request.date" fallback="تاريخ الطلب" /></TableHead>
-                        <TableHead className="text-right"><DualText k="common.actions" fallback="الإجراءات" /></TableHead>
+                        <TableHead className="w-[100px] border-x text-center"><DualText k="returns.request.branch" fallback="الفرع" /></TableHead>
+                        <TableHead className="w-[80px] border-x text-center"><DualText k="returns.request.itemsCount" fallback="عدد العناصر" /></TableHead>
+                        <TableHead className="w-[150px] border-x text-center"><DualText k="returns.request.notes" fallback="ملاحظات" /></TableHead>
+                        <TableHead className="w-[180px] border-x text-center"><DualText k="returns.request.date" fallback="التاريخ" /></TableHead>
+                        <TableHead className="text-center w-[100px] border-x"><DualText k="common.actions" fallback="الإجراءات" /></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {branchReturnRequests.map((req) => (
-                        <TableRow key={req.id}>
-                          <TableCell className="font-medium">{req.branchName}</TableCell>
-                          <TableCell>{req.items.length}</TableCell>
-                          <TableCell className="text-muted-foreground">{req.notes || "-"}</TableCell>
-                          <TableCell>{formatArabicGregorianDate(new Date(req.createdAt))}</TableCell>
-                          <TableCell className="text-right space-x-2 rtl:space-x-reverse">
-                            <Button size="sm" variant="outline" onClick={async () => await generateBranchRequestPDF(req)} title={t("common.print", "طباعة")}>
-                              <Printer className="h-4 w-4" />
-                            </Button>
-                            <Button size="sm" onClick={() => handleApproveRequest(req)} className="bg-green-600 hover:bg-green-700">
-                              <DualText k="common.approve" fallback="قبول" />
-                            </Button>
-                            <Button size="sm" variant="destructive" onClick={() => handleRejectRequest(req)}>
-                              <DualText k="common.reject" fallback="رفض" />
-                            </Button>
+                      {branchReturnRequests.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center text-muted-foreground border-x">
+                            <DualText k="returns.request.empty" fallback="لا توجد طلبات" />
                           </TableCell>
                         </TableRow>
-                      ))}
+                      ) : (
+                        branchReturnRequests.map((req) => (
+                          <TableRow key={req.id}>
+                            <TableCell className="font-medium border-x text-center">{req.branchName}</TableCell>
+                            <TableCell className="border-x text-center">{req.items.length}</TableCell>
+                            <TableCell className="text-muted-foreground border-x text-center">{req.notes || "-"}</TableCell>
+                            <TableCell className="border-x text-center">{formatArabicGregorianDateTime(new Date(req.createdAt))}</TableCell>
+                            <TableCell className="text-center border-x flex justify-center space-x-2 rtl:space-x-reverse">
+                              <Button size="sm" variant="outline" onClick={async () => await generateBranchRequestPDF(req)} title={t("common.print", "طباعة")}>
+                                <Printer className="h-4 w-4" />
+                              </Button>
+                              <Button size="sm" onClick={() => handleApproveRequest(req)} className="bg-green-600 hover:bg-green-700">
+                                <DualText k="common.approve" fallback="قبول" />
+                              </Button>
+                              <Button size="sm" variant="destructive" onClick={() => handleRejectRequest(req)}>
+                                <DualText k="common.reject" fallback="رفض" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
                     </TableBody>
                   </Table>
                 </div>
               </CardContent>
             </Card>
-          )}
+          )
+          }
 
           <Card>
             <CardHeader>
@@ -697,48 +706,48 @@ export default function ReturnsPage() {
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
-                <Table>
+                <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead><DualText k="returns.history.columns.returnNo" /></TableHead>
-                      <TableHead><DualText k="returns.history.columns.source" /></TableHead>
-                      <TableHead><DualText k="returns.history.columns.phone" /></TableHead>
-                      <TableHead><DualText k="returns.history.columns.originalInvoice" /></TableHead>
-                      <TableHead><DualText k="returns.history.columns.branch" /></TableHead>
-                      <TableHead><DualText k="returns.history.columns.itemsCount" /></TableHead>
-                      <TableHead><DualText k="returns.history.columns.value" /></TableHead>
-                      <TableHead><DualText k="returns.history.columns.reason" /></TableHead>
-                      <TableHead><DualText k="returns.history.columns.method" /></TableHead>
-                      <TableHead><DualText k="returns.history.columns.status" /></TableHead>
-                      <TableHead><DualText k="returns.history.columns.date" /></TableHead>
-                      <TableHead><DualText k="returns.history.columns.print" /></TableHead>
+                      <TableHead className="w-[100px] border-x text-center"><DualText k="returns.history.columns.returnNo" /></TableHead>
+                      <TableHead className="w-[100px] border-x text-center"><DualText k="returns.history.columns.source" /></TableHead>
+                      <TableHead className="w-[120px] border-x text-center"><DualText k="returns.history.columns.phone" /></TableHead>
+                      <TableHead className="w-[120px] border-x text-center"><DualText k="returns.history.columns.originalInvoice" /></TableHead>
+                      <TableHead className="w-[100px] border-x text-center"><DualText k="returns.history.columns.branch" /></TableHead>
+                      <TableHead className="w-[80px] border-x text-center"><DualText k="returns.history.columns.itemsCount" /></TableHead>
+                      <TableHead className="w-[120px] border-x text-center"><DualText k="returns.history.columns.value" /></TableHead>
+                      <TableHead className="w-[150px] border-x text-center"><DualText k="returns.history.columns.reason" /></TableHead>
+                      <TableHead className="w-[120px] border-x text-center"><DualText k="returns.history.columns.method" /></TableHead>
+                      <TableHead className="w-[100px] border-x text-center"><DualText k="returns.history.columns.status" /></TableHead>
+                      <TableHead className="w-[180px] border-x text-center"><DualText k="returns.history.columns.date" /></TableHead>
+                      <TableHead className="w-[100px] border-x text-center"><DualText k="returns.history.columns.print" /></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredReturns.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={12} className="text-center text-muted-foreground"><DualText k="issues.table.returns.empty" /></TableCell>
+                        <TableCell colSpan={12} className="text-center text-muted-foreground border-x"><DualText k="issues.table.returns.empty" /></TableCell>
                       </TableRow>
                     ) : (
                       filteredReturns.map((r) => (
                         <TableRow key={r.id}>
-                          <TableCell className="font-medium">#{r.id.slice(-6)}</TableCell>
-                          <TableCell>
+                          <TableCell className="font-medium border-x text-center">#{r.id.slice(-6)}</TableCell>
+                          <TableCell className="border-x text-center">
                             <Badge variant="outline">{r.sourceType === "purchase" ? <DualText k="purchases.title" /> : <DualText k="issues.issueProducts" />}</Badge>
                           </TableCell>
-                          <TableCell>{r.customerPhone || '-'}</TableCell>
-                          <TableCell>{r.originalInvoiceNumber || '-'}</TableCell>
-                          <TableCell>{r.branchName}</TableCell>
-                          <TableCell>{r.products.length}</TableCell>
-                          <TableCell className="font-semibold">{r.totalValue.toFixed(2)} <DualText k="common.currency" /></TableCell>
-                          <TableCell className="text-muted-foreground"><DualText k={r.reason} /></TableCell>
-                          <TableCell>{r.refundMethod ? <DualText k={REFUND_METHODS.find(m => m.value === r.refundMethod)?.key || "common.unknown"} /> : "-"}</TableCell>
-                          <TableCell>
+                          <TableCell className="border-x text-center">{r.customerPhone || '-'}</TableCell>
+                          <TableCell className="border-x text-center">{r.originalInvoiceNumber || '-'}</TableCell>
+                          <TableCell className="border-x text-center">{r.branchName}</TableCell>
+                          <TableCell className="border-x text-center">{r.products.length}</TableCell>
+                          <TableCell className="font-semibold border-x text-center">{r.totalValue.toFixed(2)} <DualText k="common.currency" /></TableCell>
+                          <TableCell className="text-muted-foreground border-x text-center"><DualText k={r.reason} /></TableCell>
+                          <TableCell className="border-x text-center">{r.refundMethod ? <DualText k={REFUND_METHODS.find(m => m.value === r.refundMethod)?.key || "common.unknown"} /> : "-"}</TableCell>
+                          <TableCell className="border-x text-center">
                             <Badge variant="outline"><DualText k={`returns.status.${r.status || 'pending'}`} /></Badge>
                           </TableCell>
-                          <TableCell>{formatArabicGregorianDate(new Date(r.createdAt))}</TableCell>
-                          <TableCell className="text-left">
-                            <div className="flex items-center gap-1">
+                          <TableCell className="border-x text-center">{formatArabicGregorianDateTime(new Date(r.createdAt))}</TableCell>
+                          <TableCell className="text-center border-x">
+                            <div className="flex items-center justify-center gap-1">
                               {r.status === 'pending' && (
                                 <Button size="sm" onClick={async () => {
                                   if (user) {
@@ -798,9 +807,9 @@ export default function ReturnsPage() {
               </div>
             </CardContent>
           </Card>
-        </div>
-      </main>
-    </div>
+        </div >
+      </main >
+    </div >
   )
 }
 

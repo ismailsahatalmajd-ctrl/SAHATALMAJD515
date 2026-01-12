@@ -28,7 +28,7 @@ import type { Product } from "@/lib/types"
 import type { PurchaseRequest, PurchaseRequestItem } from "@/lib/purchase-request-types"
 import { getProducts } from "@/lib/storage"
 import { addPurchaseRequest, getPurchaseRequests, setRequestStatus, updatePurchaseRequest, deletePurchaseRequest } from "@/lib/purchase-request-storage"
-import { formatEnglishNumber, getNumericInvoiceNumber } from "@/lib/utils"
+import { formatEnglishNumber, getNumericInvoiceNumber, formatArabicGregorianDateTime } from "@/lib/utils"
 import { generatePurchaseRequestPDF } from "@/lib/purchase-request-pdf-generator"
 import { useI18n } from "@/components/language-provider"
 import { DualText, getDualString } from "@/components/ui/dual-text"
@@ -354,16 +354,16 @@ export function PurchaseRequestsSection() {
               </div>
 
               <div className="rounded-lg border">
-                <Table>
+                <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{t("purchaseRequests.table.item.index")}</TableHead>
-                      <TableHead>{t("purchaseRequests.table.item.code")}</TableHead>
-                      <TableHead>{t("purchaseRequests.table.item.name")}</TableHead>
-                      {settings.showUnit && <TableHead>{t("purchaseRequests.table.item.unit")}</TableHead>}
-                      {settings.showQuantity && <TableHead>{t("purchaseRequests.table.item.requested")}</TableHead>}
-                      {settings.showQuantity && <TableHead>{t("purchaseRequests.table.item.available")}</TableHead>}
-                      <TableHead></TableHead>
+                      <TableHead className="w-[50px] border-x text-center">{t("purchaseRequests.table.item.index")}</TableHead>
+                      <TableHead className="w-[120px] border-x text-center">{t("purchaseRequests.table.item.code")}</TableHead>
+                      <TableHead className="w-[200px] border-x text-center">{t("purchaseRequests.table.item.name")}</TableHead>
+                      {settings.showUnit && <TableHead className="w-[80px] border-x text-center">{t("purchaseRequests.table.item.unit")}</TableHead>}
+                      {settings.showQuantity && <TableHead className="w-[120px] border-x text-center">{t("purchaseRequests.table.item.requested")}</TableHead>}
+                      {settings.showQuantity && <TableHead className="w-[120px] border-x text-center">{t("purchaseRequests.table.item.available")}</TableHead>}
+                      <TableHead className="w-[100px] border-x text-center"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -374,19 +374,20 @@ export function PurchaseRequestsSection() {
                     ) : (
                       items.map((it, idx) => (
                         <TableRow key={it.id || it.productId}>
-                          <TableCell>{formatEnglishNumber(idx + 1)}</TableCell>
-                          <TableCell className="font-medium">{it.productCode}</TableCell>
-                          <TableCell>{it.productName}</TableCell>
-                          {settings.showUnit && <TableCell>{it.unit || '-'}</TableCell>}
-                          {settings.showQuantity && <TableCell>
+                          <TableCell className="border-x text-center">{formatEnglishNumber(idx + 1)}</TableCell>
+                          <TableCell className="font-medium border-x text-center">{it.productCode}</TableCell>
+                          <TableCell className="border-x text-center">{it.productName}</TableCell>
+                          {settings.showUnit && <TableCell className="border-x text-center">{it.unit || '-'}</TableCell>}
+                          {settings.showQuantity && <TableCell className="border-x text-center">
                             <Input type="number" value={it.requestedQuantity} min={1}
+                              className="text-center"
                               onChange={(e) => {
                                 const v = Number(e.target.value)
                                 setItems((prev) => prev.map((p) => p === it ? { ...p, requestedQuantity: v } : p))
                               }} />
                           </TableCell>}
-                          {settings.showQuantity && <TableCell>{formatEnglishNumber(it.availableQuantity ?? 0)}</TableCell>}
-                          <TableCell>
+                          {settings.showQuantity && <TableCell className="border-x text-center">{formatEnglishNumber(it.availableQuantity ?? 0)}</TableCell>}
+                          <TableCell className="border-x text-center">
                             <Button variant="destructive" size="sm" onClick={() => removeItem((it.id || it.productId) as string)}>
                               <Trash2 className="ml-2 h-4 w-4" /> {t("purchaseRequests.table.item.remove")}
                             </Button>
@@ -438,14 +439,14 @@ export function PurchaseRequestsSection() {
             </div>
           </div>
           <div className="overflow-x-auto rounded-lg border">
-            <Table>
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t("purchaseRequests.table.number")}</TableHead>
-                  <TableHead>{t("purchaseRequests.table.status")}</TableHead>
-                  <TableHead>{t("purchaseRequests.table.itemsCount")}</TableHead>
-                  <TableHead>{t("purchaseRequests.table.createdAt")}</TableHead>
-                  <TableHead>{t("purchaseRequests.table.actions")}</TableHead>
+                  <TableHead className="w-[150px] border-x text-center">{t("purchaseRequests.table.number")}</TableHead>
+                  <TableHead className="w-[120px] border-x text-center">{t("purchaseRequests.table.status")}</TableHead>
+                  <TableHead className="w-[120px] border-x text-center">{t("purchaseRequests.table.itemsCount")}</TableHead>
+                  <TableHead className="w-[180px] border-x text-center">{t("purchaseRequests.table.createdAt")}</TableHead>
+                  <TableHead className="w-[280px] border-x text-center">{t("purchaseRequests.table.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -456,11 +457,11 @@ export function PurchaseRequestsSection() {
                 ) : (
                   filteredRequests.map((r) => (
                     <TableRow key={r.id}>
-                      <TableCell className="font-medium">#{r.requestNumber || getNumericInvoiceNumber(r.id, new Date(r.createdAt))}</TableCell>
-                      <TableCell>{r.status === 'draft' ? t("purchaseRequests.status.draft") : r.status === 'submitted' ? t("purchaseRequests.status.submitted") : r.status === 'received' ? t("purchaseRequests.status.received") : r.status}</TableCell>
-                      <TableCell>{formatEnglishNumber(r.items.length)}</TableCell>
-                      <TableCell>{new Date(r.createdAt).toLocaleDateString()}</TableCell>
-                      <TableCell className="space-x-2">
+                      <TableCell className="font-medium border-x text-center">#{r.requestNumber || getNumericInvoiceNumber(r.id, new Date(r.createdAt))}</TableCell>
+                      <TableCell className="border-x text-center">{r.status === 'draft' ? t("purchaseRequests.status.draft") : r.status === 'submitted' ? t("purchaseRequests.status.submitted") : r.status === 'received' ? t("purchaseRequests.status.received") : r.status}</TableCell>
+                      <TableCell className="border-x text-center">{formatEnglishNumber(r.items.length)}</TableCell>
+                      <TableCell className="border-x text-center">{formatArabicGregorianDateTime(new Date(r.createdAt))}</TableCell>
+                      <TableCell className="space-x-2 border-x text-center">
                         <Button size="sm" onClick={() => openEditRequest(r)} disabled={!hasPermission('edit')} title={!hasPermission('edit') ? t("common.notAllowed") : undefined}><Edit className="ml-2 h-4 w-4" /> {t("purchaseRequests.actions.edit")}</Button>
                         <Button size="sm" variant="secondary" onClick={async () => {
                           toast({

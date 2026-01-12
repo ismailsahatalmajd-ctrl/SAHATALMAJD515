@@ -1,11 +1,12 @@
 "use client"
 
 import { useState, useEffect, useRef, useMemo } from "react"
-import { Plus, Search, Filter, Settings, FileText, Eye, EyeOff, LayoutGrid, AlertTriangle, Settings2, RotateCcw } from 'lucide-react'
+import { Plus, Search, Filter, Settings, FileText, Eye, EyeOff, LayoutGrid, AlertTriangle, Settings2, RotateCcw, Calendar } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Header } from "@/components/header"
@@ -16,7 +17,6 @@ import dynamic from "next/dynamic"
 const ProductForm = dynamic(() => import("@/components/product-form").then(m => m.ProductForm), { ssr: false })
 const CategoryManager = dynamic(() => import("@/components/category-manager").then(m => m.CategoryManager), { ssr: false })
 const BulkOperations = dynamic(() => import("@/components/bulk-operations").then(m => m.BulkOperations), { ssr: false })
-const BulkImageUploader = dynamic(() => import("@/components/bulk-image-uploader").then(m => m.BulkImageUploader), { ssr: false })
 const PerfReportButton = dynamic(() => import("@/components/perf-report").then(m => m.PerfReportButton), { ssr: false })
 const BranchManager = dynamic(() => import("@/components/branch-manager").then(m => m.BranchManager), { ssr: false })
 const UnitManager = dynamic(() => import("@/components/unit-manager").then(m => m.UnitManager), { ssr: false })
@@ -38,6 +38,7 @@ import { useProductsRealtime, useCategoriesRealtime, useLocationsRealtime } from
 import { syncProduct, deleteProductApi } from "@/lib/sync-api"
 import { useRouter } from "next/navigation"
 import { SmartAlerts } from "@/components/smart-alerts"
+import { MonthlyClosingDialog } from "@/components/monthly-closing-dialog"
 
 type StockStatus = "all" | "available" | "low" | "out"
 
@@ -162,6 +163,30 @@ export default function Home() {
   const categories = useMemo(() => categoriesData?.map(c => c.name) || [], [categoriesData])
   const locations = useMemo(() => locationsData?.map(l => l.name) || [], [locationsData])
 
+  // Auto-fix quantityPerCarton = 0 for existing products
+  useEffect(() => {
+    if (!products || products.length === 0) return
+
+    const fixQuantity = async () => {
+      const toFix = products.filter(p => !p.quantityPerCarton || p.quantityPerCarton === 0)
+      if (toFix.length === 0) return
+
+      console.log(`Auto-fixing ${toFix.length} products with quantityPerCarton = 0`)
+
+      for (const product of toFix) {
+        if (product.id) {
+          await db.products.update(product.id, { quantityPerCarton: 1 })
+        }
+      }
+
+      console.log(`✅ Fixed ${toFix.length} products`)
+    }
+
+    // Run once on mount
+    const timer = setTimeout(fixQuantity, 1000)
+    return () => clearTimeout(timer)
+  }, []) // Empty deps = run once
+
 
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedCategory, setSelectedCategory] = useState<string>("all")
@@ -212,7 +237,10 @@ export default function Home() {
 
     return filtered
   }, [searchTerm, selectedCategory, selectedLocation, selectedStockStatus, excludeZeroStock, mergeDuplicates, products])
-  const [isFormOpen, setIsFormOpen] = useState(false)
+  const [isSideSheetOpen, setIsSideSheetOpen] = useState(false)
+
+  // Monthly Closing Dialog
+  const [monthlyClosingOpen, setMonthlyClosingOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | undefined>()
 
   const [invoiceType, setInvoiceType] = useState<string>(DEFAULT_INVOICE_TYPE)
@@ -966,13 +994,44 @@ export default function Home() {
     newProducts.forEach(p => addProduct(p)) // This is inefficient for large lists but safe
   }
 
+  const handleFixQuantityPerCarton = async () => {
+    try {
+      const toFix = products.filter(p => !p.quantityPerCarton || p.quantityPerCarton === 0)
+      if (toFix.length === 0) {
+        toast({ title: "✅ كل المنتجات صحيحة", description: "جميع المنتجات لديها كمية/كرتون صحيحة" })
+        return
+      }
+
+      const { syncProduct } = await import('@/lib/firebase-sync-engine')
+
+      for (const product of toFix) {
+        if (product.id) {
+          await db.products.update(product.id, { quantityPerCarton: 1 })
+          const updated = await db.products.get(product.id)
+          if (updated) {
+            await syncProduct(updated).catch(console.error)
+          }
+        }
+      }
+
+      toast({
+        title: "✅ تم التحديث بنجاح",
+        description: `تم إصلاح ${toFix.length} منتج`
+      })
+
+      setTimeout(() => window.location.reload(), 1000)
+    } catch (error: any) {
+      toast({ title: "❌ خطأ", description: error.message, variant: "destructive" })
+    }
+  }
+
   const handleEdit = (product: Product) => {
     setEditingProduct(product)
-    setIsFormOpen(true)
+    setIsSideSheetOpen(true)
   }
 
   const handleFormClose = (open: boolean) => {
-    setIsFormOpen(open)
+    setIsSideSheetOpen(open)
     if (!open) {
       setEditingProduct(undefined)
     }
@@ -1077,21 +1136,6 @@ export default function Home() {
               </div>
 
               <BulkOperations products={products} filteredProducts={filteredProducts} onProductsUpdate={setProducts} />
-
-              <BulkImageUploader products={products} onProductsUpdate={setProducts} />
-
-              <Button variant="outline" size="sm" onClick={() => setShowFilters((v) => !v)}>
-                {showFilters ? <EyeOff className="ml-2 h-4 w-4" /> : <Eye className="ml-2 h-4 w-4" />}
-                {showFilters ? <DualText k="home.actions.hideFilters" /> : <DualText k="home.actions.showFilters" />}
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setShowCards((v) => !v)}>
-                <LayoutGrid className="ml-2 h-4 w-4" />
-                {showCards ? <DualText k="home.actions.hideCards" /> : <DualText k="home.actions.showCards" />}
-              </Button>
-              {showCards && (
-                <Button variant="outline" size="sm" onClick={() => setCardsVisibilityOpen(true)}><DualText k="home.actions.manageCards" /></Button>
-              )}
-              <PerfReportButton />
 
               <Sheet>
                 <SheetTrigger asChild>
@@ -1248,11 +1292,87 @@ export default function Home() {
                 </SheetContent>
               </Sheet>
 
-              <Button variant="outline" size="icon" onClick={() => setFiltersVisibilityOpen(true)}>
-                <Settings2 className="h-4 w-4" />
-              </Button>
+              {/* Settings & Actions Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="gap-2">
+                    <Settings2 className="h-4 w-4" />
+                    <span className="hidden sm:inline">الإعدادات والإجراءات</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel><DualText k="settings.view" /></DropdownMenuLabel>
 
-              <Button onClick={() => setIsFormOpen(true)}>
+                  <DropdownMenuItem onClick={() => setFiltersVisibilityOpen(true)}>
+                    <Eye className="ml-2 h-4 w-4" />
+                    <DualText k="settings.manageFilters" />
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem onClick={() => setShowFilters(!showFilters)}>
+                    {showFilters ? (
+                      <>
+                        <EyeOff className="ml-2 h-4 w-4" />
+                        <DualText k="settings.hideFilters" />
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="ml-2 h-4 w-4" />
+                        <DualText k="settings.showFilters" />
+                      </>
+                    )}
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem onClick={() => setCardsDialogOpen(true)}>
+                    <LayoutGrid className="ml-2 h-4 w-4" />
+                    <DualText k="settings.manageCards" />
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem onClick={() => setShowCards(!showCards)}>
+                    {showCards ? (
+                      <>
+                        <EyeOff className="ml-2 h-4 w-4" />
+                        <DualText k="settings.hideCards" />
+                      </>
+                    ) : (
+                      <>
+                        <LayoutGrid className="ml-2 h-4 w-4" />
+                        <DualText k="settings.showCards" />
+                      </>
+                    )}
+                  </DropdownMenuItem>
+
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel><DualText k="settings.inventory" /></DropdownMenuLabel>
+
+                  <DropdownMenuItem
+                    onClick={() => setMonthlyClosingOpen(true)}
+                    className="text-orange-700"
+                  >
+                    <Calendar className="ml-2 h-4 w-4" />
+                    <DualText k="settings.closeMonth" />
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem onClick={handleFixQuantityPerCarton}>
+                    <RotateCcw className="ml-2 h-4 w-4" />
+                    <DualText k="settings.fixQuantityPerCarton" />
+                  </DropdownMenuItem>
+
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel><DualText k="settings.reports" /></DropdownMenuLabel>
+
+                  <DropdownMenuItem onClick={printProductsFullPDF}>
+                    <FileText className="ml-2 h-4 w-4" />
+                    <DualText k="settings.fullPdfReport" />
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem onClick={printFilteredTableCardsPDF}>
+                    <FileText className="ml-2 h-4 w-4" />
+                    <DualText k="settings.filteredPdfReport" />
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <Button onClick={() => setIsSideSheetOpen(true)}>
                 <Plus className="ml-2 h-4 w-4" />
                 <div className="flex flex-col items-start leading-tight">
                   <DualText
@@ -1261,13 +1381,6 @@ export default function Home() {
                     arClassName="text-primary-foreground/90 font-normal text-[0.8em]"
                   />
                 </div>
-              </Button>
-
-              <Button variant="outline" size="sm" onClick={printProductsFullPDF}>
-                <FileText className="ml-2 h-4 w-4" /> <DualText k="home.actions.pdfFull" />
-              </Button>
-              <Button variant="outline" size="sm" onClick={printFilteredTableCardsPDF}>
-                <FileText className="ml-2 h-4 w-4" /> <DualText k="home.actions.pdfFiltered" />
               </Button>
 
               {(searchTerm ||
@@ -1355,16 +1468,24 @@ export default function Home() {
             </DialogContent>
           </Dialog>
         </div>
-      </main>
+      </main >
 
       <ProductForm
-        open={isFormOpen}
+        open={isSideSheetOpen}
         onOpenChange={handleFormClose}
         onSubmit={editingProduct ? handleUpdateProduct : handleAddProduct}
         product={editingProduct}
         categories={categories}
       />
-      <SmartAlerts />
-    </div>
+      {/* Monthly Closing Dialog */}
+      <MonthlyClosingDialog
+        open={monthlyClosingOpen}
+        onOpenChange={setMonthlyClosingOpen}
+        totalProducts={products.length}
+      />
+
+      {/* Smart Alerts with Month Closing Support */}
+      <SmartAlerts onMonthClosingClick={() => setMonthlyClosingOpen(true)} />
+    </div >
   )
 }

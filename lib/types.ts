@@ -20,6 +20,7 @@ export interface Product {
   averagePrice: number
   currentStockValue: number
   issuesValue: number
+  quantityPerCarton?: number // الكمية في الكرتون
   category: string
   image?: string
   // معرض صور المنتج (اختياري)

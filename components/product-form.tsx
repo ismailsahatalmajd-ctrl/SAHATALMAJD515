@@ -22,7 +22,7 @@ import { toast } from "@/hooks/use-toast"
 import { DualText, getDualString } from "@/components/ui/dual-text"
 import { useI18n } from "@/components/language-provider"
 import { storage } from "@/lib/firebase"
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
+// import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
 
 interface ProductFormProps {
   open: boolean
@@ -41,6 +41,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
       location: "",
       productName: "",
       quantity: 0,
+      quantityPerCarton: 1,
       unit: "قطعة",
       cartonUnit: "سم",
       cartonLength: 0,
@@ -77,6 +78,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
           location: "",
           productName: "",
           quantity: 0,
+          quantityPerCarton: 1,
           unit: "قطعة",
           cartonLength: 0,
           cartonWidth: 0,
@@ -178,7 +180,10 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
         const normItem = normalize(formData.itemNumber || "")
 
         const duplicate = existingProducts.find(p => {
-          if (!p || p.id === product.id) return false
+          if (!p) return false
+          // Robust ID comparison (handle string/number mismatch)
+          if (product.id && p.id && String(p.id) === String(product.id)) return false
+
           const isNameMatch = normalize(p.productName || "") === normName
           const isCodeMatch = normCode && normalize(p.productCode || "") === normCode
           const isItemMatch = normItem && normalize(p.itemNumber || "") === normItem
@@ -216,7 +221,12 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
         }
       }
 
-      const calculatedData = calculateProductValues(formData as Product)
+      // Ensure quantityPerCarton is at least 1
+      const dataToSubmit = {
+        ...formData,
+        quantityPerCarton: (formData.quantityPerCarton || 0) === 0 ? 1 : formData.quantityPerCarton
+      }
+      const calculatedData = calculateProductValues(dataToSubmit as Product)
       onSubmit(calculatedData as Product)
       onOpenChange(false)
       setImagePreview(undefined)
@@ -257,38 +267,36 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
     }
     reader.readAsDataURL(file)
 
-    // Upload to Firebase Storage
+    // Upload to Firebase Storage (via Proxy)
     setIsUploading(true)
     try {
-      const storageRef = ref(storage, `products/${Date.now()}_${file.name}`)
+      const formData = new FormData()
+      formData.append("file", file)
+      formData.append("path", `products/${Date.now()}_${file.name}`)
 
-      // Add a timeout to the upload process (30 seconds)
-      const uploadPromise = uploadBytes(storageRef, file)
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("UPLOAD_TIMEOUT")), 30000)
-      )
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      })
 
-      const snapshot = (await Promise.race([uploadPromise, timeoutPromise])) as any
-      const downloadURL = await getDownloadURL(snapshot.ref)
+      if (!res.ok) {
+        const errorData = await res.json()
+        throw new Error(errorData.error || "Upload failed")
+      }
 
-      console.log("[v0] ✅ Image uploaded to Firebase Storage:", downloadURL)
+      const data = await res.json()
+      const downloadURL = data.url
+
+      console.log("[v0] ✅ Image uploaded to Firebase Storage (Proxy):", downloadURL)
       setFormData((prev) => ({ ...prev, image: downloadURL }))
       toast({ title: getDualString("productForm.success.imageUploaded") })
     } catch (error: any) {
       console.error("[v0] ❌ Failed to upload image", error)
-      if (error.message === "UPLOAD_TIMEOUT") {
-        toast({
-          title: getDualString("productForm.error.imageUploadTimeout.title"),
-          description: getDualString("productForm.error.imageUploadTimeout.desc"),
-          variant: "destructive"
-        })
-      } else {
-        toast({
-          title: getDualString("productForm.error.imageUploadFailed.title"),
-          description: getDualString("productForm.error.imageUploadFailed.desc"),
-          variant: "destructive"
-        })
-      }
+      toast({
+        title: getDualString("productForm.error.imageUploadFailed.title"),
+        description: error.message || getDualString("productForm.error.imageUploadFailed.desc"),
+        variant: "destructive"
+      })
       setImagePreview(undefined)
     } finally {
       setIsUploading(false)
@@ -471,6 +479,16 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                     <SelectItem value="قدم">قدم</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="quantityPerCarton"><DualText k="products.form.quantityPerCarton" /></Label>
+                <Input
+                  id="quantityPerCarton"
+                  type="number"
+                  min={1}
+                  value={formData.quantityPerCarton ?? 1}
+                  onChange={(e) => handleChange("quantityPerCarton", Number(e.target.value))}
+                />
               </div>
             </div>
 

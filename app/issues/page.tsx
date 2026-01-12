@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState, useEffect } from "react"
-import { Plus, Search, FileText, Undo2, Download, Edit, Package, Barcode, Check } from 'lucide-react'
+import { Plus, Search, FileText, Undo2, Download, Edit, Package, Barcode, Check, MoreHorizontal } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { Input } from "@/components/ui/input"
@@ -17,7 +17,7 @@ import { getIssues, getReturns, getProducts, setIssueDelivered, getIssueDrafts, 
 import type { Issue, Return, Product } from "@/lib/types"
 import { generateIssuePDF } from "@/lib/pdf-generator"
 import { generateAssemblyPDF } from "@/lib/assembly-pdf-generator"
-import { getNumericInvoiceNumber, formatArabicGregorianDate, formatEnglishNumber, getSafeImageSrc, downloadJSON } from "@/lib/utils"
+import { getNumericInvoiceNumber, formatArabicGregorianDate, formatArabicGregorianDateTime, formatEnglishNumber, getSafeImageSrc, downloadJSON } from "@/lib/utils"
 import { useI18n } from "@/components/language-provider"
 import { useInvoiceSettings } from "@/lib/invoice-settings-store"
 import { useToast } from "@/hooks/use-toast"
@@ -26,6 +26,14 @@ import { useRef } from "react"
 import { useIssues, useReturns, useProducts } from "@/hooks/use-firestore"
 import { syncIssue, syncProduct, syncReturn } from "@/lib/sync-api"
 import { useAuth } from "@/components/auth-provider"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 export default function IssuesPage() {
   const settings = useInvoiceSettings()
@@ -653,7 +661,7 @@ export default function IssuesPage() {
                             <TableCell className="font-medium">{getNumericInvoiceNumber(d.id, new Date((d as any).createdAt || Date.now()))}</TableCell>
                             <TableCell><Badge variant="outline">{(d as any).branchName || '-'}</Badge></TableCell>
                             <TableCell>{formatEnglishNumber(((d as any).products || []).length)}</TableCell>
-                            <TableCell>{formatArabicGregorianDate(new Date((d as any).updatedAt || (d as any).createdAt || Date.now()))}</TableCell>
+                            <TableCell>{formatArabicGregorianDateTime(new Date((d as any).updatedAt || (d as any).createdAt || Date.now()))}</TableCell>
                             <TableCell className="text-left">
                               <div className="flex items-center gap-2">
                                 <Button size="sm" variant="ghost" onClick={() => { setEditingIssue(undefined); try { localStorage.setItem('issueDraftLoadId', d.id) } catch { }; setIsIssueDialogOpen(true) }}><DualText k="common.continue" /></Button>
@@ -703,17 +711,17 @@ export default function IssuesPage() {
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
-                <Table>
+                <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="min-w-[120px]"><DualText k="issues.table.issues.columns.id" /></TableHead>
-                      <TableHead className="min-w-[150px]"><DualText k="issues.table.issues.columns.branch" /></TableHead>
-                      <TableHead className="min-w-[120px]"><DualText k="issues.table.issues.columns.productsCount" /></TableHead>
-                      <TableHead className="min-w-[140px]"><DualText k="issues.table.issues.columns.total" /></TableHead>
-                      <TableHead className="min-w-[120px]"><DualText k="issues.table.issues.columns.date" /></TableHead>
-                      <TableHead className="min-w-[100px]"><DualText k="common.status" /></TableHead>
-                      <TableHead className="min-w-[150px]"><DualText k="issues.table.issues.columns.notes" /></TableHead>
-                      <TableHead className="text-left min-w-[100px]"><DualText k="issues.table.issues.columns.actions" /></TableHead>
+                      <TableHead className="w-[120px] border-x text-center"><DualText k="issues.table.issues.columns.id" /></TableHead>
+                      <TableHead className="w-[150px] border-x text-center"><DualText k="issues.table.issues.columns.branch" /></TableHead>
+                      <TableHead className="w-[120px] border-x text-center"><DualText k="issues.table.issues.columns.productsCount" /></TableHead>
+                      <TableHead className="w-[140px] border-x text-center"><DualText k="issues.table.issues.columns.total" /></TableHead>
+                      <TableHead className="w-[180px] border-x text-center"><DualText k="issues.table.issues.columns.date" /></TableHead>
+                      <TableHead className="w-[120px] border-x text-center"><DualText k="common.status" /></TableHead>
+                      <TableHead className="w-[150px] border-x text-center"><DualText k="issues.table.issues.columns.notes" /></TableHead>
+                      <TableHead className="text-center w-[280px] border-x"><DualText k="issues.table.issues.columns.actions" /></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -730,14 +738,14 @@ export default function IssuesPage() {
                       ) : (
                         limited.map((issue) => (
                           <TableRow key={issue.id}>
-                            <TableCell className="font-medium">{getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))}</TableCell>
-                            <TableCell>
+                            <TableCell className="font-medium border-x text-center">{getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))}</TableCell>
+                            <TableCell className="border-x text-center">
                               <Badge variant="outline">{issue.branchName}</Badge>
                             </TableCell>
-                            <TableCell>{formatEnglishNumber(issue.products.length)} <DualText k="common.product" /></TableCell>
-                            <TableCell className="font-semibold">{formatEnglishNumber(issue.totalValue.toFixed(2))} <DualText k="common.currency" /></TableCell>
-                            <TableCell>{formatArabicGregorianDate(new Date(issue.createdAt))}</TableCell>
-                            <TableCell>
+                            <TableCell className="border-x text-center">{formatEnglishNumber(issue.products.length)} <DualText k="common.product" /></TableCell>
+                            <TableCell className="font-semibold border-x text-center">{formatEnglishNumber(issue.totalValue.toFixed(2))} <DualText k="common.currency" /></TableCell>
+                            <TableCell className="border-x text-center">{formatArabicGregorianDateTime(new Date(issue.createdAt))}</TableCell>
+                            <TableCell className="border-x text-center">
                               {issue.delivered ? (
                                 <Badge variant="default" className="bg-green-600 hover:bg-green-700">
                                   <Check className="w-3 h-3 mr-1" />
@@ -752,39 +760,48 @@ export default function IssuesPage() {
                                 <Badge variant="secondary"><DualText k="issues.status.pending" /></Badge>
                               )}
                             </TableCell>
-                            <TableCell className="text-muted-foreground">
+                            <TableCell className="text-muted-foreground border-x text-center">
                               {issue.notes || "-"}
                             </TableCell>
-                            <TableCell className="text-left">
-                              <div className="flex items-center gap-1">
-                                <Button size="sm" variant="ghost" onClick={() => handlePrintAssembly(issue)}>
-                                  <Package className="h-4 w-4 ml-1" />
-                                  <DualText k="issues.actions.assemble" />
-                                </Button>
-                                <Link href={`/issues/verify?id=${issue.id}`}>
-                                  <Button size="sm" variant="ghost">
-                                    <Barcode className="h-4 w-4 ml-1" />
-                                    <DualText k="issues.verify" />
+                            <TableCell className="text-center border-x">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" className="h-8 w-8 p-0">
+                                    <span className="sr-only">Open menu</span>
+                                    <MoreHorizontal className="h-4 w-4" />
                                   </Button>
-                                </Link>
-                                <Button size="sm" variant="ghost" onClick={() => handlePrintInvoice(issue)}>
-                                  <FileText className="h-4 w-4 ml-1" />
-                                  <DualText k="issues.actions.printIssue" />
-                                </Button>
-                                <Button size="sm" variant="ghost" onClick={() => handleEditIssue(issue)}>
-                                  <Edit className="h-4 w-4 ml-1" />
-                                  <DualText k="common.edit" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant={issue.delivered ? "secondary" : "default"}
-                                  disabled={!!issue.delivered}
-                                  onClick={() => setDeliverDialogIssueId(issue.id)}
-                                  className={issue.delivered ? "opacity-70 cursor-not-allowed" : ""}
-                                >
-                                  {issue.delivered ? <DualText k="issues.status.delivered" /> : <DualText k="issues.status.delivered" />}
-                                </Button>
-                              </div>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuLabel><DualText k="common.actions" /></DropdownMenuLabel>
+                                  <DropdownMenuItem onClick={() => handlePrintAssembly(issue)}>
+                                    <Package className="mr-2 h-4 w-4" />
+                                    <span><DualText k="issues.actions.assemble" /></span>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem asChild>
+                                    <Link href={`/issues/verify?id=${issue.id}`} className="w-full cursor-pointer">
+                                      <Barcode className="mr-2 h-4 w-4" />
+                                      <span><DualText k="issues.verify" /></span>
+                                    </Link>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handlePrintInvoice(issue)}>
+                                    <FileText className="mr-2 h-4 w-4" />
+                                    <span><DualText k="issues.actions.printIssue" /></span>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleEditIssue(issue)}>
+                                    <Edit className="mr-2 h-4 w-4" />
+                                    <span><DualText k="common.edit" /></span>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() => setDeliverDialogIssueId(issue.id)}
+                                    disabled={!!issue.delivered}
+                                    className={issue.delivered ? "opacity-50 cursor-not-allowed" : ""}
+                                  >
+                                    <Check className="mr-2 h-4 w-4" />
+                                    <span><DualText k="issues.status.delivered" /></span>
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </TableCell>
                           </TableRow>
                         ))
@@ -838,7 +855,7 @@ export default function IssuesPage() {
                           <TableCell>{formatEnglishNumber(returnItem.products.length)}</TableCell>
                           <TableCell className="font-semibold">{formatCurrency(returnItem.totalValue)}</TableCell>
                           <TableCell className="text-muted-foreground">{returnItem.reason}</TableCell>
-                          <TableCell>{formatArabicGregorianDate(new Date(returnItem.createdAt))}</TableCell>
+                          <TableCell>{formatArabicGregorianDateTime(new Date(returnItem.createdAt))}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -951,24 +968,24 @@ export default function IssuesPage() {
                 {/* Invoice table and summary */}
                 <div className="lg:col-span-3 space-y-4">
                   <div className="overflow-x-auto">
-                    <Table>
+                    <Table className="table-fixed">
                       <TableHeader>
                         <TableRow>
                           {filtersActive && (
-                            <TableHead className="min-w-[100px]"><DualText k="issues.invoice.table.image" /></TableHead>
+                            <TableHead className="w-[80px] border-x text-center"><DualText k="issues.invoice.table.image" /></TableHead>
                           )}
-                          <TableHead className="min-w-[100px]"><DualText k="issues.invoice.table.productCode" /></TableHead>
-                          <TableHead className="min-w-[200px]"><DualText k="issues.invoice.table.productName" /></TableHead>
-                          {settings.showUnit && <TableHead className="min-w-[100px]"><DualText k="issues.invoice.table.unit" /></TableHead>}
-                          {settings.showQuantity && <TableHead className="min-w-[120px]"><DualText k="issues.invoice.table.issuedQty" /></TableHead>}
-                          {settings.showPrice && <TableHead className="min-w-[120px]"><DualText k="issues.invoice.table.unitPrice" /></TableHead>}
-                          {settings.showTotal && <TableHead className="min-w-[140px]"><DualText k="issues.invoice.table.subtotal" /></TableHead>}
+                          <TableHead className="w-[150px] border-x text-center"><DualText k="issues.invoice.table.productCode" /></TableHead>
+                          <TableHead className="w-[200px] border-x text-center"><DualText k="issues.invoice.table.productName" /></TableHead>
+                          {settings.showUnit && <TableHead className="w-[100px] border-x text-center"><DualText k="issues.invoice.table.unit" /></TableHead>}
+                          {settings.showQuantity && <TableHead className="w-[120px] border-x text-center"><DualText k="issues.invoice.table.issuedQty" /></TableHead>}
+                          {settings.showPrice && <TableHead className="w-[120px] border-x text-center"><DualText k="issues.invoice.table.unitPrice" /></TableHead>}
+                          {settings.showTotal && <TableHead className="w-[140px] border-x text-center"><DualText k="issues.invoice.table.subtotal" /></TableHead>}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {aggregatedInvoiceRows.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={6} className="text-center text-muted-foreground"><DualText k="issues.invoice.table.empty" /></TableCell>
+                            <TableCell colSpan={6} className="text-center text-muted-foreground border-x"><DualText k="issues.invoice.table.empty" /></TableCell>
                           </TableRow>
                         ) : (
                           aggregatedInvoiceRows.map((row) => {
@@ -976,22 +993,22 @@ export default function IssuesPage() {
                             return (
                               <TableRow key={row.productId} className={row.overRequested ? "text-red-600" : undefined}>
                                 {filtersActive && (
-                                  <TableCell>
+                                  <TableCell className="border-x text-center">
                                     <img
                                       src={getSafeImageSrc(row.image || "/placeholder.svg")}
                                       alt={row.productName}
-                                      className="w-12 h-12 object-cover rounded"
+                                      className="w-12 h-12 object-cover rounded mx-auto"
                                       onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/placeholder.svg" }}
                                     />
                                   </TableCell>
                                 )}
-                                <TableCell className="font-medium">{row.productCode}</TableCell>
-                                <TableCell className="font-medium">{row.productName}</TableCell>
-                                {settings.showUnit && <TableCell>{row.unit || '-'}</TableCell>}
-                                {settings.showQuantity && <TableCell className="font-semibold">{formatEnglishNumber(row.quantity)}</TableCell>}
-                                {settings.showPrice && <TableCell>{formatCurrency(row.unitPrice)}</TableCell>}
+                                <TableCell className="font-medium border-x text-center">{row.productCode}</TableCell>
+                                <TableCell className="font-medium border-x text-center">{row.productName}</TableCell>
+                                {settings.showUnit && <TableCell className="border-x text-center">{row.unit || '-'}</TableCell>}
+                                {settings.showQuantity && <TableCell className="font-semibold border-x text-center">{formatEnglishNumber(row.quantity)}</TableCell>}
+                                {settings.showPrice && <TableCell className="border-x text-center">{formatCurrency(row.unitPrice)}</TableCell>}
                                 {settings.showTotal && (
-                                  <TableCell className={subtotalPos ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>
+                                  <TableCell className={`border-x text-center ${subtotalPos ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}`}>
                                     {formatCurrency(row.subtotal)}
                                   </TableCell>
                                 )}

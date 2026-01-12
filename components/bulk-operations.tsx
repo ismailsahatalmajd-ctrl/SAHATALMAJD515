@@ -181,6 +181,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
     { key: 'location', label: 'الموقع', k: 'common.location', required: false, type: 'text' },
     { key: 'category', label: 'التصنيف', k: 'common.category', required: false, type: 'text' },
     { key: 'unit', label: 'الوحدة', k: 'common.unit', required: false, type: 'text' },
+    { key: 'quantityPerCarton', label: 'الكمية/الكرتون', k: 'products.columns.quantityPerCarton', required: false, type: 'number' },
     { key: 'openingStock', label: 'المخزون الابتدائي', k: 'products.columns.openingStock', required: false, type: 'number' },
     { key: 'purchases', label: 'المشتريات', k: 'products.columns.purchases', required: false, type: 'number' },
     { key: 'issues', label: 'المصروفات', k: 'products.columns.issues', required: false, type: 'number' },
@@ -225,6 +226,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       location: find(["الموقع", "location", "shelf", "bin", "الرف"]),
       category: find(["التصنيف", "category", "group", "type", "المجموعة"]),
       unit: find(["الوحدة", "unit", "uom"]),
+      quantityPerCarton: find(["الكمية/الكرتون", "qty/carton", "qty per carton", "كرتون", "carton qty"]),
       openingStock: find(["المخزون الابتدائي", "opening stock", "start qty", "b.bal"]),
       purchases: find(["المشتريات", "purchases", "in", "received", "وارد"]),
       issues: find(["المصروفات", "issues", "out", "sold", "صادر", "مبيعات"]),
@@ -481,6 +483,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
         "الموقع",
         "التصنيف",
         "الوحدة",
+        "الكمية/الكرتون",
         "المخزون الابتدائي",
         "المشتريات",
         "المصروفات",
@@ -534,6 +537,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
               p.location || "",
               p.category || "",
               p.unit || "",
+              p.quantityPerCarton || 0,
               p.openingStock || 0,
               p.purchases || 0,
               p.issues || 0,
@@ -600,6 +604,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                 p.location || "",
                 p.category || "",
                 p.unit || "",
+                p.quantityPerCarton || 0,
                 p.openingStock || 0,
                 p.purchases || 0,
                 p.issues || 0,
@@ -617,7 +622,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
 
           const ws = XLSX.utils.aoa_to_sheet([headers, ...data])
           ws["!cols"] = [
-            { wch: 15 }, { wch: 15 }, { wch: 30 }, { wch: 15 }, { wch: 15 }, { wch: 10 },
+            { wch: 15 }, { wch: 15 }, { wch: 30 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 12 },
             { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 15 }, { wch: 10 },
             { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 15 }, { wch: 50 },
           ]
@@ -652,7 +657,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
         const imagesSheetName = 'Images'
         const imagesWs = workbook.addWorksheet(imagesSheetName)
         imagesWs.addRow(['id', 'seq', 'chunk'])
-        worksheet.columns = headers.map((h, idx) => ({ header: h, key: `col_${idx}`, width: [15, 15, 30, 15, 15, 10, 15, 12, 12, 10, 15, 10, 12, 12, 18, 15, 22][idx] || 15 }))
+        worksheet.columns = headers.map((h, idx) => ({ header: h, key: `col_${idx}`, width: [15, 15, 30, 15, 15, 10, 12, 15, 12, 12, 10, 15, 10, 12, 12, 18, 15, 22][idx] || 15 }))
         worksheet.addRow(headers)
 
         const targetMime = imageExportMode === 'jpeg' ? 'image/jpeg' : 'image/png'
@@ -669,7 +674,18 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
           const inventoryCount = Number(p.inventoryCount) || 0
           const difference = currentStock - inventoryCount
 
-          const normalized = await normalizeImageForExport(p.image)
+          // ✅ Resolve DB_IMAGE to actual base64
+          let imageToExport = p.image || ''
+          if (imageToExport === 'DB_IMAGE') {
+            try {
+              const rec = await db.productImages.get(p.id)
+              if (rec?.data) imageToExport = rec.data
+            } catch (e) {
+              console.warn('Failed to load DB_IMAGE for:', p.id, e)
+            }
+          }
+
+          const normalized = await normalizeImageForExport(imageToExport)
           const reencoded = normalized ? await reencodeDataUrl(normalized, targetMime, 0.92) : ''
 
           // أضف بيانات الصف نصياً، وضع معرف مميز للصورة في عمود الصورة لضمان إعادة الاستيراد
@@ -681,6 +697,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
             p.location || "",
             p.category || "",
             p.unit || "",
+            p.quantityPerCarton || 0,
             opening,
             purchases,
             issues,

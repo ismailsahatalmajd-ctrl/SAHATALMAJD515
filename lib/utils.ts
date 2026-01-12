@@ -84,14 +84,25 @@ export function formatArabicGregorianDate(date: Date, options?: Intl.DateTimeFor
 export function formatArabicGregorianTime(date: Date, options?: Intl.DateTimeFormatOptions): string {
   const primary = "ar-u-ca-gregory-nu-latn"
   try {
-    return date.toLocaleTimeString(primary, options)
+    return date.toLocaleTimeString(primary, { ...options, hour12: false })
   } catch {
     try {
-      return date.toLocaleTimeString("ar", options)
+      return date.toLocaleTimeString("ar", { ...options, hour12: false })
     } catch {
-      return date.toLocaleTimeString("en-GB", options)
+      return date.toLocaleTimeString("en-GB", { ...options, hour12: false })
     }
   }
+}
+
+// Format date and time together for invoices and tables
+export function formatArabicGregorianDateTime(date: Date): string {
+  const datePart = formatArabicGregorianDate(date)
+  const timePart = formatArabicGregorianTime(date, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  })
+  return `${datePart} ${timePart}`
 }
 
 // Ensure numbers render with English digits across UI

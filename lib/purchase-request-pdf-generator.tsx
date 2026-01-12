@@ -19,7 +19,7 @@ export async function generatePurchaseRequestPDF(req: PurchaseRequest, lang: Lan
     : new Date(req.createdAt).toLocaleDateString("en-GB")
   const timeStr = lang === "ar"
     ? formatArabicGregorianTime(new Date(req.createdAt))
-    : new Date(req.createdAt).toLocaleTimeString("en-GB")
+    : new Date(req.createdAt).toLocaleTimeString("en-GB", { hour12: false })
   const dir = lang === "ar" ? "rtl" : "ltr"
   const htmlLang = lang === "ar" ? "ar" : "en"
   const statusLabel = req.status === "draft"
@@ -31,7 +31,7 @@ export async function generatePurchaseRequestPDF(req: PurchaseRequest, lang: Lan
         : req.status
 
   const dateStrEn = new Date(req.createdAt).toLocaleDateString("en-GB")
-  const timeStrEn = new Date(req.createdAt).toLocaleTimeString("en-GB")
+  const timeStrEn = new Date(req.createdAt).toLocaleTimeString("en-GB", { hour12: false })
 
   // Resolve images beforehand
   const itemsWithImages = await Promise.all(req.items.map(async (item) => {

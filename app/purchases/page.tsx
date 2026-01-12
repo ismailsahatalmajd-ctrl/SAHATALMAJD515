@@ -27,7 +27,7 @@ import { PurchaseRequestsSection } from "@/components/purchase-requests"
 import { useI18n } from "@/components/language-provider"
 import { DualText } from "@/components/ui/dual-text"
 import { useInvoiceSettings } from "@/lib/invoice-settings-store"
-import { downloadJSON } from "@/lib/utils"
+import { downloadJSON, formatArabicGregorianDateTime } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
 import { Download, Undo2 } from "lucide-react"
 import { useRef } from "react"
@@ -384,17 +384,17 @@ export default function PurchasesPage() {
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
-                <Table>
+                <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead><DualText k="purchases.table.operation" /></TableHead>
-                      <TableHead><DualText k="purchases.table.product" /></TableHead>
-                      {settings.showUnit && <TableHead><DualText k="common.unit" /></TableHead>}
-                      {settings.showQuantity && <TableHead><DualText k="purchases.table.quantity" /></TableHead>}
-                      {settings.showPrice && <TableHead><DualText k="purchases.table.unitPrice" /></TableHead>}
-                      {settings.showTotal && <TableHead><DualText k="purchases.table.total" /></TableHead>}
-                      <TableHead><DualText k="purchases.table.date" /></TableHead>
-                      <TableHead><DualText k="purchases.table.notes" /></TableHead>
+                      <TableHead className="w-[100px] border-x text-center"><DualText k="purchases.table.operation" /></TableHead>
+                      <TableHead className="w-[200px] border-x text-center"><DualText k="purchases.table.product" /></TableHead>
+                      {settings.showUnit && <TableHead className="w-[100px] border-x text-center"><DualText k="common.unit" /></TableHead>}
+                      {settings.showQuantity && <TableHead className="w-[100px] border-x text-center"><DualText k="purchases.table.quantity" /></TableHead>}
+                      {settings.showPrice && <TableHead className="w-[120px] border-x text-center"><DualText k="purchases.table.unitPrice" /></TableHead>}
+                      {settings.showTotal && <TableHead className="w-[120px] border-x text-center"><DualText k="purchases.table.total" /></TableHead>}
+                      <TableHead className="w-[160px] border-x text-center"><DualText k="purchases.table.date" /></TableHead>
+                      <TableHead className="w-[150px] border-x text-center"><DualText k="purchases.table.notes" /></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -407,20 +407,20 @@ export default function PurchasesPage() {
                     ) : (
                       filteredPurchases.map((purchase) => (
                         <TableRow key={purchase.id}>
-                          <TableCell className="font-medium">#{purchase.operationNumber || purchase.id.slice(-6)}</TableCell>
+                          <TableCell className="font-medium border-x text-center">#{purchase.operationNumber || purchase.id.slice(-6)}</TableCell>
                           <TableCell
-                            className={lowStockIds.has(purchase.productId) ? "text-[#FF0000] font-semibold" : undefined}
+                            className={`border-x text-center ${lowStockIds.has(purchase.productId) ? "text-[#FF0000] font-semibold" : ""}`}
                             aria-label={lowStockIds.has(purchase.productId) ? t("common.lowStockProduct") : undefined}
                             title={lowStockIds.has(purchase.productId) ? t("common.lowStock") : undefined}
                           >
                             {purchase.productName}
                           </TableCell>
-                          {settings.showUnit && <TableCell>{products.find(p => p.id === purchase.productId)?.unit || '-'}</TableCell>}
-                          {settings.showQuantity && <TableCell>{purchase.quantity}</TableCell>}
-                          {settings.showPrice && <TableCell>{purchase.unitPrice.toFixed(2)} <DualText k="common.currency" /></TableCell>}
-                          {settings.showTotal && <TableCell className="font-semibold">{purchase.totalAmount.toFixed(2)} <DualText k="common.currency" /></TableCell>}
-                          <TableCell>{new Date(purchase.createdAt).toLocaleDateString("ar-SA")}</TableCell>
-                          <TableCell className="text-muted-foreground">{purchase.notes || "-"}</TableCell>
+                          {settings.showUnit && <TableCell className="border-x text-center">{products.find(p => p.id === purchase.productId)?.unit || '-'}</TableCell>}
+                          {settings.showQuantity && <TableCell className="border-x text-center">{purchase.quantity}</TableCell>}
+                          {settings.showPrice && <TableCell className="border-x text-center">{purchase.unitPrice.toFixed(2)} <DualText k="common.currency" /></TableCell>}
+                          {settings.showTotal && <TableCell className="font-semibold border-x text-center">{purchase.totalAmount.toFixed(2)} <DualText k="common.currency" /></TableCell>}
+                          <TableCell className="border-x text-center">{formatArabicGregorianDateTime(new Date(purchase.createdAt))}</TableCell>
+                          <TableCell className="text-muted-foreground border-x text-center">{purchase.notes || "-"}</TableCell>
                         </TableRow>
                       ))
                     )}

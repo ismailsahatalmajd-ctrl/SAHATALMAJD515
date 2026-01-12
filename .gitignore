@@ -1,8 +1,4 @@
-# Electron build output
-release/
-release_new/
-dist/
-out/
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
 /node_modules
@@ -18,10 +14,6 @@ out/
 
 # production
 /build
-/dist
-/release
-/release_new
-/win-unpacked
 
 # misc
 .DS_Store
@@ -30,11 +22,10 @@ out/
 # debug
 npm-debug.log*
 yarn-debug.log*
-pnpm-debug.log*
+yarn-error.log*
 
 # local env files
 .env*.local
-.env
 
 # vercel
 .vercel
@@ -43,8 +34,15 @@ pnpm-debug.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# electron-builder
-/dist-electron
-/*.exe
-/*.dmg
-/*.zip
+# electron
+/dist
+/release
+/release_new
+/backend
+
+# Tauri
+/src-tauri/target/
+
+# Sensitive Files
+# service-account.json (Un-ignored for Vercel Deployment)
+

@@ -105,6 +105,7 @@
     "exceljs": "^4.4.0",
     "express": "^5.1.0",
     "firebase": "^12.7.0",
+    "firebase-admin": "^13.6.0",
     "html5-qrcode": "^2.3.8",
     "input-otp": "1.4.1",
     "jose": "^6.1.3",

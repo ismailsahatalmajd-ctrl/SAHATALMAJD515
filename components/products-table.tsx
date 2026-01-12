@@ -122,6 +122,17 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
   }
 
   const getStatusKey = (p: Product): "fast" | "normal" | "slow" | "stagnant" | "new" => {
+    const openingStock = Number(p.openingStock || 0)
+    const purchases = Number(p.purchases || 0)
+    const currentStock = Number(p.currentStock || 0)
+
+    // New products: purchases === currentStock, both > 0, and openingStock = 0
+    if (openingStock === 0 && purchases > 0 && currentStock > 0 && purchases === currentStock) {
+      return "new"
+    }
+
+    // For all other cases (including openingStock = 0 but purchases ≠ currentStock),
+    // classify based on turnover rate
     const rate = calculateTurnover(p)
     if (rate >= thresholds.normal) return "fast"
     if (rate >= thresholds.slow) return "normal"
@@ -148,6 +159,7 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
     location: true,
     category: true,
     unit: true,
+    quantityPerCarton: false,
     cartonDimensions: false,
     openingStock: true,
     purchases: true,
@@ -165,7 +177,9 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
   })
 
   const COLUMN_WIDTHS_KEY = 'products_column_widths_v1'
+  const VISIBLE_COLUMNS_KEY = 'products_visible_columns_v1'
 
+  // Load column widths
   useEffect(() => {
     const loadWidths = async () => {
       try {
@@ -178,11 +192,35 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
     loadWidths()
   }, [])
 
+  // Load visible columns
+  useEffect(() => {
+    const loadVisible = async () => {
+      try {
+        const setting = await db.settings.get(VISIBLE_COLUMNS_KEY)
+        if (setting?.value) {
+          setVisibleColumns(setting.value)
+        }
+      } catch { }
+    }
+    loadVisible()
+  }, [])
+
   const saveWidths = async (widths: Record<string, number>) => {
     try {
       await db.settings.put({ key: COLUMN_WIDTHS_KEY, value: widths })
     } catch { }
   }
+
+  const saveVisibleColumns = async (visible: typeof visibleColumns) => {
+    try {
+      await db.settings.put({ key: VISIBLE_COLUMNS_KEY, value: visible })
+    } catch { }
+  }
+
+  // Auto-save visible columns whenever they change
+  useEffect(() => {
+    saveVisibleColumns(visibleColumns)
+  }, [visibleColumns])
 
   const handleResizeStart = (e: React.MouseEvent, key: string) => {
     e.preventDefault()
@@ -202,10 +240,13 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
       const adjustedDelta = dir === "rtl" ? -delta : delta
       const newWidth = Math.max(50, resizingRef.current.startWidth + adjustedDelta)
 
-      setColumnWidths(prev => ({
-        ...prev,
-        [resizingRef.current!.key]: newWidth
-      }))
+      setColumnWidths(prev => {
+        if (!resizingRef.current) return prev // Add safety check
+        return {
+          ...prev,
+          [resizingRef.current.key]: newWidth
+        }
+      })
     }
 
     const onMouseUp = () => {
@@ -413,21 +454,28 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
       return
     }
 
-    // Firebase Storage Upload
+    // Server-Side Proxy Upload (Bypasses CORS)
     const uploadToFirebase = async () => {
       try {
-        const { ref, uploadBytes, getDownloadURL } = await import("firebase/storage")
-        const { storage } = await import("@/lib/firebase")
-
-        // Create a reference - using timestamp to avoid caching issues with same name
+        const formData = new FormData()
+        formData.append("file", file)
+        // Path construction logic can be server-side or here. 
+        // We'll pass the desired path to the server.
         const filename = `product-images/${product.id}/${Date.now()}-${file.name}`
-        const storageRef = ref(storage, filename)
+        formData.append("path", filename)
 
-        // Upload
-        const snapshot = await uploadBytes(storageRef, file)
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData
+        })
 
-        // Get URL
-        const downloadURL = await getDownloadURL(snapshot.ref)
+        if (!res.ok) {
+          const errData = await res.json()
+          throw new Error(errData.error || "Upload failed")
+        }
+
+        const data = await res.json()
+        const downloadURL = data.url
 
         // Update Product with URL
         const updated = await updateProduct(product.id, {
@@ -435,6 +483,7 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
         })
 
         if (updated) {
+          console.log("[ImageUpload] Update successful, new URL:", downloadURL)
           toast({
             title: getDualString("products.table.image.saveSuccess"),
             description: getDualString("products.table.image.saveDesc")
@@ -443,12 +492,14 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
             sessionStorage.setItem("productFormFocusSection", "image")
             sessionStorage.setItem("productFormAutoCloseMs", String(1500))
           } catch { }
+        } else {
+          console.error("[ImageUpload] Update returned null")
         }
-      } catch (err) {
-        console.error("Firebase Storage Error:", err)
+      } catch (err: any) {
+        console.error("Upload Proxy Error:", err)
         toast({
           title: getDualString("products.table.image.uploadError"),
-          description: getDualString("products.table.image.uploadErrorDesc"),
+          description: err.message || getDualString("products.table.image.uploadErrorDesc"),
           variant: "destructive"
         })
       } finally {
@@ -457,30 +508,43 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
       }
     }
 
+
     uploadToFirebase()
   }
+
 
   const exportExcel = async () => {
     try {
       const XLSX = await import('xlsx')
       const order: Array<keyof typeof visibleColumns | 'actions'> = [
-        'image', 'productCode', 'itemNumber', 'productName', 'location', 'category', 'unit', 'cartonDimensions',
+        'image', 'productCode', 'itemNumber', 'productName', 'location', 'category', 'unit', 'quantityPerCarton', 'cartonDimensions',
         'openingStock', 'purchases', 'issues', 'inventoryCount', 'currentStock', 'difference',
         'price', 'averagePrice', 'currentStockValue', 'issuesValue', 'turnoverRate', 'status', 'lastActivity'
       ]
       const active = order.filter((k) => k !== 'actions' && (visibleColumns as any)[k])
       const headers = active.map((k) => getColumnLabel(k))
       const dataset = exportMode === 'filtered' ? sortedProducts : products
-      const rows = dataset.map((p) => {
+      // Pre-process rows to resolve images (async)
+      const rows = await Promise.all(dataset.map(async (p) => {
+        let imageData = p.image || ''
+        if (imageData === 'DB_IMAGE') {
+          try {
+            // We need db instance here. Ensure db is imported from @/lib/db
+            const rec = await db.productImages.get(p.id)
+            if (rec?.data) imageData = rec.data
+          } catch { }
+        }
+
         return active.map((k) => {
           switch (k) {
-            case 'image': return (p.image || '')
+            case 'image': return imageData // Export actual base64/URL
             case 'productCode': return convertNumbersToEnglish(p.productCode)
             case 'itemNumber': return convertNumbersToEnglish(p.itemNumber)
             case 'productName': return p.productName
             case 'location': return p.location
             case 'category': return p.category
             case 'unit': return p.unit
+            case 'quantityPerCarton': return p.quantityPerCarton
             case 'cartonDimensions': {
               const L = p.cartonLength
               const W = p.cartonWidth
@@ -506,8 +570,10 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
             case 'averagePrice': return p.averagePrice
             case 'currentStockValue': return p.currentStockValue
             case 'issuesValue': {
-              const val = parseFloat(Number(p.issuesValue || 0).toFixed(5))
-              return val
+              // ✅ Calculate dynamically: issues * price
+              const issues = Number(p.issues || 0)
+              const price = Number(p.price || 0)
+              return parseFloat((issues * price).toFixed(5))
             }
             case 'turnoverRate': {
               const r = calculateTurnover(p)
@@ -519,7 +585,7 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
             default: return ''
           }
         })
-      })
+      }))
       const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, exportMode === 'filtered' ? 'Filtered' : 'All')
@@ -762,9 +828,48 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
                           if (!(visibleColumns as any)[key]) return null
                           if (key === 'image') {
                             return (
-                              <td key={key} className="p-2 text-center border align-middle">
-                                <div className="flex items-center justify-center">
+                              <td
+                                key={key}
+                                className={`p-2 text-center border align-middle transition-colors ${dropActiveId === product.id ? "bg-blue-100 border-blue-500" : ""}`}
+                                onDragOver={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  setDropActiveId(product.id)
+                                }}
+                                onDragLeave={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  if (dropActiveId === product.id) {
+                                    setDropActiveId(null)
+                                  }
+                                }}
+                                onDrop={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  setDropActiveId(null)
+
+                                  const files = e.dataTransfer.files
+                                  if (files && files.length > 0) {
+                                    const file = files[0]
+                                    handleImageUpload(product, file)
+                                  }
+                                }}
+                              >
+                                <div className="flex items-center justify-center relative">
+                                  {dropActiveId === product.id && (
+                                    <div className="absolute inset-0 z-10 bg-blue-500/10 flex items-center justify-center rounded pointer-events-none">
+                                      <div className="bg-background text-primary px-2 py-1 rounded text-xs shadow-sm font-medium">
+                                        Drop to upload
+                                      </div>
+                                    </div>
+                                  )}
+                                  {uploadingImageId === product.id && (
+                                    <div className="absolute inset-0 z-20 bg-background/50 flex items-center justify-center rounded">
+                                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                                    </div>
+                                  )}
                                   <ProductImage
+                                    key={product.image || 'no-image'}
                                     product={product}
                                     className="h-10 w-10 cursor-pointer"
                                     onClick={() => handlePreview(product)}
@@ -811,13 +916,16 @@ export function ProductsTable({ products, onEdit, onDelete }: ProductsTableProps
 
                           // Formatting
                           if (key === 'issuesValue') {
-                            // Limit to 5 decimals, remove trailing zeros
-                            const val = parseFloat(Number(content || 0).toFixed(5))
+                            // ✅ Calculate dynamically: issues × price
+                            const issues = Number(product.issues || 0)
+                            const price = Number(product.price || 0)
+                            const calculatedValue = issues * price
+                            const val = parseFloat(calculatedValue.toFixed(5))
                             content = formatEnglishNumber(val)
                           }
                           if (['price', 'averagePrice', 'currentStockValue'].includes(key)) content = formatEnglishNumber(Number(content).toFixed(2))
                           // Apply number formatting to quantity columns, BUT NOT to code/id columns
-                          if (['openingStock', 'purchases', 'issues', 'inventoryCount', 'currentStock', 'difference'].includes(key)) {
+                          if (['openingStock', 'purchases', 'issues', 'inventoryCount', 'currentStock', 'difference', 'quantityPerCarton'].includes(key)) {
                             content = formatEnglishNumber(Number(content || 0))
                           }
                           // Explicitly ensure productCode and itemNumber are NOT formatted (raw strings/numbers)

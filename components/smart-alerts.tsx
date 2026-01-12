@@ -5,7 +5,7 @@ import { Bell, Clock, Package, Check } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { getProducts } from "@/lib/storage"
+import { getProducts, shouldShowClosingAlert } from "@/lib/storage"
 import { getBranchRequests } from "@/lib/branch-request-storage"
 import { useRouter } from "next/navigation"
 import { useI18n } from "@/components/language-provider"
@@ -13,26 +13,44 @@ import { DualText } from "@/components/ui/dual-text"
 
 interface AlertItem {
     id: string
-    type: 'low-stock' | 'pending-request'
+    type: 'low-stock' | 'pending-request' | 'month-closing'
     titleKey: string
     descKey: string
     count?: number
     severity: 'high' | 'medium'
     actionLabelKey?: string
     actionUrl?: string
+    actionCallback?: () => void
 }
 
-export function SmartAlerts() {
+export function SmartAlerts({ onMonthClosingClick }: { onMonthClosingClick?: () => void }) {
     const [open, setOpen] = useState(false)
     const [alerts, setAlerts] = useState<AlertItem[]>([])
     const router = useRouter()
     const { t } = useI18n()
 
     useEffect(() => {
-        const checkAlerts = () => {
+        const checkAlerts = async () => {
             const newAlerts: AlertItem[] = []
 
-            // 1. Check Low Stock
+            // 1. Check for Month Closing
+            const needsClosing = await shouldShowClosingAlert()
+            if (needsClosing) {
+                newAlerts.push({
+                    id: 'month-closing',
+                    type: 'month-closing',
+                    titleKey: "smartAlerts.monthClosing.title",
+                    descKey: "smartAlerts.monthClosing.desc",
+                    severity: 'medium',
+                    actionLabelKey: "smartAlerts.monthClosing.action",
+                    actionCallback: () => {
+                        setOpen(false)
+                        onMonthClosingClick?.()
+                    }
+                })
+            }
+
+            // 2. Check Low Stock
             const products = getProducts()
             const lowStockProducts = products.filter(p =>
                 p.minStockLimit !== undefined && (p.currentStock || 0) <= p.minStockLimit
@@ -82,9 +100,9 @@ export function SmartAlerts() {
             }
         }
 
-        const timer = setTimeout(checkAlerts, 1000)
+        const timer = setTimeout(() => checkAlerts(), 1000)
         return () => clearTimeout(timer)
-    }, [t])
+    }, [t, onMonthClosingClick])
 
     const handleDismiss = () => {
         setOpen(false)
@@ -144,13 +162,17 @@ export function SmartAlerts() {
                                                 />
                                             </div>
 
-                                            {alert.actionUrl && (
+                                            {(alert.actionUrl || alert.actionCallback) && (
                                                 <Button
                                                     variant="link"
                                                     className={`p-0 h-auto mt-2 text-xs font-semibold ${alert.severity === 'high' ? 'text-red-800 underline' : 'text-yellow-800 underline'}`}
                                                     onClick={() => {
-                                                        setOpen(false)
-                                                        router.push(alert.actionUrl!)
+                                                        if (alert.actionCallback) {
+                                                            alert.actionCallback()
+                                                        } else if (alert.actionUrl) {
+                                                            setOpen(false)
+                                                            router.push(alert.actionUrl)
+                                                        }
                                                     }}
                                                 >
                                                     <DualText k={alert.actionLabelKey || ""} />

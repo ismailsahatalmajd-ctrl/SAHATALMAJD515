@@ -429,7 +429,7 @@ export async function generateTotalIssuedPDF(issues: Issue[], options: TotalIssu
   </div>
 
   <div class="page-footer">
-    <p>صفحة / Page <span class="page-count"></span> - ${(lang === "ar" ? formatArabicGregorianDate(new Date()) : new Date().toLocaleDateString("en-GB"))} ${new Date().toLocaleTimeString(lang === "ar" ? "ar-SA" : "en-GB")}</p>
+    <p>صفحة / Page <span class="page-count"></span> - ${(lang === "ar" ? formatArabicGregorianDate(new Date()) : new Date().toLocaleDateString("en-GB"))} ${new Date().toLocaleTimeString(lang === "ar" ? "ar-SA" : "en-GB", { hour12: false })}</p>
   </div>
 
   <script>

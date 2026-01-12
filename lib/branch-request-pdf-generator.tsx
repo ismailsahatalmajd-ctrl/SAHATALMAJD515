@@ -17,7 +17,7 @@ export async function generateBranchRequestPDF(request: BranchRequest): Promise<
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-    hour12: true
+    hour12: false
   })
   const title = isReturn ? `Return Invoice - ${request.branchName} / فاتورة مرتجع` : `Branch Request - ${request.branchName} / طلب فرع`
 

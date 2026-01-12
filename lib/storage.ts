@@ -43,6 +43,11 @@ import {
   startRealtimeSync,
   stopRealtimeSync
 } from './firebase-sync-engine'
+
+// Monthly Closing
+export { closeMonth, getLastClosingDate, shouldShowClosingAlert } from './monthly-closing'
+export type { MonthClosingRecord } from './monthly-closing'
+
 import {
   deleteAllTransactionsApi,
   deleteAllIssuesApi,
@@ -722,7 +727,8 @@ export function calculateProductValues(product: Product) {
     price,
     averagePrice,
     inventoryCount,
-    currentStockValue: currentStock * averagePrice
+    currentStockValue: currentStock * averagePrice,
+    issuesValue: issues * price  // Calculate issues value
   }
 }
 

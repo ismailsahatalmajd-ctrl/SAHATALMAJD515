@@ -115,10 +115,10 @@ export class DataStore {
             broadcastProgress(percent, `تحميل ${task.label}...`);
             console.log(`DataStore: Loading ${task.name}...`);
 
-            // Add a safety timeout per table fetch
+            // Add a safety timeout per table fetch (Increased to 15s for slower browsers)
             const tableData = await Promise.race([
               task.query.toArray(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout loading ${task.name}`)), 5000))
+              new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout loading ${task.label || task.name}`)), 15000))
             ]) as any[];
 
             results.push(tableData);

@@ -1,5 +1,4 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, enableIndexedDbPersistence, disableNetwork, enableNetwork } from "firebase/firestore";
+import { initializeFirestore, getFirestore, enableMultiTabIndexedDbPersistence, disableNetwork, enableNetwork } from "firebase/firestore";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
 const firebaseConfig = {
@@ -16,20 +15,14 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 import { Firestore } from "firebase/firestore";
 
-// Initialize Firestore with settings if needed (before getFirestore)
+// Initialize Firestore with robust settings (Long Polling for better browser compatibility)
 let db: Firestore;
 try {
-    if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-        const { initializeFirestore } = require("firebase/firestore");
-        db = initializeFirestore(app, {
-            experimentalForceLongPolling: true,
-        });
-        console.log("🔥 Firebase Long Polling Enabled for Localhost");
-    } else {
-        db = getFirestore(app);
-    }
+    db = initializeFirestore(app, {
+        experimentalForceLongPolling: true, // Improved stability in some browsers/proxies
+    });
+    console.log("🔥 Firebase Initialized with Long Polling");
 } catch (e) {
-    // Fallback if already initialized
     db = getFirestore(app);
 }
 
@@ -41,12 +34,13 @@ let isPersistenceEnabled = false;
 export const enableOfflinePersistence = async () => {
     if (typeof window !== 'undefined' && !isPersistenceEnabled) {
         try {
-            await enableIndexedDbPersistence(db);
+            // Enable Multi-Tab Persistence (Allow sync across multiple browser tabs)
+            await enableMultiTabIndexedDbPersistence(db);
             isPersistenceEnabled = true;
-            console.log("✅ Firebase Offline Persistence Enabled");
+            console.log("✅ Firebase Multi-Tab Persistence Enabled");
         } catch (err: any) {
             if (err.code == 'failed-precondition') {
-                console.warn("⚠️ Persistence failed: Multiple tabs open. Only one tab can maintain persistence.");
+                console.warn("⚠️ Persistence failed: Multiple tabs already active with standard persistence.");
             } else if (err.code == 'unimplemented') {
                 console.warn("⚠️ Persistence failed: Browser not supported.");
             } else {

@@ -65,14 +65,16 @@ export function FirebaseSyncManager() {
                         // Force a small delay to ensure connection is stable
                         await new Promise(r => setTimeout(r, 1000));
 
+                        setIsUploading(true);
+                        window.dispatchEvent(new CustomEvent('syncstart'));
                         await syncAllLocalToCloud((current, total) => {
                             // Optional: show progress toast
                             console.log(`Auto-upload: ${current}/${total}`);
                             setUploadProgress(`${Math.round((current / total) * 100)}%`);
-                            setIsUploading(true);
                         });
                         addLog("✅ تم الرفع التلقائي للبيانات!");
                         setIsUploading(false);
+                        window.dispatchEvent(new CustomEvent('syncend'));
                     }
                 } catch (checkErr) {
                     // Suppress visual error for count permission issues as long as realtime sync is active
@@ -102,10 +104,12 @@ export function FirebaseSyncManager() {
 
         try {
             setIsUploading(true);
+            window.dispatchEvent(new CustomEvent('syncstart'));
             addLog("جاري بدء الرفع...");
             const result = await syncAllLocalToCloud((current, total) => {
                 setUploadProgress(`${Math.round((current / total) * 100)}%`);
             });
+            window.dispatchEvent(new CustomEvent('syncend'));
             // @ts-ignore
             addLog(`✅ تم! نجاح: ${result?.successCount || 0}`);
             // @ts-ignore
@@ -125,10 +129,12 @@ export function FirebaseSyncManager() {
         if (!confirm("هل تريد تحميل البيانات من السحابة؟ سيتم دمجها مع البيانات الحالية.")) return;
         try {
             setIsUploading(true); // Reuse uploading spinner state for locking
+            window.dispatchEvent(new CustomEvent('syncstart'));
             addLog("جاري بدء التحميل...");
             await syncAllCloudToLocal((msg: string) => {
                 addLog(msg);
             });
+            window.dispatchEvent(new CustomEvent('syncend'));
             alert("تم تحميل البيانات بنجاح!");
         } catch (e: any) {
             console.error(e);

@@ -91,6 +91,8 @@ export const dict: Dict = {
   "branchRequests.list": { ar: "قائمة الطلبات", en: "Requests List" },
   "branchRequests.noRequests": { ar: "لا يوجد طلبات حالياً", en: "No requests currently" },
   "sync.autoEnabled": { ar: "التحديث التلقائي مفعل", en: "Auto-sync Enabled" },
+  "sync.online": { ar: "متصل بالإنترنت", en: "Online" },
+  "sync.disconnected": { ar: "فشل الاتصال", en: "Sync Error" },
   "common.lowStockProduct": { ar: "منتج بمخزون منخفض", en: "Low-stock product" },
   "common.lowStock": { ar: "مخزون منخفض", en: "Low stock" },
   "common.low": { ar: "منخفض", en: "Low" },

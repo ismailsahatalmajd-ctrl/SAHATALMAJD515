@@ -44,5 +44,5 @@ next-env.d.ts
 /src-tauri/target/
 
 # Sensitive Files
-# service-account.json (Un-ignored for Vercel Deployment)
+service-account.json
 

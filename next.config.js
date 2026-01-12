@@ -1,5 +1,5 @@
 const nextConfig = {
-  // output: 'export',  // DISABLED: Causes issues with dynamic imports on Vercel
+  output: process.env.IS_ELECTRON === 'true' ? 'export' : undefined,
   // Disable trailing slash for Electron (files not dirs), enable for Vercel/Web
   // trailingSlash: false,
 
@@ -14,6 +14,8 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // Disable trailing slash for better file system compatibility
+  trailingSlash: false,
 };
 
 module.exports = nextConfig;

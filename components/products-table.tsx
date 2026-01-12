@@ -37,7 +37,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { updateProduct } from "@/lib/storage"
-import { getSafeImageSrc, formatArabicGregorianDate, formatEnglishNumber } from "@/lib/utils"
+import { getSafeImageSrc, formatArabicGregorianDate, formatEnglishNumber, getApiUrl } from "@/lib/utils"
 import { useI18n } from "@/components/language-provider"
 import { toast } from "@/hooks/use-toast"
 import { db } from "@/lib/db"

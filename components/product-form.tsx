@@ -16,12 +16,12 @@ import {
 } from "@/components/ui/dialog"
 import type { Product } from "@/lib/types"
 import { calculateProductValues, getProducts } from "@/lib/storage"
-import { getSafeImageSrc, normalize } from "@/lib/utils"
-import { Upload, X, Loader2 } from 'lucide-react'
 import { toast } from "@/hooks/use-toast"
 import { DualText, getDualString } from "@/components/ui/dual-text"
 import { useI18n } from "@/components/language-provider"
 import { storage } from "@/lib/firebase"
+import { getSafeImageSrc, normalize, getApiUrl } from "@/lib/utils"
+import { Upload, X, Loader2 } from 'lucide-react'
 // import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
 
 interface ProductFormProps {
@@ -274,7 +274,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
       formData.append("file", file)
       formData.append("path", `products/${Date.now()}_${file.name}`)
 
-      const res = await fetch('/api/upload', {
+      const res = await fetch(getApiUrl('/api/upload'), {
         method: 'POST',
         body: formData
       })

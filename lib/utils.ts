@@ -124,3 +124,20 @@ export function downloadJSON(data: any, filename: string) {
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
+
+/**
+ * Resolves the correct API URL based on the environment.
+ * In a standalone desktop app (file://), it points to the production server.
+ * Otherwise, it uses the relative path.
+ */
+export function getApiUrl(path: string): string {
+  // Ensure path starts with /
+  const cleanPath = path.startsWith('/') ? path : `/${path}`
+
+  // If we are in Electron/standalone environment (using file:// protocol)
+  if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
+    return `https://sahatcom.cards${cleanPath}`
+  }
+
+  return cleanPath
+}

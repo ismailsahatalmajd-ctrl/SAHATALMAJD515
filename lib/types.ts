@@ -21,6 +21,7 @@ export interface Product {
   currentStockValue: number
   issuesValue: number
   quantityPerCarton?: number // الكمية في الكرتون
+  cartonBarcode?: string // باركود الكرتون
   category: string
   image?: string
   // معرض صور المنتج (اختياري)
@@ -89,8 +90,10 @@ export interface Branch {
   contactEmail?: string
   // تجزئة رمز الدخول للفرع (SHA-256) - legacy
   accessCodeHash?: string
-  // Branch Type: main (Owner/Admin) or regular
-  type?: "main" | "branch"
+  // Branch Type: main (Owner/Admin) or regular or user
+  type?: "main" | "branch" | "user"
+  role?: UserRole
+  permissions?: Partial<Permissions>
   // New auth fields
   username?: string
   passwordHash?: string
@@ -103,6 +106,51 @@ export interface Branch {
   createdAt: string
   updatedAt?: string
   lastModifiedBy?: string
+}
+
+// ============================================
+// Auth & Permissions Types
+// ============================================
+
+export type UserRole = 'owner' | 'manager' | 'supervisor' | 'staff' | 'view_only' | 'custom';
+
+export interface Permissions {
+  // Inventory
+  'inventory.view': boolean;
+  'inventory.add': boolean;
+  'inventory.edit': boolean;
+  'inventory.delete': boolean;
+  'inventory.adjust': boolean; // Stock Adjustment
+
+  // Transactions
+  'transactions.purchase': boolean;
+  'transactions.issue': boolean;
+  'transactions.return': boolean;
+  'transactions.approve': boolean;
+
+  // Branch Management
+  'branches.view': boolean;
+  'branches.manage': boolean; // Add/Edit/Delete
+  'branch_requests.view': boolean;
+  'branch_requests.approve': boolean;
+
+  // User Management (Admin)
+  'users.view': boolean;
+  'users.manage': boolean;
+
+  // System & Settings
+  'system.settings': boolean; // Was settings.edit
+  'system.backup': boolean;
+  'system.logs': boolean;     // Was audit.view
+
+  // Page Access (Route Protection)
+  'page.dashboard': boolean;
+  'page.inventory': boolean;
+  'page.transactions': boolean;
+  'page.reports': boolean;
+  'page.settings': boolean;
+  'page.users': boolean;
+  'page.branches': boolean;
 }
 
 export interface UserSession {
@@ -120,17 +168,30 @@ export interface UserPreferences {
   notifications?: boolean
 }
 
-export interface User {
-  id: string
-  username: string
-  passwordHash: string
-  role: "admin" | "branch"
-  branchId?: string // If role is branch
+export interface UserProfile {
+  uid: string
+  email: string
+  displayName: string
+  username?: string // Legacy support
+  photoURL?: string
+
+  role: UserRole
+  permissions: Permissions
+
+  branchId?: string // If set, restricts data to this branch
+  isActive: boolean
+
   createdAt: string
-  lastLogin?: string
+  lastLogin: string
+
+  // Legacy / Local Auth Fields
+  passwordHash?: string
   activeSessions?: UserSession[]
   preferences?: UserPreferences
 }
+
+// Alias for backward compatibility
+export type User = UserProfile;
 
 export interface Unit {
   id: string
@@ -148,6 +209,11 @@ export interface VerificationLog {
   status: 'matched' | 'discrepancy'
   items: VerificationItem[]
   notes?: string
+  // Multi-Unit Support
+  unitType?: "base" | "carton"
+  quantityEntered?: number
+  quantityBase?: number
+  selectedUnitName?: string
 }
 
 export interface VerificationItem {
@@ -203,6 +269,7 @@ export interface IssueProduct {
   image?: string
   unit?: string // Added unit to issue product
   currentStock?: number
+  quantityBase?: number // For Multi-Unit Deduction
 }
 
 export interface Return {
@@ -296,4 +363,190 @@ export interface AuditLogEntry {
     newValue: any
   }[]
   metadata?: Record<string, any>
+}
+
+export interface DeviceSession {
+  deviceId: string
+  username?: string
+  userAgent: string
+  ip?: string
+  lastActive: string
+  appVersion: string
+  syncStatus: {
+    productsCount: number
+    transactionsCount: number
+    lastSyncTimestamp: string
+  }
+  command?: 'none' | 'force_resync' | 'wipe_and_logout'
+  commandStatus?: {
+    type: 'success' | 'error' | 'pending'
+    message: string
+    timestamp: string
+  }
+  role?: string // Added role
+}
+
+// ============================================
+// Branch Inventory System Types
+// ============================================
+
+// مخزون الفرع (المستهلكات)
+export interface BranchInventory {
+  id: string
+  branchId: string
+  productId: string
+  productName: string
+  productCode?: string
+  unit?: string
+  productImage?: string   // صورة المنتج
+
+  // الكميات
+  receivedTotal: number      // إجمالي المستلم من المستودع الرئيسي
+  consumedTotal: number      // إجمالي المستهلك
+  currentStock: number       // الرصيد الحالي = received - consumed
+  lastInventoryCount?: number // آخر جرد فعلي
+  minStockLimit?: number     // الحد الأدنى للتنبيه
+
+  // التواريخ
+  lastReceivedDate?: string
+  lastConsumedDate?: string
+  lastInventoryDate?: string
+  createdAt: string
+  updatedAt: string
+}
+
+// سجل الاستهلاك
+export interface ConsumptionRecord {
+  id: string
+  branchId: string
+  branchInventoryId: string
+  productId: string
+  productName: string
+
+  quantity: number
+  reason: string             // سبب الاستهلاك
+  usedBy?: string            // من استخدم
+  notes?: string
+
+  date: string
+  createdAt: string
+}
+
+// أصول الفرع (معدات وأجهزة)
+export interface BranchAsset {
+  id: string
+  branchId: string
+  branchName?: string
+
+  // معلومات الأصل
+  name: string               // اسم الأصل (ثلاجة، مكينة قهوة، إلخ)
+  category: string           // تصنيف (أجهزة، أثاث، معدات)
+  brand?: string             // الماركة
+  model?: string             // الموديل
+  serialNumber?: string      // الرقم التسلسلي
+  barcode?: string           // باركود الأصل
+
+  // الحالة
+  status: 'new' | 'good' | 'needs_maintenance' | 'damaged' | 'disposed' | 'lost'
+  condition?: string         // وصف الحالة
+
+  // التواريخ
+  purchaseDate?: string
+  purchasePrice?: number
+  warrantyExpiry?: string
+  assignedDate: string       // تاريخ تسليمه للفرع
+  lastMaintenanceDate?: string
+
+  // المسؤولية
+  responsiblePerson?: string  // المسؤول عنه في الفرع
+
+  // الصور
+  images?: string[]
+
+  createdAt: string
+  updatedAt: string
+  createdBy?: string
+}
+
+// تقارير الصيانة
+export interface MaintenanceReport {
+  id: string
+  assetId: string
+  assetName: string
+  branchId: string
+  branchName?: string
+
+  issueType: 'malfunction' | 'damage' | 'wear' | 'other'
+  description: string        // وصف المشكلة
+  cause?: string             // سبب العطل
+  actionTaken?: string       // الإجراء المتخذ
+  cost?: number              // تكلفة الإصلاح
+
+  status: 'pending' | 'in_progress' | 'resolved' | 'requires_replacement'
+
+  reportedBy: string
+  reportedDate: string
+  resolvedDate?: string
+  resolvedBy?: string
+
+  images?: string[]
+
+  createdAt: string
+  updatedAt: string
+}
+
+// طلبات الأصول
+export interface AssetRequest {
+  id: string
+  branchId: string
+  branchName?: string
+
+  requestedAsset: string     // الأصل المطلوب
+  category?: string          // تصنيف (أجهزة، أثاث، معدات)
+  reason: string             // سبب الطلب
+  urgency: 'low' | 'medium' | 'high'
+  quantity?: number          // الكمية المطلوبة
+
+  // تقرير الأصول الحالية (مطلوب)
+  currentAssetsReportId?: string
+  currentAssetsReportDate?: string
+
+  status: 'pending' | 'approved' | 'rejected' | 'fulfilled'
+  reviewedBy?: string
+  reviewedAt?: string
+  reviewNotes?: string
+
+  requestedBy: string
+  requestDate: string
+
+  createdAt: string
+  updatedAt: string
+}
+
+// تقرير حالة الأصول (للفرع)
+export interface AssetStatusReport {
+  id: string
+  branchId: string
+  branchName?: string
+
+  totalAssets: number
+  assetsByStatus: {
+    new: number
+    good: number
+    needs_maintenance: number
+    damaged: number
+    disposed: number
+    lost: number
+  }
+
+  assets: {
+    assetId: string
+    assetName: string
+    status: string
+    condition?: string
+  }[]
+
+  generatedBy: string
+  generatedAt: string
+  notes?: string
 }

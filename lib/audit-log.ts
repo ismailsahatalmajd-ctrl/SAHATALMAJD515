@@ -1,5 +1,6 @@
 import { db } from "./db"
 import { AuditLogEntry } from "./types"
+import { syncAuditLog } from "./firebase-sync-engine"
 
 export type { AuditLogEntry }
 
@@ -30,6 +31,9 @@ export const addAuditLog = async (
 
   try {
     await db.auditLogs.add(entry)
+    
+    // Attempt to sync immediately
+    syncAuditLog(entry).catch(console.error)
     
     // Maintain size limit (approximate)
     const count = await db.auditLogs.count()

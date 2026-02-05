@@ -16,13 +16,31 @@ export async function generateBranchInvoicePDF(inv: BranchInvoice): Promise<stri
     hour12: true
   })
 
-  // Headers are fixed without price and total
+  // Fetch full branch details to get phone number
+  let branchPhone = ""
+  try {
+    const branch = await db.branches.get(inv.branchId)
+    if (branch && branch.phone) branchPhone = branch.phone
+  } catch (e) {
+    console.error("Failed to fetch branch details", e)
+  }
+
+  // Headers are dynamic based on settings
   let headers = `<th style="width: 40px">#</th>`
   headers += `<th style="width: 60px">الصورة<br/><span style="font-size:10px;font-weight:normal">Image</span></th>`
   headers += `<th style="width: 100px">كود المنتج<br/><span style="font-size:10px;font-weight:normal">Product Code</span></th>`
   headers += `<th>اسم المنتج<br/><span style="font-size:10px;font-weight:normal">Product Name</span></th>`
-  headers += `<th style="width: 80px">الوحدة<br/><span style="font-size:10px;font-weight:normal">Unit</span></th>`
-  headers += `<th style="width: 80px">الكمية<br/><span style="font-size:10px;font-weight:normal">Quantity</span></th>`
+  if (settings.showUnit) headers += `<th style="width: 80px">الوحدة<br/><span style="font-size:10px;font-weight:normal">Unit</span></th>`
+
+  if (settings.showPrice) {
+    headers += `<th style="width: 80px">السعر<br/><span style="font-size:10px;font-weight:normal">Price</span></th>`
+  }
+
+  if (settings.showQuantity) headers += `<th style="width: 80px">الكمية<br/><span style="font-size:10px;font-weight:normal">Quantity</span></th>`
+
+  if (settings.showTotal) {
+    headers += `<th style="width: 90px">الإجمالي<br/><span style="font-size:10px;font-weight:normal">Total</span></th>`
+  }
 
   // Add Notes column
   headers += `<th style="width: 150px">ملاحظات<br/><span style="font-size:10px;font-weight:normal">Notes</span></th>`
@@ -52,8 +70,17 @@ export async function generateBranchInvoicePDF(inv: BranchInvoice): Promise<stri
         row += `<td>${imageSrc ? `<img src="${imageSrc}" style="width:40px;height:40px;object-fit:cover">` : ''}</td>`
         row += `<td>${it.productCode || "-"}</td>`
         row += `<td>${it.productName}</td>`
-        row += `<td>${it.unit || ""}</td>`
-        row += `<td>${it.quantity}</td>`
+        if (settings.showUnit) row += `<td>${(it as any).selectedUnitName || it.unit || ""}</td>`
+
+        if (settings.showPrice) {
+          row += `<td>${it.unitPrice?.toFixed(2) || "0.00"}</td>`
+        }
+
+        if (settings.showQuantity) row += `<td>${it.quantity}</td>`
+
+        if (settings.showTotal) {
+          row += `<td>${it.totalPrice?.toFixed(2) || "0.00"}</td>`
+        }
 
         // Add Notes cell
         row += `<td style="text-align:right; font-size:11px; color:#555;">${it.notes || "—"}</td>`
@@ -93,7 +120,10 @@ export async function generateBranchInvoicePDF(inv: BranchInvoice): Promise<stri
         <div class="meta">
           <div style="display:flex; justify-content:space-between;">
              <span><strong>Invoice No / رقم الفاتورة:</strong> ${inv.invoiceNumber || "—"}</span>
-             <span><strong>Branch / اسم الفرع:</strong> ${inv.branchName}</span>
+             <div>
+                <span><strong>Branch / اسم الفرع:</strong> ${inv.branchName}</span>
+                ${branchPhone ? `<br/><span style="font-size:12px;color:#555;"><strong>Tel:</strong> ${branchPhone}</span>` : ''}
+             </div>
           </div>
           <div style="margin-top:4px;"><strong>Date / التاريخ:</strong> ${dateStr}</div>
         </div>
@@ -108,7 +138,10 @@ export async function generateBranchInvoicePDF(inv: BranchInvoice): Promise<stri
           </tbody>
         </table>
         
-        <!-- Bottom total removed per user request -->
+        ${settings.showTotal ? `
+        <div class="totals">
+           Initial Total / الإجمالي الأولي: ${inv.totalValue?.toFixed(2) || "0.00"} SAR
+        </div>` : ''}
         
         ${settings.footerText ? `<div class="footer-text">${settings.footerText}</div>` : ""}
         

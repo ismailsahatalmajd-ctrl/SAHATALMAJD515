@@ -52,14 +52,20 @@ export function FirebaseSyncManager() {
                     const productsColl = collection(db, 'products');
                     // Use getCountFromServer if available, or just get 1 doc
                     // getCountFromServer is safer/cheaper
-                    const snapshot = await getCountFromServer(query(productsColl));
-                    const cloudCount = snapshot.data().count;
+                    // Check if we already synced to avoid expensive count query on every reload
+                    const hasSynced = localStorage.getItem('firebase_sync_init_done');
+                    let cloudCount = -1;
+
+                    if (!hasSynced) {
+                        const snapshot = await getCountFromServer(query(productsColl));
+                        cloudCount = snapshot.data().count;
+                    }
 
                     const localCount = await localDb.products.count();
 
                     console.log(`[AutoSync] Cloud: ${cloudCount}, Local: ${localCount}`);
 
-                    if (cloudCount === 0 && localCount > 0) {
+                    if (!hasSynced && cloudCount === 0 && localCount > 0) {
                         addLog(`⚠️ السحابة فارغة (${localCount} عنصر محلي). بدء الرفع التلقائي...`);
 
                         // Force a small delay to ensure connection is stable
@@ -74,6 +80,7 @@ export function FirebaseSyncManager() {
                         });
                         addLog("✅ تم الرفع التلقائي للبيانات!");
                         setIsUploading(false);
+                        localStorage.setItem('firebase_sync_init_done', 'true');
                         window.dispatchEvent(new CustomEvent('syncend'));
                     }
                 } catch (checkErr) {

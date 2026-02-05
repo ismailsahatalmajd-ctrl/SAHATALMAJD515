@@ -1,6 +1,12 @@
-
-const { app, BrowserWindow, Menu } = require('electron');
+const { app, BrowserWindow, Menu, protocol, net } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const { pathToFileURL } = require('url');
+
+// Register the 'app' protocol
+protocol.registerSchemesAsPrivileged([
+    { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, allowServiceWorkers: true } }
+]);
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -27,14 +33,21 @@ function createWindow() {
         },
     });
 
-    const startUrl = isDev
-        ? 'http://localhost:3000'
-        : `file://${path.join(__dirname, 'out/index.html')}`;
+    if (isDev) {
+        mainWindow.loadURL('http://localhost:3000');
+        mainWindow.webContents.openDevTools();
+    } else {
+        // Load using our custom protocol
+        mainWindow.loadURL('app://localhost/').catch(err => {
+            console.error('CRITICAL: Failed to load app://localhost/', err);
+        });
 
-    console.log('Loading URL:', startUrl);
+        // Always open DevTools in this phase to help debug
+        mainWindow.webContents.openDevTools();
+    }
 
-    mainWindow.loadURL(startUrl).catch(err => {
-        console.error('Failed to load URL:', err);
+    mainWindow.once('ready-to-show', () => {
+        mainWindow.show();
     });
 
     if (isDev) {
@@ -150,6 +163,30 @@ function createWindow() {
 
 app.whenReady().then(() => {
     console.log('App is ready!');
+
+    // Handle the custom 'app' protocol
+    protocol.handle('app', (request) => {
+        let url = new URL(request.url).pathname;
+        if (url === '/') url = '/index.html';
+
+        // Add index.html if it's a directory-like path
+        if (url.endsWith('/')) url += 'index.html';
+
+        // If it doesn't have an extension and isn't a special Next.js asset path, append .html
+        if (!path.extname(url) && !url.startsWith('/_next/') && !url.includes('.')) {
+            url += '.html';
+        }
+
+        const filePath = path.join(__dirname, 'out', url);
+
+        try {
+            return net.fetch(pathToFileURL(filePath).toString());
+        } catch (e) {
+            console.error('Protocol handle error:', e);
+            return new Response('Internal Server Error', { status: 500 });
+        }
+    });
+
     createWindow();
 
     app.on('activate', () => {

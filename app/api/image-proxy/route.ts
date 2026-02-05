@@ -1,12 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 
-export const dynamic = 'force-dynamic';
+// export const dynamic = process.env.IS_ELECTRON === 'true' ? 'force-static' : 'force-dynamic';
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    },
+  });
+}
 
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get("url");
 
   if (!url) {
-    return new NextResponse("Missing url parameter", { status: 400 });
+    return new NextResponse("Missing url parameter", {
+      status: 400,
+      headers: { "Access-Control-Allow-Origin": "*" }
+    });
   }
 
   try {
@@ -19,6 +33,7 @@ export async function GET(request: NextRequest) {
     if (!response.ok) {
       return new NextResponse(`Failed to fetch image: ${response.statusText}`, {
         status: response.status,
+        headers: { "Access-Control-Allow-Origin": "*" }
       });
     }
 
@@ -35,6 +50,9 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("Image proxy error:", error);
-    return new NextResponse("Internal Server Error", { status: 500 });
+    return new NextResponse("Internal Server Error", {
+      status: 500,
+      headers: { "Access-Control-Allow-Origin": "*" }
+    });
   }
 }

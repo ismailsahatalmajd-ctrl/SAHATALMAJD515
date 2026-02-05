@@ -1,3 +1,4 @@
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { initializeFirestore, getFirestore, enableMultiTabIndexedDbPersistence, disableNetwork, enableNetwork } from "firebase/firestore";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
@@ -11,17 +12,17 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 import { Firestore } from "firebase/firestore";
 
-// Initialize Firestore with robust settings (Long Polling for better browser compatibility)
+// Initialize Firestore
 let db: Firestore;
 try {
     db = initializeFirestore(app, {
-        experimentalForceLongPolling: true, // Improved stability in some browsers/proxies
+        // experimentalForceLongPolling: true, // Reduced overhead
     });
-    console.log("🔥 Firebase Initialized with Long Polling");
+    console.log("🔥 Firebase Initialized");
 } catch (e) {
     db = getFirestore(app);
 }

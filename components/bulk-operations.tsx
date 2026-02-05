@@ -4,13 +4,15 @@ import type React from "react"
 
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
-import { Download, Upload, Trash2, Info, RotateCcw } from 'lucide-react'
+import { Download, Upload, Trash2, Info, RotateCcw, RefreshCcw } from 'lucide-react'
 import type { Product } from "@/lib/types"
 import { getProducts, saveProducts, getCategories, addCategory, getLocations, addLocation, factoryReset, deleteDemoData, initDataStore } from "@/lib/storage"
 import { deleteAllProductsApi } from "@/lib/sync-api"
+import { performFactoryReset } from "@/lib/system-reset"
 import { syncProduct, syncProductImageToCloud } from "@/lib/firebase-sync-engine"
 import { db } from "@/lib/db"
 import { useToast } from "@/hooks/use-toast"
+import { getApiUrl } from "@/lib/api"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,6 +45,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ShieldCheck, MoreHorizontal, AlertTriangle, Database } from "lucide-react"
+import { useAuth } from "@/components/auth-provider"
+import { hasPermission } from "@/lib/auth-utils"
 
 interface BulkOperationsProps {
   products: Product[]
@@ -53,6 +57,7 @@ interface BulkOperationsProps {
 export function BulkOperations({ products = [], filteredProducts, onProductsUpdate }: BulkOperationsProps) {
   const { t } = useI18n()
   const { toast } = useToast()
+  const { user } = useAuth()
   const [isImporting, setIsImporting] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [conversionProgress, setConversionProgress] = useState(0)
@@ -164,7 +169,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
     } catch { }
   }
 
-  // حالات وبيانات مطابقة الأعمدة
+
   const [mappingDialogOpen, setMappingDialogOpen] = useState(false)
   const [importHeaders, setImportHeaders] = useState<string[]>([])
   const [importPreviewRows, setImportPreviewRows] = useState<string[][]>([])
@@ -295,7 +300,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       // في نسخة التصدير الثابت، لا يوجد بروكسي؛ نحاول الجلب مباشرة إن سمحت CORS
       const sourceUrl = process.env.NEXT_PUBLIC_STATIC_EXPORT === 'true'
         ? url
-        : `/api/image-proxy?url=${encodeURIComponent(url)}`
+        : getApiUrl(`/api/image-proxy?url=${encodeURIComponent(url)}`)
       const response = await fetch(sourceUrl, { headers: { Accept: 'image/*' } })
       if (!response.ok) throw new Error(`Proxy failed: ${response.status}`)
       const blob = await response.blob()
@@ -764,6 +769,10 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
   }
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!hasPermission(user, 'inventory.add')) {
+      toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية إضافة المخزون"), variant: "destructive" })
+      return
+    }
     const file = e.target.files?.[0]
     if (!file) return
 
@@ -871,44 +880,61 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
 
 
         } catch (error) {
-          console.error("[v0] Import error:", error)
-          toast({
-            title: "خطأ في الاستيراد",
-            description: error instanceof Error ? error.message : "تأكد من صحة تنسيق الملف",
-            variant: "destructive",
-          })
+          console.error("[v0] Import error description:", error)
+          const msg = error instanceof Error ? error.message : "خطأ غير معروف"
+
+          if (msg.includes("Script error")) {
+            toast({
+              title: "خطأ في تحميل المكتبة",
+              description: "يرجى التحقق من اتصال الإنترنت أو تحديث الصفحة",
+              variant: "destructive"
+            })
+          } else {
+            toast({
+              title: "خطأ في الاستيراد",
+              description: msg,
+              variant: "destructive",
+            })
+          }
         } finally {
           setIsImporting(false)
           setConversionProgress(0)
           setConversionStatus("")
+          // Reset file input
+          if (fileInputRef.current) {
+            fileInputRef.current.value = ""
+          }
         }
       }
 
       reader.onerror = () => {
+        console.error("FileReader error", reader.error)
         toast({
           title: "خطأ في قراءة الملف",
-          description: "حدث خطأ أثناء قراءة الملف",
+          description: "حدث خطأ أثناء قراءة الملف، حاول مرة أخرى",
           variant: "destructive",
         })
         setIsImporting(false)
         setConversionProgress(0)
         setConversionStatus("")
+        if (fileInputRef.current) fileInputRef.current.value = ""
       }
 
       reader.readAsArrayBuffer(file)
     } catch (error) {
-      console.error("[v0] Import error:", error)
+      console.error("[v0] Import setup error:", error)
       toast({
-        title: "خطأ في الاستيراد",
-        description: "تأكد من تثبيت مكتبة xlsx",
+        title: "خطأ بداية الاستيراد",
+        description: "فشل تهيئة عملية الاستيراد",
         variant: "destructive",
       })
       setIsImporting(false)
       setConversionProgress(0)
       setConversionStatus("")
+      if (fileInputRef.current) fileInputRef.current.value = ""
     }
 
-    e.target.value = ""
+    // Moved reset to finally/onerror blocks to ensure it happens
   }
 
   const parseArabicNum = (val: any): number => {
@@ -1029,11 +1055,9 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       }
 
       let currentStock = 0
-      if (colMap.currentStock >= 0 && row[colMap.currentStock]) {
-        currentStock = parseArabicNum(row[colMap.currentStock])
-      } else {
-        currentStock = openingStock + purchases - issues
-      }
+      // Enforce the formula: Opening + Purchases - Issues
+      // Even if Excel has "Current Stock", recalculate it to ensure consistency
+      currentStock = openingStock + purchases - issues
 
       let difference = 0
       if (colMap.difference >= 0 && row[colMap.difference] !== undefined && row[colMap.difference] !== null) {
@@ -1080,6 +1104,10 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
   }
 
   const handleClearAll = async () => {
+    if (!hasPermission(user, 'system.settings')) {
+      toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
+      return
+    }
     setOpRunning('delete')
     setOpProgress(0)
     setOpStatus('جاري حذف المنتجات...')
@@ -1131,6 +1159,10 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
   }
 
   const handleFactoryReset = async () => {
+    if (!hasPermission(user, 'system.settings')) {
+      toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
+      return
+    }
     setOpRunning('factory')
     setOpProgress(0)
     setOpStatus('جاري استعادة ضبط المصنع...')
@@ -1159,6 +1191,10 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
   }
 
   const handleDeleteDemoData = async () => {
+    if (!hasPermission(user, 'system.settings')) {
+      toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
+      return
+    }
     setOpRunning('demo')
     setOpProgress(0)
     setOpStatus('جاري حذف البيانات التجريبية...')
@@ -1219,8 +1255,14 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
         />
         <Button
           variant="outline"
-          disabled={isImporting}
-          onClick={() => fileInputRef.current?.click()}
+          disabled={isImporting || !hasPermission(user, 'inventory.add')}
+          onClick={() => {
+            if (!hasPermission(user, 'inventory.add')) {
+              toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية إضافة المخزون"), variant: "destructive" })
+              return
+            }
+            fileInputRef.current?.click()
+          }}
         >
           <Upload className="ml-2 h-4 w-4" />
           {isImporting ? t("bulk.importing") : t("bulk.importExcel")}
@@ -1407,16 +1449,26 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                           }
 
                           const importedProducts = await parseExcelData(importAllRows, importImagesMap, columnMapping)
-                          toast({ title: "نتيجة التحليل", description: `تم العثور على ${importedProducts.length} منتج من أصل ${importAllRows.length} صف` })
 
                           if (importedProducts.length === 0) {
-                            throw new Error("لم يتم العثور على منتجات صالحة في الملف")
+                            // Check if essential columns are mapped
+                            const hasCode = columnMapping['productCode'] !== -1
+                            const hasName = columnMapping['productName'] !== -1
+
+                            if (!hasCode && !hasName) {
+                              throw new Error("يجب تحديد عمود 'اسم المنتج' أو 'كود المنتج' على الأقل")
+                            }
+
+                            throw new Error("لم يتم العثور على منتجات صالحة. هل قمت بتعيين الأعمدة (الاسم/الكود) بشكل صحيح؟")
                           }
+
+                          toast({ title: "نتيجة التحليل", description: `تم العثور على ${importedProducts.length} منتج من أصل ${importAllRows.length - 1} صف بيانات` })
+
                           setConversionStatus(t("bulk.status.convertImages"))
                           let convertedCount = 0
                           let failedCount = 0
                           let completed = 0
-                          const CONCURRENCY = 6
+                          const CONCURRENCY = 3 // Reduced from 6 for stability ("Take its time")
                           const productsWithImages = await asyncPool(CONCURRENCY, importedProducts, async (product, idx) => {
                             let out = product
                             if (product.image && (product.image.startsWith('http://') || product.image.startsWith('https://'))) {
@@ -1429,13 +1481,17 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                               }
                             }
                             completed++
-                            const pct = Math.round((completed / importedProducts.length) * 100)
-                            setConversionProgress(pct)
-                            setConversionStatus(
-                              t("bulk.status.convertImagesProgress")
-                                .replace("{completed}", String(completed))
-                                .replace("{total}", String(importedProducts.length))
-                            )
+                            // THROTTLE UPDATES: Only update state every 25 items or if 100% complete
+                            // This prevents "Maximum update depth exceeded" React error due to rapid state changes + parent re-renders
+                            if (completed % 25 === 0 || completed === importedProducts.length) {
+                              const pct = Math.round((completed / importedProducts.length) * 100)
+                              setConversionProgress(pct)
+                              setConversionStatus(
+                                t("bulk.status.convertImagesProgress")
+                                  .replace("{completed}", String(completed))
+                                  .replace("{total}", String(importedProducts.length))
+                              )
+                            }
                             return out
                           })
 
@@ -1562,7 +1618,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
 
                           // 1. Sync Products (Optimized Pool)
                           let syncedCount = 0
-                          const SYNC_CONCURRENCY = 10
+                          const SYNC_CONCURRENCY = 5 // Reduced from 10 for stability
                           await asyncPool(SYNC_CONCURRENCY, optimizedProducts, async (p) => {
                             try {
                               await syncProduct(p)
@@ -1576,7 +1632,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
 
                           // 2. Sync Images (Optimized Pool)
                           let syncedImages = 0
-                          const IMG_SYNC_CONCURRENCY = 5
+                          const IMG_SYNC_CONCURRENCY = 3 // Reduced from 5 for stability
                           await asyncPool(IMG_SYNC_CONCURRENCY, imageRecords, async (img) => {
                             try {
                               await syncProductImageToCloud(img.productId, img.data)
@@ -1661,7 +1717,14 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
           <Button
             variant="outline"
             className="gap-2 border-primary/20 hover:bg-primary/5 hover:text-primary"
-            onClick={() => setBackupOpen(true)}
+            onClick={() => {
+              if (!hasPermission(user, 'system.backup')) {
+                toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النسخ الاحتياطي"), variant: "destructive" })
+                return
+              }
+              setBackupOpen(true)
+            }}
+            disabled={!hasPermission(user, 'system.backup')}
           >
             <ShieldCheck className="h-4 w-4 text-primary" />
             <span className="font-semibold">{t("bulk.backup")}</span>
@@ -1677,24 +1740,74 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
               <DropdownMenuLabel>إدارة النظام</DropdownMenuLabel>
               <DropdownMenuSeparator />
 
-              <DropdownMenuItem onClick={() => setDeleteDemoOpen(true)} className="text-red-600 focus:text-red-600 focus:bg-red-50">
+              <DropdownMenuItem
+                onClick={async () => {
+                  if (!hasPermission(user, 'system.settings')) {
+                    toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
+                    return
+                  }
+                  if (confirm(t('sync.hardResetConfirm'))) {
+                    const { hardReset } = await import('@/lib/storage');
+                    hardReset();
+                  }
+                }}
+                disabled={!hasPermission(user, 'system.settings')}
+                className="text-red-600 focus:text-red-600 focus:bg-red-50"
+              >
+                <RefreshCcw className="mr-2 h-4 w-4" />
+                <span>{t("sync.hardReset", "تصفير النظام")}</span>
+              </DropdownMenuItem>
+
+              <DropdownMenuItem
+                onClick={() => {
+                  if (!hasPermission(user, 'system.settings')) {
+                    toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
+                    return
+                  }
+                  setDeleteDemoOpen(true)
+                }}
+                disabled={!hasPermission(user, 'system.settings')}
+                className="text-red-600 focus:text-red-600 focus:bg-red-50"
+              >
                 <Trash2 className="mr-2 h-4 w-4" />
                 <span>{t("bulk.deleteAutoData")}</span>
               </DropdownMenuItem>
 
-              <DropdownMenuItem onClick={() => setDeleteAllOpen(true)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+              <DropdownMenuItem
+                onClick={() => {
+                  if (!hasPermission(user, 'system.settings')) {
+                    toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
+                    return
+                  }
+                  setDeleteAllOpen(true)
+                }}
+                disabled={!hasPermission(user, 'system.settings')}
+                className="text-destructive focus:text-destructive focus:bg-destructive/10"
+              >
                 <AlertTriangle className="mr-2 h-4 w-4" />
                 <span>{t("bulk.deleteAll")}</span>
               </DropdownMenuItem>
-
-              <DropdownMenuSeparator />
-
-              <DropdownMenuItem onClick={() => setFactoryResetOpen(true)}>
-                <RotateCcw className="mr-2 h-4 w-4" />
-                <span>{t("bulk.factoryReset")}</span>
-              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <div className="h-6 w-px bg-border mx-2" />
+
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => {
+              if (!hasPermission(user, 'system.settings')) {
+                toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
+                return
+              }
+              setFactoryResetOpen(true)
+            }}
+            disabled={!hasPermission(user, 'system.settings')}
+            className="gap-2 shadow-sm hover:bg-red-700"
+          >
+            <RotateCcw className="w-4 h-4" />
+            <span className="hidden sm:inline">تصفير النظام</span>
+          </Button>
         </div>
 
         <AlertDialog open={deleteDemoOpen} onOpenChange={setDeleteDemoOpen}>
@@ -1707,7 +1820,18 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-              <AlertDialogAction onClick={() => { handleDeleteDemoData(); setDeleteDemoOpen(false) }} className="bg-red-600 hover:bg-red-700">
+              <AlertDialogAction
+                onClick={() => {
+                  if (!hasPermission(user, 'system.settings')) {
+                    toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
+                    setDeleteDemoOpen(false)
+                    return
+                  }
+                  handleDeleteDemoData();
+                  setDeleteDemoOpen(false)
+                }}
+                className="bg-red-600 hover:bg-red-700"
+              >
                 {t("bulk.deleteAutoDataDialog.confirm")}
               </AlertDialogAction>
             </AlertDialogFooter>
@@ -1724,7 +1848,18 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-              <AlertDialogAction onClick={() => { handleClearAll(); setDeleteAllOpen(false) }} className="bg-destructive text-destructive-foreground">
+              <AlertDialogAction
+                onClick={() => {
+                  if (!hasPermission(user, 'system.settings')) {
+                    toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
+                    setDeleteAllOpen(false)
+                    return
+                  }
+                  handleClearAll();
+                  setDeleteAllOpen(false)
+                }}
+                className="bg-destructive text-destructive-foreground"
+              >
                 {t("common.delete")}
               </AlertDialogAction>
             </AlertDialogFooter>
@@ -1732,17 +1867,42 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
         </AlertDialog>
 
         <AlertDialog open={factoryResetOpen} onOpenChange={setFactoryResetOpen}>
-          <AlertDialogContent>
+          <AlertDialogContent className="border-red-500 border-2">
             <AlertDialogHeader>
-              <AlertDialogTitle>{t("bulk.factoryResetDialog.title")}</AlertDialogTitle>
-              <AlertDialogDescription>
-                {t("bulk.factoryResetDialog.desc")}
+              <AlertDialogTitle className="text-red-600 flex items-center gap-2">
+                <AlertTriangle className="w-6 h-6" />
+                تحذير: تصفير شامل للنظام
+              </AlertDialogTitle>
+              <AlertDialogDescription className="space-y-4 pt-4 text-right">
+                <div className="bg-red-50 p-4 rounded-lg border border-red-100 text-red-900 font-bold">
+                  أنت على وشك حذف جميع البيانات من الموقع والقاعدة السحابية (Firebase).
+                </div>
+                <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground mr-4">
+                  <li>سيتم حذف جميع المنتجات والمخزون.</li>
+                  <li>سيتم حذف سجلات الفواتير والمشتريات.</li>
+                  <li>سيتم حذف المستخدمين والصلاحيات.</li>
+                  <li>لا يمكن التراجع عن هذه العملية أبداً.</li>
+                </ul>
+                <div className="font-bold text-black mt-4">
+                  هل أنت متأكد تماماً؟
+                </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-              <AlertDialogAction onClick={() => { handleFactoryReset(); setFactoryResetOpen(false) }}>
-                {t("bulk.factoryResetDialog.confirm")}
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (!hasPermission(user, 'system.settings')) {
+                    toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
+                    setFactoryResetOpen(false)
+                    return
+                  }
+                  handleFactoryReset();
+                }}
+                className="bg-red-600 hover:bg-red-700 text-white font-bold"
+              >
+                نعم، امسح كل شيء
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

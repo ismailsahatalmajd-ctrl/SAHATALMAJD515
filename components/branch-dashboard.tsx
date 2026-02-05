@@ -21,8 +21,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ShoppingCart, LogOut, Loader2, CheckCircle, Printer, X, RotateCcw } from "lucide-react"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { ShoppingCart, LogOut, Loader2, CheckCircle, Printer, X, RotateCcw, Package, Wrench, ClipboardList, TrendingDown, FileText, AlertTriangle } from "lucide-react"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { db } from "@/lib/db"
 import { useLiveQuery } from "dexie-react-hooks"
 import { deleteAllBranchRequestsApi } from "@/lib/sync-api"
@@ -38,6 +38,17 @@ import { ProductImage } from "@/components/product-image"
 import { DualText, getDualString } from "@/components/ui/dual-text"
 import { useI18n } from "@/components/language-provider"
 import { hardReset } from "@/lib/storage"
+
+// Branch Inventory Components
+import { BranchInventoryStock } from "@/components/branch-inventory-stock"
+import { BranchConsumption } from "@/components/branch-consumption"
+import { BranchInventoryCount } from "@/components/branch-inventory-count"
+import { BranchConsumptionReports } from "@/components/branch-consumption-reports"
+import { BranchAssetsRegistry } from "@/components/branch-assets-registry"
+import { BranchAssetStatusReport } from "@/components/branch-asset-status-report"
+import { BranchAssetRequest } from "@/components/branch-asset-request"
+import { BranchMaintenanceReports } from "@/components/branch-maintenance-reports"
+import { BranchInventoryInvoices } from "@/components/branch-inventory-invoices"
 
 export function BranchDashboard() {
   const router = useRouter()
@@ -56,7 +67,17 @@ export function BranchDashboard() {
 
   // Add missing locations hook
   const { data: locationsData } = useLocationsRealtime()
-  const locations = (locationsData || []).map(l => l.name)
+
+  const productLocations = useLiveQuery(async () => {
+    // Fallback: extract from products manually to ensure we get data
+    const products = await db.products.toArray()
+    const unique = new Set(products.map(p => p.location).filter(k => k && typeof k === 'string' && k.trim() !== ''))
+    return Array.from(unique).sort()
+  }) || []
+
+  const locations = (locationsData && locationsData.length > 0)
+    ? locationsData.map(l => l.name)
+    : productLocations
 
 
 
@@ -69,6 +90,8 @@ export function BranchDashboard() {
   const [authorized, setAuthorized] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(0)
   const [activeTab, setActiveTab] = useState("invoice")
+  const [warehouseTab, setWarehouseTab] = useState("inventory")
+  const [warehouseSubPage, setWarehouseSubPage] = useState<string | null>(null) // null = show buttons, "stock" | "consume" | "reports" | "count" | "invoices" | "assets" | "status" | "request" | "maintenance" | "assets-invoices"
   const [zoomImage, setZoomImage] = useState<string | null>(null) // Legacy state? No, let's replace it.
   const [zoomedProduct, setZoomedProduct] = useState<Product | null>(null)
   // const [branches, setBranches] = useState<any[]>([]) // Removed in favor of realtime hook
@@ -187,9 +210,15 @@ export function BranchDashboard() {
 
   const productsCount = useLiveQuery(() => db.products.count()) || 0
   // Optimization: Use separate query for categories to avoid loading full products
+  // Optimization: Use separate query for categories to avoid loading full products
   const categories = useLiveQuery(async () => {
     const all = await db.categories.toArray()
-    return all.map(c => c.name).sort()
+    if (all.length > 0) return all.map(c => c.name).sort()
+
+    // Fallback: extract from products
+    const products = await db.products.toArray()
+    const unique = new Set(products.map(p => p.category).filter(c => c && typeof c === 'string' && c.trim() !== ''))
+    return Array.from(unique).sort()
   }) || []
 
   // Optimization: Filter at DB level instead of loading all products
@@ -207,7 +236,8 @@ export function BranchDashboard() {
           return (
             normalize(p.productName).includes(q) ||
             normalize(p.productCode).includes(q) ||
-            normalize(p.itemNumber).includes(q)
+            normalize(p.itemNumber).includes(q) ||
+            (p.cartonBarcode && normalize(p.cartonBarcode).includes(q))
           )
         })
         .filter(p => {
@@ -215,7 +245,7 @@ export function BranchDashboard() {
           if (locationFilter !== "all" && p.location !== locationFilter) return false
           return true
         })
-        .limit(100) // Limit results to prevent UI freezing
+        .limit(3000) // Increased limit to cover all products
         .toArray()
     } else {
       // If no search, just apply category/location filters
@@ -227,7 +257,7 @@ export function BranchDashboard() {
       if (locationFilter !== "all") {
         result = result.filter(p => p.location === locationFilter) as any
       }
-      return await result.limit(100).toArray()
+      return await result.limit(3000).toArray()
     }
   }, [query, categoryFilter, locationFilter]) || []
 
@@ -328,31 +358,139 @@ export function BranchDashboard() {
     }
   }
 
-  function addToCart(p: Product) {
-    const exist = cart.find((x) => x.productId === p.id || x.productCode === p.productCode)
-    const quantity = (exist?.quantity || 0) + 1
-    const unitPrice = p.averagePrice ?? p.price ?? 0
-    const item: BranchInvoiceItem = {
-      id: exist?.id,
-      productId: p.id,
-      productCode: p.productCode,
-      productName: p.productName,
-      unit: p.unit,
-      image: p.image || "",
-      quantity,
-      unitPrice,
-      totalPrice: unitPrice * quantity,
+  function updateCartUnit(idx: number, type: 'base' | 'carton') {
+    const item = cart[idx]
+    if (!item.quantityPerCarton || item.quantityPerCarton <= 1) return
+
+    const factor = item.quantityPerCarton
+    let newUnitPrice = item.unitPrice
+    let newName = item.selectedUnitName
+
+    if (item.unitType === 'base' && type === 'carton') {
+      // Switch to Carton: Price x Factor
+      newUnitPrice = item.unitPrice * factor
+      newName = item.cartonUnit || 'Carton'
+    } else if (item.unitType === 'carton' && type === 'base') {
+      // Switch to Base: Price / Factor
+      newUnitPrice = item.unitPrice / factor
+      newName = item.unit || 'Piece'
     }
-    if (exist) {
-      setCart((prev) => prev.map((x) => (x.productId === p.id ? item : x)))
+
+    setCart((prev) =>
+      prev.map((x, i) => {
+        if (i !== idx) return x
+        return {
+          ...x,
+          unitType: type,
+          unitPrice: newUnitPrice,
+          selectedUnitName: newName,
+          quantityBase: x.quantity * (type === 'carton' ? factor : 1),
+          totalPrice: x.quantity * newUnitPrice
+        }
+      })
+    )
+  }
+
+  function addToCart(p: Product, forceUnit?: 'base' | 'carton') {
+    const existIdx = cart.findIndex((x) => x.productId === p.id || x.productCode === p.productCode)
+    const unitPrice = p.averagePrice ?? p.price ?? 0
+
+    // Determine Logic
+    const shouldUseCarton = forceUnit === 'carton';
+
+    // If Item Exists
+    if (existIdx >= 0) {
+      setCart((prev) => {
+        const existing = prev[existIdx]
+
+        // If forcing carton, maybe switch unit type?
+        // Current logic: If existing is Base, and we scan Carton, should we switch to Carton?
+        // Or just add quantity.
+        // Let's assume we just add quantity in current unit. 
+        // Or better: If existing is Base, and we scan Carton, we add quantityPerCarton Pieces? 
+        // No, keep it simple. If ForceUnit is set, we ensure unit is that type?
+        // The user experience: Scan Carton -> Item in Cart (Carton Unit) -> Scan Carton again -> 2 Cartons.
+
+        // Strategy: If unitType matches, increment. If not, switch? 
+        // Switching is aggressive.
+        // Let's stick to: Increment quantity. 
+        // But if I scan Carton (Qty=24) and item is Pieces. Adding 1 "Piece" is wrong.
+        // I should add "QuantityPerCarton" if units mismatch?
+
+        // Simplified: Just add 1 to the current unit for now. 
+        // Smart Scan logic will be handled at the "Call Site" (Scanner).
+        // If I pass forceUnit='carton', I expect 1 Carton to be added.
+
+        const isCarton = existing.unitType === 'carton'
+        const qtyToAdd = 1
+        // If I force Carton, whilst item is Piece, I should add 24 Pieces? 
+        // Or switch item to Carton? 
+        // Switching is best.
+
+        let targetUnitType = existing.unitType;
+        if (forceUnit && forceUnit !== existing.unitType) {
+          // We could switch, but that might confuse if user manually selected.
+          // Let's just respect the existing item state for now.
+        }
+
+        const newQty = (existing.quantity || 0) + 1
+        const factor = existing.unitType === 'carton' ? (existing.quantityPerCarton || 1) : 1
+
+        const updated = {
+          ...existing,
+          quantity: newQty,
+          quantityEntered: newQty,
+          quantityBase: newQty * factor,
+          totalPrice: existing.unitPrice * newQty
+        }
+        const newCart = [...prev]
+        newCart[existIdx] = updated
+        return newCart
+      })
     } else {
+      // New Item
+      const useCarton = forceUnit === 'carton' && p.quantityPerCarton && p.quantityPerCarton > 1;
+      const initialUnitType = useCarton ? 'carton' : 'base';
+      const initialUnitPrice = useCarton ? (unitPrice * (p.quantityPerCarton || 1)) : unitPrice;
+      const initialUnitName = useCarton ? (p.cartonUnit || 'Carton') : (p.unit || 'Piece');
+      const factor = useCarton ? (p.quantityPerCarton || 1) : 1;
+
+      const item: BranchInvoiceItem = {
+        id: p.id,
+        productId: p.id,
+        productCode: p.productCode,
+        productName: p.productName,
+        unit: p.unit,
+        image: p.image || "",
+        quantity: 1,
+        unitPrice,
+        totalPrice: initialUnitPrice,
+        // Multi-Unit Defaults
+        unitType: initialUnitType,
+        quantityEntered: 1,
+        quantityBase: factor,
+        selectedUnitName: initialUnitName,
+        quantityPerCarton: p.quantityPerCarton,
+        cartonUnit: p.cartonUnit
+      }
       setCart((prev) => [item, ...prev])
     }
   }
 
   function updateQty(idx: number, qty: number) {
+    const val = Math.max(0, Math.floor(qty))
     setCart((prev) =>
-      prev.map((x, i) => (i === idx ? { ...x, quantity: Math.max(0, Math.floor(qty)), totalPrice: x.unitPrice * Math.max(0, Math.floor(qty)) } : x)),
+      prev.map((x, i) => {
+        if (i !== idx) return x
+        const factor = x.unitType === 'carton' ? (x.quantityPerCarton || 1) : 1
+        return {
+          ...x,
+          quantity: val,
+          quantityEntered: val,
+          quantityBase: val * factor,
+          totalPrice: x.unitPrice * val
+        }
+      }),
     )
   }
 
@@ -556,7 +694,35 @@ export function BranchDashboard() {
                 <div className="md:col-span-1">
                   <Label>Unified Search / بحث موحد</Label>
                   <div className="relative">
-                    <Input placeholder="Search by Name, Code, or Number / ابحث بالاسم أو الكود أو الرقم" value={query} onChange={(e) => setQuery(e.target.value)} />
+                    <Input
+                      placeholder="Search or Scan / ابحث أو امسح الباركود"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      onKeyDown={async (e) => {
+                        if (e.key === 'Enter' && query.trim()) {
+                          const q = normalize(query)
+                          // Smart Scan: Check for exact match
+                          const all = await db.products.toArray()
+                          const match = all.find(p =>
+                            normalize(p.productCode) === q ||
+                            normalize(p.itemNumber || "") === q ||
+                            (p.cartonBarcode && normalize(p.cartonBarcode) === q)
+                          )
+
+                          if (match) {
+                            e.preventDefault()
+                            const isCarton = match.cartonBarcode && normalize(match.cartonBarcode) === q
+                            addToCart(match, isCarton ? 'carton' : 'base')
+                            setQuery("")
+                            toast({
+                              title: "Added to Cart / تمت الإضافة",
+                              description: `${match.productName} [${isCarton ? (match.cartonUnit || 'Carton') : (match.unit || 'Piece')}]`,
+                              duration: 2000
+                            })
+                          }
+                        }
+                      }}
+                    />
                   </div>
                 </div>
                 <div>
@@ -567,7 +733,7 @@ export function BranchDashboard() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All / الكل</SelectItem>
-                      {categories.map((c) => (
+                      {categories.filter(c => c && c.trim() !== "").map((c) => (
                         <SelectItem key={c} value={c}>{c}</SelectItem>
                       ))}
                     </SelectContent>
@@ -581,7 +747,7 @@ export function BranchDashboard() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All / الكل</SelectItem>
-                      {locations.map((l) => (
+                      {locations.filter(l => l && l.trim() !== "").map((l) => (
                         <SelectItem key={l} value={l}>{l}</SelectItem>
                       ))}
                     </SelectContent>
@@ -650,7 +816,24 @@ export function BranchDashboard() {
                             <ProductImage product={{ id: it.productId, image: it.image }} className="w-10 h-10 object-cover" />
                           </div>
                         </TableCell>
-                        {settings.showUnit && <TableCell>{it.unit || "-"}</TableCell>}
+                        {settings.showUnit && <TableCell>
+                          {it.quantityPerCarton && it.quantityPerCarton > 1 ? (
+                            <Select
+                              value={it.unitType || 'base'}
+                              onValueChange={(v: 'base' | 'carton') => updateCartUnit(idx, v)}
+                            >
+                              <SelectTrigger className="w-[110px] h-8">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="base">{it.unit}</SelectItem>
+                                <SelectItem value="carton">{it.cartonUnit || 'Carton'}</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            it.selectedUnitName || it.unit || "-"
+                          )}
+                        </TableCell>}
                         <TableCell>
                           <Input type="number" value={it.quantity} onChange={(e) => updateQty(idx, Number(e.target.value))} className="w-24" />
                         </TableCell>
@@ -805,8 +988,106 @@ export function BranchDashboard() {
         </CardContent>
       </Card>
 
+      {/* المستودعات / Warehouses */}
+      <Card>
+        <CardHeader><CardTitle>Warehouses / المستودعات</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <Tabs value={warehouseTab} onValueChange={setWarehouseTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="inventory" className="flex items-center gap-2">
+                <Package className="w-4 h-4" />
+                Branch Inventory / مخزون الفرع
+              </TabsTrigger>
+              <TabsTrigger value="assets" className="flex items-center gap-2">
+                <Wrench className="w-4 h-4" />
+                Assets Warehouse / مستودع الأصول
+              </TabsTrigger>
+            </TabsList>
+
+            {/* مخزون الفرع - Branch Inventory */}
+            <TabsContent value="inventory" className="pt-4 space-y-4">
+              {warehouseSubPage === "stock" ? (
+                <BranchInventoryStock branchId={branchId} onBack={() => setWarehouseSubPage(null)} />
+              ) : warehouseSubPage === "consume" ? (
+                <BranchConsumption branchId={branchId} onBack={() => setWarehouseSubPage(null)} />
+              ) : warehouseSubPage === "reports" ? (
+                <BranchConsumptionReports branchId={branchId} onBack={() => setWarehouseSubPage(null)} />
+              ) : warehouseSubPage === "count" ? (
+                <BranchInventoryCount branchId={branchId} onBack={() => setWarehouseSubPage(null)} />
+              ) : warehouseSubPage === "invoices" ? (
+                <BranchInventoryInvoices branchId={branchId} branchName={branch?.name} onBack={() => setWarehouseSubPage(null)} />
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                    <Button variant="outline" className="flex flex-col h-24 items-center justify-center gap-2" onClick={() => setWarehouseSubPage("stock")}>
+                      <Package className="w-6 h-6" />
+                      <span className="text-xs text-center">Stock Balance<br />الرصيد</span>
+                    </Button>
+                    <Button variant="outline" className="flex flex-col h-24 items-center justify-center gap-2" onClick={() => setWarehouseSubPage("consume")}>
+                      <TrendingDown className="w-6 h-6" />
+                      <span className="text-xs text-center">Consumption<br />الاستهلاك</span>
+                    </Button>
+                    <Button variant="outline" className="flex flex-col h-24 items-center justify-center gap-2" onClick={() => setWarehouseSubPage("reports")}>
+                      <FileText className="w-6 h-6" />
+                      <span className="text-xs text-center">Reports<br />التقارير</span>
+                    </Button>
+                    <Button variant="outline" className="flex flex-col h-24 items-center justify-center gap-2" onClick={() => setWarehouseSubPage("count")}>
+                      <ClipboardList className="w-6 h-6" />
+                      <span className="text-xs text-center">Inventory Count<br />الجرد</span>
+                    </Button>
+                    <Button variant="outline" className="flex flex-col h-24 items-center justify-center gap-2" onClick={() => setWarehouseSubPage("invoices")}>
+                      <Printer className="w-6 h-6" />
+                      <span className="text-xs text-center">Invoices<br />الفواتير</span>
+                    </Button>
+                  </div>
+                </>
+              )}
+            </TabsContent>
+
+            {/* مستودع الأصول - Assets Warehouse */}
+            <TabsContent value="assets" className="pt-4 space-y-4">
+              {warehouseSubPage === "assets" ? (
+                <BranchAssetsRegistry branchId={branchId} onBack={() => setWarehouseSubPage(null)} />
+              ) : warehouseSubPage === "status" ? (
+                <BranchAssetStatusReport branchId={branchId} branchName={branch?.name} onBack={() => setWarehouseSubPage(null)} />
+              ) : warehouseSubPage === "request" ? (
+                <BranchAssetRequest branchId={branchId} branchName={branch?.name} onBack={() => setWarehouseSubPage(null)} />
+              ) : warehouseSubPage === "maintenance" ? (
+                <BranchMaintenanceReports branchId={branchId} onBack={() => setWarehouseSubPage(null)} />
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                    <Button variant="outline" className="flex flex-col h-24 items-center justify-center gap-2" onClick={() => setWarehouseSubPage("assets")}>
+                      <Wrench className="w-6 h-6" />
+                      <span className="text-xs text-center">Assets Registry<br />سجل الأصول</span>
+                    </Button>
+                    <Button variant="outline" className="flex flex-col h-24 items-center justify-center gap-2" onClick={() => setWarehouseSubPage("status")}>
+                      <FileText className="w-6 h-6" />
+                      <span className="text-xs text-center">Status Report<br />تقرير الحالة</span>
+                    </Button>
+                    <Button variant="outline" className="flex flex-col h-24 items-center justify-center gap-2" onClick={() => setWarehouseSubPage("request")}>
+                      <Package className="w-6 h-6" />
+                      <span className="text-xs text-center">New Request<br />طلب أصل جديد</span>
+                    </Button>
+                    <Button variant="outline" className="flex flex-col h-24 items-center justify-center gap-2" onClick={() => setWarehouseSubPage("maintenance")}>
+                      <ClipboardList className="w-6 h-6" />
+                      <span className="text-xs text-center">Maintenance<br />تقارير الصيانة</span>
+                    </Button>
+                    <Button variant="outline" className="flex flex-col h-24 items-center justify-center gap-2" onClick={() => toast({ title: "قريباً", description: "ميزة الفواتير قيد التطوير" })}>
+                      <Printer className="w-6 h-6" />
+                      <span className="text-xs text-center">Invoices<br />الفواتير</span>
+                    </Button>
+                  </div>
+                </>
+              )}
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+
       <Dialog open={!!zoomedProduct} onOpenChange={(open) => !open && setZoomedProduct(null)}>
         <DialogContent className="max-w-[90vw] max-h-[90vh] p-0 overflow-hidden bg-transparent border-none shadow-none flex justify-center items-center">
+          <DialogTitle className="sr-only">Product Zoom</DialogTitle>
           {zoomedProduct && (
             <div className="relative">
               <ProductImage

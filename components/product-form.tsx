@@ -37,6 +37,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
   const [formData, setFormData] = useState<Partial<Product>>(
     product || {
       productCode: "",
+      cartonBarcode: "",
       itemNumber: "",
       location: "",
       productName: "",
@@ -258,49 +259,22 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
       return
     }
 
-    console.log("[v0] ✅ Uploading image:", file.name, "Size:", (file.size / 1024).toFixed(2), "KB")
-
-    // Show preview immediately
+    // Base64 Upload (Matches Assets Management logic)
+    // The user requested to use the same method as "Add Asset" which uses simple Base64 storage.
     const reader = new FileReader()
     reader.onloadend = () => {
-      setImagePreview(reader.result as string)
-    }
-    reader.readAsDataURL(file)
-
-    // Upload to Firebase Storage (via Proxy)
-    setIsUploading(true)
-    try {
-      const formData = new FormData()
-      formData.append("file", file)
-      formData.append("path", `products/${Date.now()}_${file.name}`)
-
-      const res = await fetch(getApiUrl('/api/upload'), {
-        method: 'POST',
-        body: formData
-      })
-
-      if (!res.ok) {
-        const errorData = await res.json()
-        throw new Error(errorData.error || "Upload failed")
-      }
-
-      const data = await res.json()
-      const downloadURL = data.url
-
-      console.log("[v0] ✅ Image uploaded to Firebase Storage (Proxy):", downloadURL)
-      setFormData((prev) => ({ ...prev, image: downloadURL }))
+      const base64 = reader.result as string
+      setImagePreview(base64)
+      setFormData((prev) => ({ ...prev, image: base64 }))
       toast({ title: getDualString("productForm.success.imageUploaded") })
-    } catch (error: any) {
-      console.error("[v0] ❌ Failed to upload image", error)
+    }
+    reader.onerror = () => {
       toast({
         title: getDualString("productForm.error.imageUploadFailed.title"),
-        description: error.message || getDualString("productForm.error.imageUploadFailed.desc"),
         variant: "destructive"
       })
-      setImagePreview(undefined)
-    } finally {
-      setIsUploading(false)
     }
+    reader.readAsDataURL(file)
   }
 
   const handleRemoveImage = () => {
@@ -370,6 +344,49 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                   id="itemNumber"
                   value={formData.itemNumber}
                   onChange={(e) => handleChange("itemNumber", e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="productCode"><DualText k="common.code" /></Label>
+                <Input
+                  id="productCode"
+                  value={formData.productCode}
+                  onChange={(e) => handleChange("productCode", e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cartonBarcode">Carton Barcode / باركود الكرتون</Label>
+                <Input
+                  id="cartonBarcode"
+                  value={formData.cartonBarcode || ""}
+                  onChange={(e) => handleChange("cartonBarcode", e.target.value)}
+                  placeholder="Scan Carton Code..."
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="itemNumber"><DualText k="common.itemNumber" /></Label>
+                <Input
+                  id="itemNumber"
+                  value={formData.itemNumber}
+                  onChange={(e) => handleChange("itemNumber", e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                {/* Spacer or Location moved here */}
+                <Label htmlFor="location"><DualText k="common.location" /></Label>
+                <Input
+                  id="location"
+                  value={formData.location}
+                  onChange={(e) => handleChange("location", e.target.value)}
                   required
                 />
               </div>

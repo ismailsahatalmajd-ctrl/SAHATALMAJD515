@@ -1,7 +1,7 @@
 
 import { db } from "./db"
 import { db as firestore } from "./firebase"
-import { doc, setDoc, deleteDoc, writeBatch, collection, getDocs, query } from "firebase/firestore"
+import { doc, setDoc, deleteDoc, writeBatch, collection, getDocs, query, where } from "firebase/firestore"
 import type { Product, Transaction, Issue, Return, Branch, InventoryAdjustment, Category, Location, Unit } from "./types"
 import type { BranchRequest } from "./branch-request-types"
 import type { BranchInvoice } from "./branch-invoice-types"
@@ -136,6 +136,19 @@ export async function syncReturn(ret: Return) {
 export async function syncBranch(branch: Branch) {
   return performFirebaseOp('branches', 'upsert', branch)
 }
+export async function findRemoteBranchByUsername(username: string): Promise<Branch | null> {
+  try {
+    const q = query(collection(firestore, 'branches'), where('username', '==', username))
+    const snapshot = await getDocs(q)
+    if (snapshot.empty) return null
+    const doc = snapshot.docs[0]
+    return { ...doc.data(), id: doc.id } as Branch
+  } catch (e) {
+    console.error("Failed to find remote branch", e)
+    return null
+  }
+}
+
 export async function deleteBranchApi(id: string) {
   return performFirebaseOp('branches', 'delete', { id })
 }

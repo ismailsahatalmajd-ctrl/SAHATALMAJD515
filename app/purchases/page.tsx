@@ -34,6 +34,7 @@ import { useRef } from "react"
 import { useAuth } from "@/components/auth-provider"
 import { useProducts, useTransactions, saveDocument } from "@/hooks/use-firestore"
 import { useProductsRealtime, usePurchasesRealtime } from "@/hooks/use-store"
+import { WarehouseAdvisor } from "@/components/analytics/warehouse-advisor"
 
 export default function PurchasesPage() {
   const { t } = useI18n()
@@ -168,12 +169,14 @@ export default function PurchasesPage() {
       await saveDocument("transactions", newPurchase)
 
       // Update product in cloud
+      const newAveragePrice = (product.averagePrice * product.currentStock + formData.unitPrice * formData.quantity) / (product.currentStock + formData.quantity)
+      const newCurrentStock = product.currentStock + formData.quantity
       await saveDocument("products", {
         ...product,
         purchases: product.purchases + formData.quantity,
-        currentStock: product.currentStock + formData.quantity,
-        averagePrice: (product.averagePrice * product.currentStock + formData.unitPrice * formData.quantity) / (product.currentStock + formData.quantity),
-        currentStockValue: (product.currentStock + formData.quantity) * product.averagePrice,
+        currentStock: newCurrentStock,
+        averagePrice: newAveragePrice,
+        currentStockValue: newCurrentStock * newAveragePrice,
         updatedAt: new Date().toISOString()
       })
     } else {
@@ -189,13 +192,13 @@ export default function PurchasesPage() {
       })
 
       // Update product
+      const newAveragePrice = (product.averagePrice * product.currentStock + formData.unitPrice * formData.quantity) / (product.currentStock + formData.quantity)
+      const newCurrentStock = product.currentStock + formData.quantity
       updateProduct(product.id, {
         purchases: product.purchases + formData.quantity,
-        currentStock: product.currentStock + formData.quantity,
-        averagePrice:
-          (product.averagePrice * product.currentStock + formData.unitPrice * formData.quantity) /
-          (product.currentStock + formData.quantity),
-        currentStockValue: (product.currentStock + formData.quantity) * product.averagePrice,
+        currentStock: newCurrentStock,
+        averagePrice: newAveragePrice,
+        currentStockValue: newCurrentStock * newAveragePrice,
       })
 
     }
@@ -290,20 +293,18 @@ export default function PurchasesPage() {
                           />
                         </div>
                       )}
-                      {settings.showPrice && (
-                        <div className="space-y-2">
-                          <Label htmlFor="unitPrice"><DualText k="form.unitPrice" /></Label>
-                          <Input
-                            id="unitPrice"
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={formData.unitPrice || ""}
-                            onChange={(e) => setFormData({ ...formData, unitPrice: Number(e.target.value) })}
-                            required
-                          />
-                        </div>
-                      )}
+                      <div className="space-y-2">
+                        <Label htmlFor="unitPrice"><DualText k="form.unitPrice" /></Label>
+                        <Input
+                          id="unitPrice"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={formData.unitPrice || ""}
+                          onChange={(e) => setFormData({ ...formData, unitPrice: Number(e.target.value) })}
+                          required
+                        />
+                      </div>
                       <div className="space-y-2">
                         <Label htmlFor="notes"><DualText k="form.notes" /></Label>
                         <Input
@@ -331,6 +332,8 @@ export default function PurchasesPage() {
               </Dialog>
             </div>
           </div>
+
+          <WarehouseAdvisor />
 
           <div className="grid gap-4 md:grid-cols-3">
             <Card>

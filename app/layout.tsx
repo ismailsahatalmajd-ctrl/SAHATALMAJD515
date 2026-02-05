@@ -6,6 +6,7 @@ import NumberNormalizer from "@/components/number-normalizer"
 import { Footer } from "@/components/footer"
 import { LanguageProvider } from "@/components/language-provider"
 import { DataStoreInitializer } from "@/components/data-store-initializer"
+import { DeviceMonitorInitializer } from "@/components/device-monitor-initializer"
 
 const _geist = Geist({ subsets: ["latin"] })
 const _geistMono = Geist_Mono({ subsets: ["latin"] })
@@ -43,10 +44,12 @@ export default function RootLayout({
               <DataStoreInitializer>
                 <SyncManager />
                 <FirebaseSyncManager />
-                {/* <NumberNormalizer /> */}
-                <SyncProvider>
-                  {children}
-                </SyncProvider>
+                <DeviceMonitorInitializer>
+                  {/* <NumberNormalizer /> */}
+                  <SyncProvider>
+                    {children}
+                  </SyncProvider>
+                </DeviceMonitorInitializer>
                 <Footer />
                 <Toaster />
               </DataStoreInitializer>

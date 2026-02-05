@@ -12,7 +12,13 @@ import type {
   PurchaseOrder,
   VerificationLog,
   InventoryAdjustment,
-  AuditLogEntry
+  AuditLogEntry,
+  BranchInventory,
+  ConsumptionRecord,
+  BranchAsset,
+  MaintenanceReport,
+  AssetRequest,
+  AssetStatusReport
 } from './types';
 import type { BranchInvoice } from './branch-invoice-types';
 import type { BranchRequest } from './branch-request-types';
@@ -43,6 +49,14 @@ export class InventoryDatabase extends Dexie {
   conflictLogs!: Table<any>;
   changeLogs!: Table<any>;
   productImages!: Table<{ productId: string; data: string }>;
+
+  // Branch Inventory System
+  branchInventory!: Table<BranchInventory>;
+  consumptionRecords!: Table<ConsumptionRecord>;
+  branchAssets!: Table<BranchAsset>;
+  maintenanceReports!: Table<MaintenanceReport>;
+  assetRequests!: Table<AssetRequest>;
+  assetStatusReports!: Table<AssetStatusReport>;
 
   constructor() {
     super('InventoryDB');
@@ -83,6 +97,16 @@ export class InventoryDatabase extends Dexie {
     this.version(4).stores({
       productImages: 'productId'
     });
+
+    // Branch Inventory System - Version 5
+    this.version(5).stores({
+      branchInventory: 'id, branchId, productId, [branchId+productId], productName, currentStock',
+      consumptionRecords: 'id, branchId, productId, date, createdAt',
+      branchAssets: 'id, branchId, category, status, createdAt',
+      maintenanceReports: 'id, assetId, branchId, status, reportedDate',
+      assetRequests: 'id, branchId, status, requestDate',
+      assetStatusReports: 'id, branchId, generatedAt'
+    });
   }
 }
 
@@ -92,10 +116,10 @@ let dbInstance: InventoryDatabase;
 if (typeof window === 'undefined') {
   // Server-side: use dummy implementation
   class DummyDB {
-    constructor() {}
+    constructor() { }
   }
   dbInstance = new DummyDB() as any;
-  
+
   // Mock tables to prevent crashes on undefined access
   const mockTable = {
     toArray: async () => [],

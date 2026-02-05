@@ -10,6 +10,13 @@ export interface BranchInvoiceItem {
   totalPrice: number
   returnReason?: string
   notes?: string
+  // Multi-Unit Support
+  unitType?: "base" | "carton"
+  quantityEntered?: number
+  quantityBase?: number
+  selectedUnitName?: string
+  quantityPerCarton?: number
+  cartonUnit?: string
 }
 
 export interface BranchInvoice {

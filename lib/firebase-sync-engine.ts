@@ -114,7 +114,15 @@ const COLLECTIONS = {
     BRANCH_REQUESTS: 'branchRequests',
     BRANCH_INVOICES: 'branchInvoices',
     PURCHASE_REQUESTS: 'purchaseRequests',
-    PRODUCT_IMAGES: 'product_images'
+    PRODUCT_IMAGES: 'product_images',
+    // Branch Inventory System Collections
+    BRANCH_INVENTORY: 'branchInventory',
+    CONSUMPTION_RECORDS: 'consumptionRecords',
+    BRANCH_ASSETS: 'branchAssets',
+    MAINTENANCE_REPORTS: 'maintenanceReports',
+    ASSET_REQUESTS: 'assetRequests',
+    ASSET_STATUS_REPORTS: 'assetStatusReports',
+    AUDIT_LOGS: 'auditLogs'
 };
 
 let unsubscribers: Function[] = [];
@@ -200,6 +208,14 @@ export const startRealtimeSync = () => {
         unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_REQUESTS, localDb.branchRequests, "branch_requests_change"));
         unsubscribers.push(syncCollection(COLLECTIONS.PRODUCT_IMAGES, localDb.productImages, "product_images_change"));
 
+        // Branch Inventory System Sync
+        unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_INVENTORY, localDb.branchInventory, "change"));
+        unsubscribers.push(syncCollection(COLLECTIONS.CONSUMPTION_RECORDS, localDb.consumptionRecords, "change"));
+        unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_ASSETS, localDb.branchAssets, "change"));
+        unsubscribers.push(syncCollection(COLLECTIONS.MAINTENANCE_REPORTS, localDb.maintenanceReports, "change"));
+        unsubscribers.push(syncCollection(COLLECTIONS.ASSET_REQUESTS, localDb.assetRequests, "change"));
+        unsubscribers.push(syncCollection(COLLECTIONS.ASSET_STATUS_REPORTS, localDb.assetStatusReports, "change"));
+
     } catch (e) {
         console.error("Error starting sync:", e);
         isSyncing = false;
@@ -224,7 +240,7 @@ export const syncProductToCloud = async (product: Product) => {
         const ref = doc(firestore, COLLECTIONS.PRODUCTS, product.id);
         const cleanData = JSON.parse(JSON.stringify(product));
 
-        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Sync Timeout")), 10000));
+        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Sync Timeout")), 30000));
 
         await Promise.race([
             setDoc(ref, { ...cleanData, lastSyncedAt: Timestamp.now() }, { merge: true }),
@@ -305,6 +321,18 @@ export const deleteRecord = async (collectionName: string, id: string) => {
     } catch (e) {
         console.warn(`[Sync] Delete failed for ${collectionName} ${id}, queueing.`, e);
         await enqueue(collectionName, 'delete', { id });
+        return false;
+    }
+}
+
+export const syncAuditLog = async (log: any) => {
+    if (!log.id) return false;
+    try {
+        await setDoc(doc(firestore, COLLECTIONS.AUDIT_LOGS, log.id), { ...log, lastSyncedAt: Timestamp.now() }, { merge: true });
+        return true;
+    } catch (e) {
+        console.warn(`[Sync] Push failed for audit log ${log.id}, queueing.`, e);
+        await enqueue(COLLECTIONS.AUDIT_LOGS, 'upsert', log);
         return false;
     }
 }
@@ -490,6 +518,47 @@ export const syncInventoryAdjustment = (r: any) => syncRecord(COLLECTIONS.ADJUST
 export const syncBranchRequest = (r: any) => syncRecord(COLLECTIONS.BRANCH_REQUESTS, r);
 export const syncBranchInvoice = (r: any) => syncRecord(COLLECTIONS.BRANCH_INVOICES, r);
 export const syncPurchaseRequest = (r: any) => syncRecord(COLLECTIONS.PURCHASE_REQUESTS, r);
+
+// Branch Inventory System Sync Functions
+export const syncBranchInventory = (r: any) => syncRecord(COLLECTIONS.BRANCH_INVENTORY, r);
+export const syncConsumptionRecord = (r: any) => syncRecord(COLLECTIONS.CONSUMPTION_RECORDS, r);
+export const syncBranchAsset = (r: any) => syncRecord(COLLECTIONS.BRANCH_ASSETS, r);
+export const syncMaintenanceReport = (r: any) => syncRecord(COLLECTIONS.MAINTENANCE_REPORTS, r);
+export const syncAssetRequest = (r: any) => syncRecord(COLLECTIONS.ASSET_REQUESTS, r);
+export const syncAssetStatusReport = (r: any) => syncRecord(COLLECTIONS.ASSET_STATUS_REPORTS, r);
+export const deleteBranchAsset = (id: string) => deleteRecord(COLLECTIONS.BRANCH_ASSETS, id);
+export const deleteAssetRequest = (id: string) => deleteRecord(COLLECTIONS.ASSET_REQUESTS, id);
+
 export const pullAllDataFromFirebase = async () => {
     await syncAllCloudToLocal(() => { });
+}
+
+export const syncProductsBatch = async (products: Product[]) => {
+    if (!products.length) return
+    console.log(`☁️ Batch Syncing ${products.length} products...`)
+
+    const BATCH_SIZE = 300
+    for (let i = 0; i < products.length; i += BATCH_SIZE) {
+        const chunk = products.slice(i, i + BATCH_SIZE)
+        const batch = writeBatch(firestore)
+        let count = 0
+
+        chunk.forEach(p => {
+            if (!p.id) return
+            const ref = doc(firestore, COLLECTIONS.PRODUCTS, p.id)
+            const clean = JSON.parse(JSON.stringify(p))
+            batch.set(ref, { ...clean, lastSyncedAt: Timestamp.now() }, { merge: true })
+            count++
+        })
+
+        if (count > 0) {
+            try {
+                await batch.commit()
+                console.log(`☁️ Committed batch ${i} - ${i + count}`)
+                await new Promise(r => setTimeout(r, 500))
+            } catch (e) {
+                console.error("Batch commit failed", e)
+            }
+        }
+    }
 }

@@ -11,6 +11,13 @@ export interface BranchRequestItem {
   quantity?: number // Added for compatibility
   availableQuantity?: number
   returnReason?: string
+  // Multi-Unit
+  unitType?: "base" | "carton"
+  quantityEntered?: number
+  quantityBase?: number
+  selectedUnitName?: string
+  quantityPerCarton?: number
+  cartonUnit?: string
 }
 
 export interface BranchRequestHistoryEntry {

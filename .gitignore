@@ -46,3 +46,22 @@ next-env.d.ts
 # Sensitive Files
 service-account.json
 
+# Large Archives and Builds
+*.zip
+*.rar
+*.tar.gz
+/release_new/
+/release_new*/
+
+# Logs and Crash Dumps
+hs_err_pid*.log
+*.log
+
+# Dependencies and Build Artifacts
+/node_modules/
+/.next/
+/out/
+/build/
+.gradle/
+
+

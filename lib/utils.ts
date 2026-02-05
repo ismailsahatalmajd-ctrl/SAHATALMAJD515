@@ -40,6 +40,9 @@ export function getSafeImageSrc(src?: string): string {
   // Already has data prefix
   if (src.startsWith("data:")) return src
 
+  // Handle special DB_IMAGE flag (placeholder used before async loading)
+  if (src === "DB_IMAGE") return "/placeholder.svg"
+
   // Local path
   if (src.startsWith("/")) return src
 
@@ -69,6 +72,9 @@ export function getSafeImageSrc(src?: string): string {
 // Format Arabic UI dates with Gregorian calendar and Latin digits
 export function formatArabicGregorianDate(date: Date, options?: Intl.DateTimeFormatOptions): string {
   // Use valid BCP 47 tag; fallback gracefully if environment lacks support
+  // "en-u-ca-gregory" ensures English numbers and names if Arabic is failing? 
+  // User asked for "All numbers... to be English 0123...".
+  // "ar-u-ca-gregory-nu-latn" is the standard way.
   const primary = "ar-u-ca-gregory-nu-latn"
   try {
     return date.toLocaleDateString(primary, options)
@@ -109,7 +115,8 @@ export function formatArabicGregorianDateTime(date: Date): string {
 export function formatEnglishNumber(value: number | string): string {
   const num = typeof value === "number" ? value : Number(String(value).replace(/[^\d.-]/g, ""))
   if (Number.isNaN(num)) return convertNumbersToEnglish(String(value))
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 20 }).format(num)
+  // useGrouping: false removes thousand separators (e.g. 1000 instead of 1,000)
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 20, useGrouping: false }).format(num)
 }
 
 // Download JSON helper
@@ -134,8 +141,8 @@ export function getApiUrl(path: string): string {
   // Ensure path starts with /
   const cleanPath = path.startsWith('/') ? path : `/${path}`
 
-  // If we are in Electron/standalone environment (using file:// protocol)
-  if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
+  // If we are in Electron/standalone environment (using file:// or app:// protocol)
+  if (typeof window !== 'undefined' && (window.location.protocol === 'file:' || window.location.protocol === 'app:')) {
     return `https://sahatcom.cards${cleanPath}`
   }
 

@@ -195,6 +195,7 @@ export async function generateProductsPDF({ products, visibleColumns, columnLabe
       let value: any = (p as any)[col]
 
       // Dynamic calculations
+      // Dynamic calculations - ENFORCE FORMULA
       if (col === 'currentStock') {
         const opening = Number(p.openingStock) || 0
         const purchases = Number(p.purchases) || 0
@@ -204,11 +205,17 @@ export async function generateProductsPDF({ products, visibleColumns, columnLabe
 
       // Recalculate difference dynamically
       if (col === 'difference') {
+        // Theoretical Stock
         const opening = Number(p.openingStock) || 0
         const purchases = Number(p.purchases) || 0
         const issues = Number(p.issues) || 0
-        const currentStock = (p.currentStock !== undefined) ? Number(p.currentStock) : (opening + purchases - issues)
+        const currentStock = opening + purchases - issues
+
+        // Physical Count (Audit)
         const inventoryCount = Number(p.inventoryCount) || 0
+
+        // Difference = Theoretical - Physical
+        // e.g. System says 10, Count is 8. Difference is 2 (Missing)
         value = currentStock - inventoryCount
       }
 
@@ -276,9 +283,21 @@ export async function generateProductsPDF({ products, visibleColumns, columnLabe
 </html>
   `
 
-  const printWindow = window.open("", "_blank")
-  if (printWindow) {
-    printWindow.document.write(pdfContent)
-    printWindow.document.close()
-  }
+  return new Promise<void>((resolve) => {
+    try {
+      const printWindow = window.open("", "_blank")
+      if (printWindow) {
+        printWindow.document.write(pdfContent)
+        printWindow.document.close()
+        
+        // Resolve after a short delay to ensure print dialog appears
+        setTimeout(() => resolve(), 1000)
+      } else {
+        resolve() // Fallback if window.open fails
+      }
+    } catch (error) {
+      console.error("Failed to generate PDF:", error)
+      resolve() // Still resolve to avoid hanging
+    }
+  })
 }

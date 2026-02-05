@@ -26,6 +26,7 @@ import { useRef } from "react"
 import { useIssues, useReturns, useProducts } from "@/hooks/use-firestore"
 import { syncIssue, syncProduct, syncReturn } from "@/lib/sync-api"
 import { useAuth } from "@/components/auth-provider"
+import { AdminAnalyticsDashboard } from "@/components/admin-analytics-dashboard"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -549,6 +550,8 @@ export default function IssuesPage() {
       <Header />
 
       <main className="container mx-auto px-4 py-8">
+        {(user as any)?.role !== 'branch' && <AdminAnalyticsDashboard />}
+
         <div className="space-y-6">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div>

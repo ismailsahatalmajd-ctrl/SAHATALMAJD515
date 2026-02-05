@@ -17,16 +17,35 @@ import { useToast } from "@/hooks/use-toast"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Progress } from "@/components/ui/progress"
 import { db } from "@/lib/db"
+import { getApiUrl } from "@/lib/utils"
 import { syncProductToCloud } from "@/lib/firebase-sync-engine"
 import { db as firestore } from "@/lib/firebase"
 import { setDoc, doc, Timestamp } from "firebase/firestore"
+import { useI18n } from "@/components/language-provider"
+import { DualText } from "@/components/ui/dual-text"
+
+const COLLECTIONS = {
+  PRODUCTS: "products",
+  CATEGORIES: "categories",
+  BRANCHES: "branches",
+  TRANSACTIONS: "transactions",
+  ISSUES: "issues",
+  RETURNS: "returns",
+  UNITS: "units",
+  LOCATIONS: "locations",
+  PURCHASE_ORDERS: "purchase_orders",
+  VERIFICATION_LOGS: "verification_logs",
+  INVENTORY_ADJUSTMENTS: "inventory_adjustments",
+  BRANCH_INVOICES: "branch_invoices",
+  BRANCH_REQUESTS: "branch_requests",
+  PURCHASE_REQUESTS: "purchase_requests",
+}
 
 interface BackupRestoreDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-// Map UI keys to DB table names
 const TABLE_MAPPING: Record<string, string> = {
   inventory_products: 'products',
   inventory_categories: 'categories',
@@ -45,25 +64,61 @@ const TABLE_MAPPING: Record<string, string> = {
   inventory_purchase_requests: 'purchaseRequests',
 }
 
-const UI_LABELS: Record<string, string> = {
-  inventory_products: "المنتجات",
-  inventory_categories: "التصنيفات",
-  inventory_branches: "الفروع",
-  inventory_transactions: "المعاملات",
-  inventory_issues: "الصرف",
-  inventory_returns: "المرتجعات",
-  inventory_units: "الوحدات",
-  inventory_locations: "المواقع",
-  inventory_purchase_orders: "طلبات الشراء",
-  inventory_verification_logs: "سجلات المطابقة",
-  inventory_adjustments: "تسويات المخزون",
-  inventory_branch_invoices: "فواتير الفروع",
-  inventory_branch_requests: "طلبات الفروع",
-  inventory_purchase_requests: "طلبات شراء (جديد)",
-  app_settings: "إعدادات التطبيق",
-}
+// Use a hook or component to get translations, but this is outside component.
+// We will move this map inside the component or use translation functions directly in render.
 
 export function BackupRestoreDialog({ open, onOpenChange }: BackupRestoreDialogProps) {
+  const { t } = useI18n()
+
+  const UI_LABELS: Record<string, string> = {
+    inventory_products: t("table.products"),
+    inventory_categories: t("table.categories"),
+    inventory_branches: t("table.branches"),
+    inventory_transactions: t("table.transactions"),
+    inventory_issues: t("table.issues"),
+    inventory_returns: t("table.returns"),
+    inventory_units: t("table.units"),
+    inventory_locations: t("table.locations"),
+    inventory_purchase_orders: t("table.purchaseOrders"),
+    inventory_verification_logs: t("table.verificationLogs"),
+    inventory_adjustments: t("table.adjustments"),
+    inventory_branch_invoices: t("table.branchInvoices"),
+    inventory_branch_requests: t("table.branchRequests"),
+    inventory_purchase_requests: t("table.purchaseRequests"),
+    app_settings: t("table.appSettings"),
+  }
+
+  // ... rest of component
+
+  // Inside render:
+  // <DialogTitle><DualText k="backup.title" /></DialogTitle>
+  // <DialogDescription><DualText k="backup.desc" /></DialogDescription>
+
+  // Label for image exclude:
+  // <label ...><DualText k="backup.excludeImages" /></label>
+  // <p ...><DualText k="backup.excludeImagesDesc" /></p>
+
+  // Title for data included:
+  // <h4 ...><DualText k="backup.includedData" /></h4>
+
+  // Buttons:
+  // <Button ...>{t("backup.selectAll")}</Button>
+  // <Button ...>{t("backup.deselectAll")}</Button>
+
+  // Checkbox Loop:
+  // <span className="text-sm">{UI_LABELS[k] || k}</span>
+
+  // Backup Button:
+  // {isBackingUp ? t("backup.exporting") : t("backup.downloadButton")}
+
+  // Restore Button:
+  // {isRestoring ? t("backup.restoring") : t("backup.restoreButton")}
+
+  // Alert:
+  // <AlertDescription><DualText k="backup.warningDesc" /></AlertDescription>
+
+  // Close:
+  // <Button ...><DualText k="common.close" /></Button>
   const [isBackingUp, setIsBackingUp] = useState(false)
   const [excludeImages, setExcludeImages] = useState(false) // Default to false (Include images by default)
   const [isRestoring, setIsRestoring] = useState(false)
@@ -249,7 +304,7 @@ export function BackupRestoreDialog({ open, onOpenChange }: BackupRestoreDialogP
         d.getHours(),
       )}${fmt(d.getMinutes())}${fmt(d.getSeconds())}.json`
 
-      const res = await fetch("/api/backup", {
+      const res = await fetch(getApiUrl("/api/backup"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ filename, data: backupData }),

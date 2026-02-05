@@ -215,14 +215,59 @@ export async function deleteDemoData() {
 export async function hardReset() {
   if (typeof window === 'undefined') return
   try {
-    console.warn("Hard Reset: Deleting local database and clearing storage...");
-    await db.delete()
+    console.warn("Hard Reset: Initiating deep clean...");
+
+    // 1. Stop any active sync
+    try {
+      if (typeof stopRealtimeSync === 'function') stopRealtimeSync();
+    } catch (e) { console.error("Error stopping sync:", e) }
+
+    // 2. Clear Browser Caches (Service Workers, HTTP Cache)
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys()
+        await Promise.all(keys.map(key => caches.delete(key)))
+        console.log("Cleared browser caches");
+      }
+    } catch (e) { console.error("Error clearing caches:", e) }
+
+    // 3. Unregister Service Workers
+    try {
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations()
+        for (const registration of registrations) {
+          await registration.unregister()
+        }
+        console.log("Unregistered service workers");
+      }
+    } catch (e) { console.error("Error unregistering service workers:", e) }
+
+    // 4. Delete IndexedDB
+    try {
+      console.warn("Deleting local database...");
+      await db.delete()
+      // Double check deletion via raw API
+      await new Promise<void>((resolve) => {
+        const req = window.indexedDB.deleteDatabase(db.name);
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+        req.onblocked = () => resolve();
+      });
+    } catch (e) { console.error("Error deleting DB:", e) }
+
+    // 5. Clear Storage
     localStorage.clear()
     sessionStorage.clear()
-    window.location.reload()
+
+    // 6. Wait for "Take its time" request - Ensure FS operations flush
+    console.log("Waiting for cleanup...");
+    await new Promise(resolve => setTimeout(resolve, 2500));
+
+    // 7. Reload
+    window.location.href = '/'; // Force navigation to root
   } catch (e) {
     console.error('Hard reset failed:', e)
-    // Fallback: clear what we can and reload
+    // Fallback
     localStorage.clear()
     window.location.reload()
   }
@@ -237,9 +282,9 @@ export function getProducts(): Product[] {
   return store.cache.products
 }
 
-export function saveProducts(products: Product[]): void {
+export async function saveProducts(products: Product[]): Promise<void> {
   store.cache.products = products
-  db.products.bulkPut(products).catch(console.error)
+  await db.products.bulkPut(products)
   notify('products_change')
 }
 
@@ -349,7 +394,7 @@ export async function updateProduct(id: string, updates: Partial<Product>): Prom
 
       // Recalc logic
       if (updates.openingStock !== undefined || updates.purchases !== undefined || updates.issues !== undefined) {
-        updated.inventoryCount = (updated.openingStock || 0) + (updated.purchases || 0) - (updated.issues || 0)
+        updated.currentStock = (updated.openingStock || 0) + (updated.purchases || 0) - (updated.issues || 0)
       }
 
       products[index] = updated;
@@ -495,6 +540,20 @@ export async function addTransaction(transaction: Omit<Transaction, "id" | "crea
     createdAt: new Date().toISOString(),
   }
 
+  // [User Request] Force 'return' transactions to use current Product Average Value
+  // Logic: 
+  // 1. If Full Invoice Return (unitPrice passed from invoice), use it.
+  // 2. If Generic Return (unitPrice 0/missing), use current Average Price.
+  if (newTransaction.type === 'return') {
+    if (!newTransaction.unitPrice || newTransaction.unitPrice <= 0) {
+      const p = await db.products.get(newTransaction.productId)
+      if (p) {
+        newTransaction.unitPrice = p.averagePrice || p.price || 0
+        newTransaction.totalAmount = newTransaction.unitPrice * newTransaction.quantity
+      }
+    }
+  }
+
   store.cache.transactions.push(newTransaction)
   await db.transactions.put(newTransaction)
 
@@ -512,25 +571,57 @@ export async function addTransaction(transaction: Omit<Transaction, "id" | "crea
 
       switch (transaction.type) {
         case "purchase":
+          // Calculate Weighted Average Price (WAP)
+          // Formula: ((CurrentStock * OldAvg) + (NewQty * NewPrice)) / (CurrentStock + NewQty)
+          const currentSysStock = (product.openingStock || 0) + (product.purchases || 0) - (product.issues || 0)
+          const oldAvg = Number(product.averagePrice || product.price || 0)
+          const newQty = Number(transaction.quantity || 0)
+          const newPrice = Number(transaction.unitPrice || 0)
+
+          if (currentSysStock > 0 && newQty > 0) {
+            const oldValue = currentSysStock * oldAvg
+            const newValue = newQty * newPrice
+            const totalQty = currentSysStock + newQty
+            product.averagePrice = (oldValue + newValue) / totalQty
+          } else {
+            // If stock was 0 or negative, the new average is just the incoming price
+            // Or if this is the first stock
+            if (newQty > 0) {
+              product.averagePrice = newPrice
+            }
+          }
+
           quantityChange = transaction.quantity
           product.purchases = (product.purchases || 0) + transaction.quantity
+          // DO NOT update inventoryCount for purchases - it's a physical count only
           break
         case "sale":
           quantityChange = -transaction.quantity
           product.issues = (product.issues || 0) + transaction.quantity
+          // DO NOT update inventoryCount for sales - it's a physical count only
           product.lastActivity = new Date().toISOString()
           break
         case "return":
+          // Sales Return: Decrease total "issues" (sales)
+          // This mathematically increases currentStock = opening + purchases - issues
           quantityChange = transaction.quantity
+          product.issues = Math.max(0, (product.issues || 0) - transaction.quantity)
+
+          // Ensure the product average price doesn't change, but we assume the return
+          // enters inventory at the current average price.
           break
         case "adjustment":
           quantityChange = transaction.quantity
+          // Adjustment is physical count validation - update only if explicitly needed
+          // But keep it separate from transaction logic
           break
       }
 
-      product.currentStock = (product.currentStock || 0) + quantityChange
-      // Recalculate Inventory Count (Theoretical Stock)
-      product.inventoryCount = (product.openingStock || 0) + (product.purchases || 0) - (product.issues || 0)
+      // Formula: currentStock = openingStock + purchases - issues
+      product.currentStock = (product.openingStock || 0) + (product.purchases || 0) - (product.issues || 0)
+      // inventoryCount is the PHYSICAL count (from audit/inventory counts)
+      // It's set manually via inventory count page, not through transactions
+      // Use currentStock for valuation with average price
       product.currentStockValue = product.currentStock * product.averagePrice
       product.updatedAt = new Date().toISOString()
       product.lastModifiedBy = getDeviceId()
@@ -709,13 +800,16 @@ export function calculateProductValues(product: Product) {
   const purchases = Number(product.purchases || 0)
   const issues = Number(product.issues || 0)
   const price = Number(product.price || 0)
-  const averagePrice = Number(product.averagePrice || price || 0)
+  // Use stored averagePrice if available, otherwise fallback to price.
+  // We use `??` to allow 0 as a valid average price if specifically set.
+  const averagePrice = Number(product.averagePrice ?? price ?? 0)
 
-  // Logic: currentStock and quantity should be the same in this system
-  const currentStock = Number(product.currentStock ?? product.quantity ?? 0)
+  // Logic: Current Stock should be calculated from history
+  const currentStock = openingStock + purchases - issues
   const quantity = currentStock
 
-  const inventoryCount = openingStock + purchases - issues
+  // inventoryCount is the PHYSICAL count entered by user, DO NOT overwrite it with theoretical formula
+  // The 'difference' will be calculated in UI/Reports as (currentStock - inventoryCount)
 
   return {
     ...product,
@@ -726,9 +820,10 @@ export function calculateProductValues(product: Product) {
     quantity,
     price,
     averagePrice,
-    inventoryCount,
+    // inventoryCount: product.inventoryCount, // Keep existing value (don't overwrite)
+    // Use currentStock for valuation with weighted average price
     currentStockValue: currentStock * averagePrice,
-    issuesValue: issues * price  // Calculate issues value
+    issuesValue: issues * price
   }
 }
 
@@ -765,9 +860,15 @@ export async function addAdjustment(adjustment: Omit<InventoryAdjustment, "id" |
   try {
     const p = await db.products.get(adjustment.productId);
     if (p) {
-      p.openingStock = adjustment.newQuantity - (p.purchases || 0) + (p.issues || 0)
+      // The adjustment sets the inventoryCount (physical count from audit)
+      // The openingStock should only be updated after month closing
+      // For now, store the physical count and let the formula calculate currentStock
       p.inventoryCount = adjustment.newQuantity
-      p.currentStock = adjustment.newQuantity // Sync legacy field
+
+      // Recalculate currentStock using formula: opening + purchases - issues
+      // This should match the physical count after adjustment
+      p.currentStock = (p.openingStock || 0) + (p.purchases || 0) - (p.issues || 0)
+      p.currentStockValue = p.currentStock * (p.averagePrice || p.price || 0)
       p.updatedAt = new Date().toISOString()
       p.lastModifiedBy = getDeviceId()
 
@@ -894,8 +995,33 @@ export async function updateIssue(id: string, updates: Partial<Issue>): Promise<
 }
 
 export async function addIssue(issue: Omit<Issue, "id" | "createdAt">): Promise<Issue> {
+  // [User Request] Ensure Issue Valuation uses Current Average Price at time of creation
+  const products = await db.products.toArray()
+  const updatedProducts = issue.products.map(p => {
+    const freshProd = products.find(fp => fp.id === p.productId)
+    if (freshProd) {
+      const wAvg = freshProd.averagePrice || freshProd.price || 0
+      return {
+        ...p,
+        unitPrice: wAvg,
+        totalPrice: wAvg * p.quantity
+      }
+    }
+    return p
+  })
+
+  const totalValue = updatedProducts.reduce((acc, p) => acc + p.totalPrice, 0)
+
   const issues = getIssues()
-  const newIssue: Issue = { ...issue, id: generateId(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), lastModifiedBy: getDeviceId() }
+  const newIssue: Issue = {
+    ...issue,
+    products: updatedProducts,
+    totalValue,
+    id: generateId(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    lastModifiedBy: getDeviceId()
+  }
   issues.push(newIssue)
   store.cache.issues = issues
   await db.issues.put(newIssue)
@@ -926,13 +1052,13 @@ export async function setIssueDelivered(issueId: string, deliveredBy: string): P
     await Promise.all(issue.products.map(async (ip) => {
       const p = await db.products.get(ip.productId);
       if (p) {
-        p.currentStock = (p.currentStock || 0) - ip.quantity
-        p.issues = (p.issues || 0) + ip.quantity
+        const qtyToDeduct = (ip as any).quantityBase || ip.quantity
+        p.issues = (p.issues || 0) + qtyToDeduct
         p.issuesValue = (p.issuesValue || 0) + ip.totalPrice
 
-        // Recalculate Inventory Count
-        p.inventoryCount = (p.openingStock || 0) + (p.purchases || 0) - (p.issues || 0)
-        p.currentStockValue = p.currentStock * p.averagePrice
+        // Recalculate currentStock using formula: opening + purchases - issues
+        p.currentStock = (p.openingStock || 0) + (p.purchases || 0) - (p.issues || 0)
+        p.currentStockValue = p.currentStock * (p.averagePrice || p.price || 0)
         p.updatedAt = new Date().toISOString()
         p.lastModifiedBy = getDeviceId()
 
@@ -980,6 +1106,65 @@ export async function setIssueBranchReceived(issueId: string): Promise<boolean> 
   if (iIdx !== -1) store.cache.issues[iIdx] = issue
 
   await db.issues.put(issue)
+
+  // ========================
+  // Add products to Branch Inventory
+  // ========================
+  const now = new Date().toISOString()
+  const branchId = issue.branchId
+
+  for (const product of issue.products) {
+    // Check if product already exists in branch inventory
+    const existing = await db.branchInventory
+      .where(['branchId', 'productId'])
+      .equals([branchId, product.productId])
+      .first()
+
+    if (existing) {
+      // Update existing inventory record
+      await db.branchInventory.update(existing.id, {
+        receivedTotal: existing.receivedTotal + product.quantity,
+        currentStock: existing.currentStock + product.quantity,
+        lastReceivedDate: now,
+        updatedAt: now
+      })
+
+      // Sync updated inventory
+      const updated = await db.branchInventory.get(existing.id)
+      if (updated && typeof window !== 'undefined') {
+        import('./firebase-sync-engine').then(({ syncBranchInventory }) => {
+          syncBranchInventory(updated).catch(console.error)
+        })
+      }
+    } else {
+      // Create new inventory record
+      const { v4: uuidv4 } = await import('uuid')
+      const newInventory = {
+        id: uuidv4(),
+        branchId,
+        productId: product.productId,
+        productName: product.productName,
+        productCode: product.productCode,
+        unit: product.unit,
+        productImage: product.image,
+        receivedTotal: product.quantity,
+        consumedTotal: 0,
+        currentStock: product.quantity,
+        lastReceivedDate: now,
+        createdAt: now,
+        updatedAt: now
+      }
+
+      await db.branchInventory.add(newInventory)
+
+      // Sync new inventory
+      if (typeof window !== 'undefined') {
+        import('./firebase-sync-engine').then(({ syncBranchInventory }) => {
+          syncBranchInventory(newInventory).catch(console.error)
+        })
+      }
+    }
+  }
 
   if (typeof window !== 'undefined') {
     await syncIssue(issue).catch(console.error)
@@ -1034,21 +1219,32 @@ export async function approveReturn(returnId: string, approvedBy: string): Promi
     await Promise.all(ret.products.map(async (rp) => {
       const p = await db.products.get(rp.productId)
       if (p) {
-        const oldStock = p.currentStock || 0
-        p.currentStock = (p.currentStock || 0) + rp.quantity
+        const oldStock = Number(p.currentStock || ((p.openingStock || 0) + (p.purchases || 0) - (p.issues || 0)))
+        const qtyToRestore = Number((rp as any).quantityBase || rp.quantity || 0)
+        const prevAvg = Number(p.averagePrice || p.price || 0)
+        const prevValue = Number(p.currentStockValue ?? (oldStock * prevAvg))
+        const isInvoiceReturn = (ret.sourceType === 'issue' && rp.unitPrice && rp.unitPrice > 0) || Boolean(ret.originalInvoiceNumber)
+        const unitPriceToUse = isInvoiceReturn ? Number(rp.unitPrice || prevAvg) : prevAvg
+        const addValue = unitPriceToUse * qtyToRestore
 
-        console.log(`[STOCK RESTORE] ${p.productName}: ${oldStock} + ${rp.quantity} = ${p.currentStock}`)
+        // Reverse issue quantities and value
+        p.issues = Math.max(0, (p.issues || 0) - qtyToRestore)
+        p.issuesValue = Math.max(0, (p.issuesValue || 0) - (rp.totalPrice || unitPriceToUse * qtyToRestore))
 
-        // Decrement issues count/value if those fields exist (Reverse the issue)
-        // @ts-ignore
-        p.issues = (p.issues || 0) - rp.quantity
-        // @ts-ignore
-        p.issuesValue = (p.issuesValue || 0) - rp.totalPrice
+        // New stock after return
+        p.currentStock = (p.openingStock || 0) + (p.purchases || 0) - (p.issues || 0)
+        const newStock = Number(p.currentStock || 0)
 
-        p.inventoryCount = (p.openingStock || 0) + (p.purchases || 0) - (p.issues || 0)
-        p.currentStockValue = p.currentStock * p.averagePrice
+        // Recalculate value and average price using weighted method
+        const newValue = Math.max(0, prevValue + addValue)
+        const newAvg = newStock > 0 ? (newValue / newStock) : unitPriceToUse
+
+        p.currentStockValue = newValue
+        p.averagePrice = newAvg
         p.updatedAt = new Date().toISOString()
         p.lastModifiedBy = getDeviceId()
+
+        console.log(`[STOCK RESTORE] ${p.productName}: ${oldStock} + ${qtyToRestore} = ${p.currentStock}`)
 
         const pIdx = store.cache.products.findIndex(prod => prod.id === p.id)
         if (pIdx !== -1) store.cache.products[pIdx] = p

@@ -12,7 +12,7 @@ import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
 // (reverted) إزالة أدوات تشخيص تسلسل الفواتير
-import { Settings, Package, ShoppingCart, Receipt, BarChart3, Building2, Barcode, Cloud } from "lucide-react"
+import { Settings, Package, ShoppingCart, Receipt, BarChart3, Building2, Barcode, Cloud, Users } from "lucide-react"
 import Link from "next/link"
 import { Checkbox } from "@/components/ui/checkbox"
 import { BackupRestoreDialog } from "@/components/backup-restore-dialog"
@@ -29,6 +29,7 @@ import { DevicesManager } from "@/components/devices-manager"
 import { ProductCodingSettings } from "@/components/product-coding-settings"
 import { BarcodeSettingsTab } from "@/components/barcode-settings-tab"
 import { updateSettings as updateGlobalSettings, getSettings as getGlobalSettings } from "@/lib/settings-store"
+import { Protect } from "@/components/protect"
 
 export default function SettingsPage() {
   const { lang } = useI18n()
@@ -659,8 +660,8 @@ export default function SettingsPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-center gap-3 mb-4">
-                  <Button onClick={() => setBackupOpen(true)}>نسخ الموقع</Button>
-                  <Button variant="secondary" onClick={() => setBackupOpen(true)}>استعادة النسخة</Button>
+                  <Button onClick={() => setBackupOpen(true)}><DualText k="settings.site.backup" /></Button>
+                  <Button variant="secondary" onClick={() => setBackupOpen(true)}><DualText k="settings.site.restore" /></Button>
                   <BackupSettingsDialog />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -775,6 +776,22 @@ export default function SettingsPage() {
                   <Switch checked={requireAuth} onCheckedChange={setRequireAuth} />
                 </div>
                 <Separator />
+
+                {/* Temporary: Exposed for initial setup */}
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>إدارة المستخدمين والصلاحيات</Label>
+                    <p className="text-sm text-muted-foreground">إضافة موظفين، تحديد الأدوار، وتخصيص الصلاحيات</p>
+                  </div>
+                  <Link href="/settings/users">
+                    <Button variant="outline" className="gap-2">
+                      <Users className="w-4 h-4" />
+                      إدارة المستخدمين
+                    </Button>
+                  </Link>
+                </div>
+                <Separator />
+
                 <div className="space-y-2">
                   <Label htmlFor="sessionTimeout"><DualText k="settings.security.timeout" /></Label>
                   <Input

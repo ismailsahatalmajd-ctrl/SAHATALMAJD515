@@ -11,6 +11,17 @@ export async function generateIssuePDF(issue: Issue) {
   const invoiceNum = getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))
 
   // Resolve images
+  // Fetch branch phone
+  let branchPhone = ""
+  try {
+    if (issue.branchId) {
+      const branch = await db.branches.get(issue.branchId)
+      if (branch?.phone) branchPhone = branch.phone
+    }
+  } catch (e) {
+    console.error("Failed to fetch branch phone", e)
+  }
+
   const productsWithImages = await Promise.all(issue.products.map(async (p) => {
     let imgSrc = p.image || ""
     if (p.image === 'DB_IMAGE') {
@@ -135,6 +146,7 @@ export async function generateIssuePDF(issue: Issue) {
     <div class="info-box" style="text-align: right;">
       <h3 style="text-align: right;">معلومات الفرع<br>Branch Info</h3>
       <p><strong>اسم الفرع / Branch Name:</strong> ${issue.branchName}</p>
+      ${branchPhone ? `<p><strong>رقم الجوال / Phone:</strong> ${branchPhone}</p>` : ''}
       <p><strong>عدد المنتجات / Products Count:</strong> ${issue.products.length} منتج</p>
       ${issue.notes ? `<p><strong>ملاحظات / Notes:</strong> ${issue.notes}</p>` : ""}
     </div>

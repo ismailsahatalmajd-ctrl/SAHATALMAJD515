@@ -11,9 +11,10 @@ interface DualTextProps {
   enClassName?: string
   arClassName?: string
   params?: Record<string, string | number>
+  forceArFirst?: boolean
 }
 
-export function DualText({ k, className, fallback, enClassName, arClassName, params }: DualTextProps) {
+export function DualText({ k, className, fallback, enClassName, arClassName, params, forceArFirst }: DualTextProps) {
   const { lang } = useI18n()
   const entry = dict[k]
 
@@ -31,14 +32,15 @@ export function DualText({ k, className, fallback, enClassName, arClassName, par
   }
 
   const isAr = lang === "ar"
+  const showArFirst = isAr || forceArFirst
 
-  if (isAr) {
+  if (showArFirst) {
     return (
       <span className={cn("block leading-tight", className)}>
-        <span className={cn("ar-translation block text-[0.85em]", arClassName)}>
+        <span className={cn("ar-translation block font-medium", arClassName)}>
           {format(entry.ar)}
         </span>
-        <span className={cn("block text-[1em]", enClassName)}>
+        <span className={cn("block text-[0.85em] font-normal", enClassName)}>
           {format(entry.en)}
         </span>
       </span>
@@ -47,10 +49,10 @@ export function DualText({ k, className, fallback, enClassName, arClassName, par
 
   return (
     <span className={cn("block leading-tight", className)}>
-      <span className={cn("block text-[1em]", enClassName)}>
+      <span className={cn("block font-medium", enClassName)}>
         {format(entry.en)}
       </span>
-      <span className={cn("ar-translation block text-[0.85em]", arClassName)}>
+      <span className={cn("ar-translation block text-[0.85em] font-normal", arClassName)}>
         {format(entry.ar)}
       </span>
     </span>

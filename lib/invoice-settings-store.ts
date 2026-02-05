@@ -20,17 +20,17 @@ export const DEFAULT_INVOICE_SETTINGS: InvoiceSettings = {
   type: "فاتورة صرف",
   customType: "",
   columns: ["itemNumber", "productName", "productCode", "price", "quantity", "unit", "total"],
-  showPrice: true,
+  showPrice: false,
   showQuantity: true,
   showUnit: true,
-  showTotal: true,
+  showTotal: false,
   headerText: "",
   footerText: "",
   template: 'classic', // Default
 }
 
 import { db } from "./db"
-import { getBaseUrl } from "./sync-api"
+import { getApiUrl } from "./utils"
 
 const SETTINGS_KEY = "app_settings"
 const EVENT_KEY = "invoice_settings_changed"
@@ -104,7 +104,7 @@ export async function saveInvoiceSettings(settings: Partial<InvoiceSettings>, us
     )
 
     // Sync to server (fire and forget)
-    fetch('/api/settings', {
+    fetch(getApiUrl('/api/settings'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: SETTINGS_KEY, value: newAppSettings }),

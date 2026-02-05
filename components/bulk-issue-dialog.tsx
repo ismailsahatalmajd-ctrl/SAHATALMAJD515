@@ -41,7 +41,7 @@ import { ProductCombobox } from "@/components/product-combobox"
 export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: BulkIssueDialogProps) {
   const settings = useInvoiceSettings()
   const { user } = useAuth()
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const { data: productsRaw } = useProductsRealtime()
 
   // Use realtime data, falling back to cache if loading (prevents empty flash)
@@ -143,11 +143,12 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
       if (product) {
         updated[index].productCode = product.productCode
         updated[index].productName = product.productName
-        updated[index].unitPrice = product.price
+        // [User Request] Use Average Price for Issue/Exchange valuation
+        updated[index].unitPrice = product.averagePrice || product.price || 0
         updated[index].image = product.image || ""
         updated[index].unit = product.unit
         // Ensure totalPrice reflects current quantity when product (unitPrice) changes
-        updated[index].totalPrice = (updated[index].quantity || 0) * (product.price || 0)
+        updated[index].totalPrice = (updated[index].quantity || 0) * (product.averagePrice || product.price || 0)
       }
     }
 
@@ -321,8 +322,12 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[95vw] w-full md:w-auto md:min-w-[700px] lg:min-w-[800px] h-auto max-h-[95vh] overflow-y-auto flex flex-col p-6">
         <DialogHeader>
-          <DialogTitle className="text-xl">{issueToEdit ? t("bulkIssue.editTitle") : t("bulkIssue.title")}</DialogTitle>
-          <DialogDescription>{issueToEdit ? t("bulkIssue.editDescription") : t("bulkIssue.description")}</DialogDescription>
+          <DialogTitle className="text-xl">
+            <DualText k={issueToEdit ? "bulkIssue.editTitle" : "bulkIssue.title"} />
+          </DialogTitle>
+          <DialogDescription>
+            <DualText k={issueToEdit ? "bulkIssue.editDescription" : "bulkIssue.description"} />
+          </DialogDescription>
           {!issueToEdit && (
             <div className="mt-2 flex items-center gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => {
@@ -335,30 +340,44 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
                   setDraftSaved(true)
                   toast({ title: getDualString("bulkIssue.saveAsDraft"), description: getDualString("bulkIssue.autoSaved") })
                 } catch { }
-              }}>{t("bulkIssue.saveAsDraft")}</Button>
+              }}>
+                <DualText k="bulkIssue.saveAsDraft" />
+              </Button>
               {currentDraftId && (
-                <Button type="button" variant="ghost" size="sm" onClick={() => { if (currentDraftId) { deleteIssueDraft(currentDraftId); setCurrentDraftId(null); setDraftSaved(false); } }}>{t("bulkIssue.deleteDraft")}</Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => { if (currentDraftId) { deleteIssueDraft(currentDraftId); setCurrentDraftId(null); setDraftSaved(false); } }}>
+                  <DualText k="bulkIssue.deleteDraft" />
+                </Button>
               )}
-              {draftSaved && <span className="text-xs text-green-600">{t("bulkIssue.autoSaved")}</span>}
+              {draftSaved && (
+                <span className="text-xs text-green-600">
+                  <DualText k="bulkIssue.autoSaved" />
+                </span>
+              )}
             </div>
           )}
         </DialogHeader>
 
         <div className="space-y-4 py-4 flex-1">
           <div className="space-y-2">
-            <Label className="text-base font-semibold">{t("bulkIssue.branch")}</Label>
+            <Label className="text-base font-semibold">
+              <DualText k="bulkIssue.branch" />
+            </Label>
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" className="w-full justify-between bg-white text-black h-11">
-                  {selectedBranchId ? branches.find((b) => b.id === selectedBranchId)?.name : t("bulkIssue.selectBranch")}
+                  {selectedBranchId
+                    ? branches.find((b) => b.id === selectedBranchId)?.name
+                    : getDualString("bulkIssue.selectBranch", undefined, lang)}
                   <Search className="mr-2 h-4 w-4 opacity-50" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-full p-0" align="start">
                 <Command>
-                  <CommandInput placeholder={t("bulkIssue.searchBranch")} className="text-black" />
+                  <CommandInput placeholder={getDualString("bulkIssue.searchBranch", undefined, lang)} className="text-black" />
                   <CommandList>
-                    <CommandEmpty>{t("bulkIssue.noBranchFound")}</CommandEmpty>
+                    <CommandEmpty>
+                      <DualText k="bulkIssue.noBranchFound" />
+                    </CommandEmpty>
                     <CommandGroup>
                       {branches.map((branch) => (
                         <CommandItem
@@ -379,18 +398,22 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label className="text-base font-semibold">{t("bulkIssue.extractorName")}</Label>
+              <Label className="text-base font-semibold">
+                <DualText k="bulkIssue.extractorName" />
+              </Label>
               <Input
-                placeholder={t("bulkIssue.enterExtractor")}
+                placeholder={getDualString("bulkIssue.enterExtractor", undefined, lang)}
                 value={extractorName}
                 onChange={(e) => setExtractorName(e.target.value)}
                 className="bg-white text-black"
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-base font-semibold">{t("bulkIssue.inspectorName")}</Label>
+              <Label className="text-base font-semibold">
+                <DualText k="bulkIssue.inspectorName" />
+              </Label>
               <Input
-                placeholder={t("bulkIssue.enterInspector")}
+                placeholder={getDualString("bulkIssue.enterInspector", undefined, lang)}
                 value={inspectorName}
                 onChange={(e) => setInspectorName(e.target.value)}
                 className="bg-white text-black"
@@ -400,10 +423,12 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-base font-semibold">{t("bulkIssue.productsTable")}</Label>
+              <Label className="text-base font-semibold">
+                <DualText k="bulkIssue.productsTable" />
+              </Label>
               <Button type="button" size="sm" onClick={addProductRow}>
                 <Plus className="h-4 w-4 ml-1" />
-                {t("bulkIssue.addProducts")}
+                <DualText k="bulkIssue.addProducts" />
               </Button>
             </div>
 
@@ -413,12 +438,30 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
                   <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
                     <TableRow>
                       <TableHead className="w-[50px]">#</TableHead>
-                      <TableHead className="w-[60px]">{t("common.image")}</TableHead>
-                      <TableHead className="w-[280px] sm:w-[360px] md:w-[420px] max-w-[420px]">{t("common.product")}</TableHead>
-                      {settings.showUnit && <TableHead className="w-[80px]">{t("products.columns.unit")}</TableHead>}
-                      <TableHead className="w-[140px]">{t("form.quantity")}</TableHead>
-                      {settings.showPrice && <TableHead className="w-[140px]">{t("products.columns.price")}</TableHead>}
-                      {settings.showTotal && <TableHead className="w-[140px]">{t("common.total")}</TableHead>}
+                      <TableHead className="w-[60px]">
+                        <DualText k="common.image" />
+                      </TableHead>
+                      <TableHead className="w-[280px] sm:w-[360px] md:w-[420px] max-w-[420px]">
+                        <DualText k="common.product" />
+                      </TableHead>
+                      {settings.showUnit && (
+                        <TableHead className="w-[80px]">
+                          <DualText k="products.columns.unit" />
+                        </TableHead>
+                      )}
+                      <TableHead className="w-[140px]">
+                        <DualText k="form.quantity" />
+                      </TableHead>
+                      {settings.showPrice && (
+                        <TableHead className="w-[140px]">
+                          <DualText k="products.columns.price" />
+                        </TableHead>
+                      )}
+                      {settings.showTotal && (
+                        <TableHead className="w-[140px]">
+                          <DualText k="common.total" />
+                        </TableHead>
+                      )}
                       <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -443,7 +486,7 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
                               />
                             ) : (
                               <div className="w-10 h-10 bg-muted rounded flex items-center justify-center text-xs text-muted-foreground">
-                                {t("bulkIssue.noImage")}
+                                <DualText k="bulkIssue.noImage" />
                               </div>
                             )}
                           </TableCell>
@@ -505,11 +548,13 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
           </div>
 
           <div className="space-y-2">
-            <Label className="text-base font-semibold">{t("bulkIssue.notes")}</Label>
+            <Label className="text-base font-semibold">
+              <DualText k="bulkIssue.notes" />
+            </Label>
             <Input
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder={t("bulkIssue.extraNotes")}
+              placeholder={getDualString("bulkIssue.extraNotes", undefined, lang)}
               className="bg-white !text-black h-11 border-input"
               style={{ color: '#000000 !important' }}
             />
@@ -519,11 +564,15 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
             <div className="rounded-lg bg-muted p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600 mb-1">{t("bulkIssue.totalValue")}</p>
-                  <p className="text-3xl font-bold text-black">{totalValue.toFixed(2)} {t("common.currency")}</p>
+                  <p className="text-sm text-gray-600 mb-1">
+                    <DualText k="bulkIssue.totalValue" />
+                  </p>
+                  <p className="text-3xl font-bold text-black">{totalValue.toFixed(2)} {getDualString("common.currency", undefined, lang)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm text-gray-600 mb-1">{t("bulkIssue.totalItems")}</p>
+                  <p className="text-sm text-gray-600 mb-1">
+                    <DualText k="bulkIssue.totalItems" />
+                  </p>
                   <p className="text-2xl font-semibold text-black">{issueProducts.length}</p>
                 </div>
               </div>
@@ -533,16 +582,16 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
 
         <DialogFooter className="mt-4">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="h-11 px-6" disabled={isSubmitting}>
-            {t("bulkIssue.cancel")}
+            <DualText k="bulkIssue.cancel" />
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting || issueProducts.length === 0 || !selectedBranchId} className="h-11 px-6">
             {isSubmitting ? (
               <span className="flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                {t("common.saving", "جاري الحفظ...")}
+                <DualText k="common.saving" fallback="جاري الحفظ..." />
               </span>
             ) : (
-              issueToEdit ? t("bulkIssue.updateBtn") : t("bulkIssue.issueBtn")
+              <DualText k={issueToEdit ? "bulkIssue.updateBtn" : "bulkIssue.issueBtn"} />
             )}
           </Button>
         </DialogFooter>

@@ -1,17 +1,39 @@
-.next
-out
-release
-release_new
-dist
-node_modules
-.git
-.DS_Store
+
+# Binaries and archives
+*.zip
+*.exe
+*.7z
+*.rar
+*.dmg
+*.AppImage
+
+# Build folders
+release/
+release_new/
+dist/
+out/
+build/
+app_disabled/
+android/
+ios/
+electron/
+
+# Node
+node_modules/
+.next/
+
+# Git
+.git/
+
+# Logs
 *.log
-src-tauri
-app_disabled
-نسخة احتياطية
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Other
+.DS_Store
 .vercel_old
-android
-ios
-electron
 api_backup_outside_app
+src-tauri/
+نسخة احتياطية

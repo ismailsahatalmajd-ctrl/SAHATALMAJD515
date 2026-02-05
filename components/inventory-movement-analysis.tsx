@@ -16,8 +16,9 @@ export function InventoryMovementAnalysis({ products }: InventoryMovementAnalysi
   const analyzeMovement = (product: Product) => {
     const turnoverRatio = product.currentStock > 0 ? product.issues / product.currentStock : 0
 
-    if (turnoverRatio >= 2) return "fast"
-    if (turnoverRatio >= 0.5) return "normal"
+    // User Rules: Fast > 1, Normal > 0.35, Slow > 0, Stagnant 0
+    if (turnoverRatio > 1) return "fast"
+    if (turnoverRatio > 0.35) return "normal"
     if (turnoverRatio > 0) return "slow"
     return "stagnant"
   }

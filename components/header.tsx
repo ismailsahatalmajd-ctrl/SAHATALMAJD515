@@ -1,6 +1,6 @@
 "use client"
 
-import { Package, BarChart3, Receipt, ShoppingCart, Building2, Barcode, ChevronLeft, Settings, LogOut, Menu, Tag } from "lucide-react"
+import { Package, BarChart3, Receipt, ShoppingCart, Building2, Barcode, ChevronLeft, Settings, LogOut, Menu, Tag, Wrench } from "lucide-react"
 import Link from "next/link"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import Image from "next/image"
@@ -18,6 +18,8 @@ import { useRouter } from "next/navigation"
 import GlobalImageDropzone from "./global-image-dropzone"
 import { DualText } from "@/components/ui/dual-text"
 import { useAuth } from "@/components/auth-provider"
+
+import { canAccessPage } from "@/lib/auth-utils"
 
 export function Header() {
   const pathname = usePathname()
@@ -38,6 +40,7 @@ export function Header() {
     { href: "/history", key: "nav.history", label: "سجل الباركود", icon: Receipt },
     { href: "/scanner", key: "nav.scanner", label: t("nav.scanner"), icon: Barcode },
     { href: "/label-designer", key: "nav.labelDesigner", label: "مصمم الملصقات", icon: Tag },
+    { href: "/admin/assets", key: "nav.assets", label: "إدارة الأصول", icon: Wrench },
     { href: "/settings", key: "common.settings", label: t("common.settings"), icon: Settings },
   ]
 
@@ -50,13 +53,19 @@ export function Header() {
   }, [user])
 
   const links = (() => {
+    // 1. Branch Role Restriction (Legacy but good to keep specific logic if needed)
     if ((user as any)?.role === 'branch') {
       const branchId = (user as any).branchId || sessionBranchId
       return [
         ...(branchId ? [{ href: `/branch-requests`, key: "nav.branchDashboard", label: t("nav.branchDashboard") || "لوحة الفرع", icon: Building2 }] : [])
       ]
     }
-    return allLinks
+
+    // 2. Permission Based Filtering (New System)
+    // Filter allLinks based on canAccessPage
+    // We cast user to any for now to avoid strict type conflicts if User type isn't fully updated everywhere yet, 
+    // but canAccessPage handles the new UserProfile type.
+    return allLinks.filter(link => canAccessPage(user as any, link.href))
   })()
 
   const handleLogout = async () => {

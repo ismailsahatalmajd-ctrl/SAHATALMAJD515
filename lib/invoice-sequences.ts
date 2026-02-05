@@ -1,6 +1,7 @@
 import { getIssues, getReturns } from "./storage"
 import { getBranchInvoices } from "./branch-invoice-storage"
 import { db } from "./db"
+import { getApiUrl } from "./utils"
 
 type SeqType = "issue" | "return" | "branchOps"
 
@@ -20,22 +21,22 @@ async function readLocal(): Promise<Sequences> {
   try {
     const setting = await db.settings.get(LS_KEY)
     if (!setting) {
-        // Fallback to localStorage temporarily if Dexie is empty
-        const raw = localStorage.getItem(LS_KEY)
-        if (raw) {
-            const obj = JSON.parse(raw)
-            const seq = {
-                issue: Number(obj.issue || 0),
-                return: Number(obj.return || 0),
-                branchOps: Number(obj.branchOps || 0),
-                updatedAt: obj.updatedAt,
-            }
-            // Migrate to Dexie
-            await writeLocal(seq)
-            try { localStorage.removeItem(LS_KEY) } catch {}
-            return seq
+      // Fallback to localStorage temporarily if Dexie is empty
+      const raw = localStorage.getItem(LS_KEY)
+      if (raw) {
+        const obj = JSON.parse(raw)
+        const seq = {
+          issue: Number(obj.issue || 0),
+          return: Number(obj.return || 0),
+          branchOps: Number(obj.branchOps || 0),
+          updatedAt: obj.updatedAt,
         }
-        return { issue: 0, return: 0, branchOps: 0 }
+        // Migrate to Dexie
+        await writeLocal(seq)
+        try { localStorage.removeItem(LS_KEY) } catch { }
+        return seq
+      }
+      return { issue: 0, return: 0, branchOps: 0 }
     }
     const obj = setting.value
     return {
@@ -51,7 +52,7 @@ async function readLocal(): Promise<Sequences> {
 
 async function readServer(): Promise<Sequences | null> {
   try {
-    const res = await fetch(`/api/settings?key=${SERVER_KEY}`, { cache: "no-store" })
+    const res = await fetch(getApiUrl(`/api/settings?key=${SERVER_KEY}`), { cache: "no-store" })
     const json = await res.json()
     const val = json?.value || json?.data?.value
     if (!val) return null
@@ -69,19 +70,19 @@ async function readServer(): Promise<Sequences | null> {
 
 async function writeLocal(seq: Sequences): Promise<void> {
   if (typeof window === "undefined") return
-  try { 
-      await db.settings.put({ key: LS_KEY, value: { ...seq, updatedAt: new Date().toISOString() } })
-  } catch {}
+  try {
+    await db.settings.put({ key: LS_KEY, value: { ...seq, updatedAt: new Date().toISOString() } })
+  } catch { }
 }
 
 async function writeServer(seq: Sequences): Promise<void> {
   try {
-    await fetch(`${getBaseUrl()}/api/settings`, {
+    await fetch(getApiUrl(`/api/settings`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: SERVER_KEY, value: { ...seq, updatedAt: new Date().toISOString() } }),
-    }).catch(() => {})
-  } catch {}
+    }).catch(() => { })
+  } catch { }
 }
 
 function parseTailNumber(s: string, prefix: string): number | null {
@@ -159,10 +160,10 @@ export async function nextInvoiceNumber(type: SeqType): Promise<string> {
   const exists = (
     type === 'issue' && issues.some(i => (i as any).invoiceNumber === candidate)
   ) || (
-    type === 'return' && returns.some(r => (r as any).returnNumber === candidate)
-  ) || (
-    type === 'branchOps' && branchInvoices.some(bi => (bi as any).invoiceNumber === candidate)
-  )
+      type === 'return' && returns.some(r => (r as any).returnNumber === candidate)
+    ) || (
+      type === 'branchOps' && branchInvoices.some(bi => (bi as any).invoiceNumber === candidate)
+    )
   // If exists, advance until free (bounded to 9999)
   let n = next
   while (exists && n < 9999) {

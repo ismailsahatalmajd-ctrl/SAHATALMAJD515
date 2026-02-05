@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminStorage } from "@/lib/firebase-admin";
 
+export async function OPTIONS() {
+    return new NextResponse(null, {
+        status: 204,
+        headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        },
+    });
+}
+
 export async function POST(req: NextRequest) {
     try {
         const formData = await req.formData();
@@ -8,7 +19,10 @@ export async function POST(req: NextRequest) {
         const path = formData.get("path") as string | null;
 
         if (!file || !path) {
-            return NextResponse.json({ error: "Missing file or path" }, { status: 400 });
+            return NextResponse.json({ error: "Missing file or path" }, {
+                status: 400,
+                headers: { "Access-Control-Allow-Origin": "*" }
+            });
         }
 
         const buffer = Buffer.from(await file.arrayBuffer());
@@ -25,29 +39,29 @@ export async function POST(req: NextRequest) {
 
         await fileRef.makePublic();
 
-        // Construct public URL
-        // Format: https://storage.googleapis.com/[BUCKET_NAME]/[OBJECT_NAME]
-        // Or for Firebase specifically (often preferred for consistency):
-        // https://firebasestorage.googleapis.com/v0/b/[BUCKET_NAME]/o/[OBJECT_NAME]?alt=media
-        // But makePublic() usually enables direct access via storage.googleapis.com
-
-        // Let's use the signed URL approach or just the public link. 
-        // Since we made it public, we can just return the public URL.
         const publicUrl = fileRef.publicUrl();
 
-        return NextResponse.json({ url: publicUrl });
+        return NextResponse.json({ url: publicUrl }, {
+            headers: { "Access-Control-Allow-Origin": "*" }
+        });
 
     } catch (error: any) {
         console.error("Upload error:", error);
+
+        // Debug info
         const storage = getAdminStorage();
         const bucketName = storage.bucket().name;
+
         return NextResponse.json({
-            error: `Upload failed: ${error.message} (Bucket: ${bucketName})`,
-            details: {
-                message: error.message,
-                code: error.code,
-                bucket: bucketName
+            error: `Upload failed: ${error.message}`,
+            details: error,
+            debug: {
+                triedBucket: bucketName,
+                projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
             }
-        }, { status: 500 });
+        }, {
+            status: 500,
+            headers: { "Access-Control-Allow-Origin": "*" }
+        });
     }
 }

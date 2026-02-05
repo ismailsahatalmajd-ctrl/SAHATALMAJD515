@@ -251,18 +251,20 @@ export default function ReturnsPage() {
       const returnProducts = req.items.map((it) => {
         const p = cloudProducts.find((x) => x.id === it.productId || x.productCode === it.productCode)
         const unitPrice = p?.averagePrice ?? p?.price ?? 0
-        const quantity = Math.max(0, Math.floor(it.requestedQuantity || it.quantity || 0))
+        const quantityCarton = Math.max(0, Math.floor(it.requestedQuantity || it.quantity || 0))
+        const finalQuantity = (it as any).quantityBase || quantityCarton
 
         return {
           productId: p?.id || it.productId,
           productCode: p?.productCode || it.productCode,
           productName: p?.productName || it.productName,
-          quantity,
+          quantity: finalQuantity,
           unitPrice,
-          totalPrice: unitPrice * quantity,
+          totalPrice: unitPrice * finalQuantity,
           image: p?.image || it.image || "",
           currentStock: p?.currentStock ?? 0,
           unit: p?.unit || it.unit || "",
+          quantityBase: (it as any).quantityBase
         }
       })
 
@@ -288,17 +290,31 @@ export default function ReturnsPage() {
         { collection: "branchRequests", data: { ...req, status: "approved", approvedBy: "admin", updatedAt: new Date().toISOString() }, type: "update" }
       ]
 
-      // Add Product Stock Adjustments (Atomic Increments)
-      const { doc, updateDoc, increment } = await import("firebase/firestore");
+      const { doc, updateDoc, getDoc } = await import("firebase/firestore");
       const { db: firestore } = await import("@/lib/firebase");
 
       if (firestore) {
         for (const p of returnProducts) {
           const productRef = doc(firestore, "products", p.productId);
+          const snap = await getDoc(productRef).catch(console.error);
+          const data = snap?.data() as any || {};
+          const oldStock = Number(data.currentStock ?? ((data.openingStock || 0) + (data.purchases || 0) - (data.issues || 0)));
+          const prevAvg = Number(data.averagePrice ?? data.price ?? 0);
+          const prevValue = Number(data.currentStockValue ?? (oldStock * prevAvg));
+          const qty = Number((p as any).quantityBase || p.quantity || 0);
+          const addValue = Number(p.unitPrice || prevAvg) * qty;
+          const newIssues = Math.max(0, Number(data.issues || 0) - qty);
+          const newStock = (Number(data.openingStock || 0) + Number(data.purchases || 0) - newIssues);
+          const newValue = Math.max(0, prevValue + addValue);
+          const newAvg = newStock > 0 ? (newValue / newStock) : Number(p.unitPrice || prevAvg);
+
           await updateDoc(productRef, {
-            currentStock: increment(p.quantity),
-            issues: increment(-p.quantity),
-            issuesValue: increment(-p.totalPrice)
+            currentStock: newStock,
+            currentStockValue: newValue,
+            averagePrice: newAvg,
+            issues: newIssues,
+            issuesValue: Math.max(0, Number(data.issuesValue || 0) - Number(p.totalPrice || (p.unitPrice || prevAvg) * qty)),
+            updatedAt: new Date().toISOString()
           }).catch(console.error);
         }
       }

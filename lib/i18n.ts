@@ -48,6 +48,7 @@ export const dict: Dict = {
   "common.search.products": { ar: "بحث في المنتجات...", en: "Search products..." },
   "common.search.general": { ar: "بحث بالاسم/الكود/الفرع", en: "Search by name/code/branch" },
   "common.currency": { ar: "ر.س", en: "SAR" },
+  "common.all": { ar: "الكل", en: "All" },
   "common.noData": { ar: "لا توجد بيانات لعرضها", en: "No data to display" },
   "common.product": { ar: "منتج", en: "Product" },
   "common.image": { ar: "الصورة", en: "Image" },
@@ -162,6 +163,27 @@ export const dict: Dict = {
   "smartAlerts.pendingRequests.desc": { ar: "يوجد {count} طلب فرع معلق منذ أكثر من 24 ساعة.", en: "There are {count} branch requests pending for over 24 hours." },
   "smartAlerts.pendingRequests.action": { ar: "مراجعة الطلبات", en: "Review Requests" },
   "smartAlerts.acknowledged": { ar: "تم الاطلاع", en: "Acknowledged" },
+
+  // Products Turnover Filters
+  "products.turnover.filter.all": { ar: "الكل", en: "All" },
+  "products.turnover.filter.fast": { ar: "سريع", en: "Fast" },
+  "products.turnover.filter.normal": { ar: "عادي", en: "Normal" },
+  "products.turnover.filter.slow": { ar: "بطيء", en: "Slow" },
+  "products.turnover.filter.stagnant": { ar: "راكد", en: "Stagnant" },
+  "products.turnover.filter.new": { ar: "جديد", en: "New" },
+  "products.export.modePlaceholder": { ar: "نوع التصدير", en: "Export Mode" },
+  "products.export.filtered": { ar: "تصدير المفلتر", en: "Export Filtered" },
+  "products.export.all": { ar: "تصدير الكامل", en: "Export All" },
+  "products.export.printPdf": { ar: "طباعة", en: "Print PDF" },
+  "products.export.excel": { ar: "تصدير", en: "Export Excel" },
+  "products.export.dimensionsCsv": { ar: "تصدير الأبعاد", en: "Export Dimensions CSV" },
+
+  // Stock Status Filter
+  "products.stockStatus.placeholder": { ar: "حالة المخزون", en: "Stock Status" },
+  "products.stockStatus.all": { ar: "جميع الحالات", en: "All Statuses" },
+  "products.stockStatus.available": { ar: "متوفر", en: "Available" },
+  "products.stockStatus.low": { ar: "منخفض", en: "Low Stock" },
+  "products.stockStatus.out": { ar: "نافذ", en: "Out of Stock" },
 
   // Settings Dropdown Menu
   "settings.view": { ar: "إعدادات العرض", en: "Display Settings" },
@@ -392,6 +414,11 @@ export const dict: Dict = {
   "common.status": { ar: "الحالة", en: "Status" },
   "common.filter": { ar: "تصفية", en: "Filter" },
   "common.notAllowed": { ar: "غير مسموح", en: "Not allowed" },
+  "common.saving": { ar: "جاري الحفظ...", en: "Saving..." },
+  "common.available": { ar: "المتوفر", en: "Available" },
+  "common.riyal": { ar: "ريال", en: "SR" },
+  "common.search": { ar: "بحث", en: "Search" },
+  "common.noProducts": { ar: "لا توجد منتجات", en: "No products found" },
 
 
   // Status labels
@@ -405,6 +432,7 @@ export const dict: Dict = {
   "products.search.placeholder": { ar: "بحث بالاسم/الكود/الرقم", en: "Search by name/code/number" },
   "products.columns.toggleLabel": { ar: "إظهار/إخفاء الأعمدة", en: "Show/Hide Columns" },
   "products.columns.visibleLabel": { ar: "الأعمدة المرئية", en: "Visible Columns" },
+  "products.columns.show": { ar: "إظهار الأعمدة", en: "Show Columns" },
   "products.columns.image": { ar: "الصورة", en: "Image" },
   "products.columns.productCode": { ar: "كود المنتج", en: "Product Code" },
   "products.columns.itemNumber": { ar: "رقم المنتج", en: "Item Number" },
@@ -430,6 +458,22 @@ export const dict: Dict = {
   "products.columns.lastActivity": { ar: "آخر نشاط", en: "Last Activity" },
   "products.columns.actions": { ar: "الإجراءات", en: "Actions" },
   "products.empty": { ar: "لا توجد منتجات. قم بإضافة منتج جديد للبدء.", en: "No products. Add a new product to get started." },
+  // Export and Filters
+  "products.table.export.menu": { ar: "تصدير", en: "Export" },
+  "products.table.export.printPdf": { ar: "طباعة / PDF", en: "Print / PDF" },
+  "products.table.export.excel": { ar: "تصدير Excel", en: "Export Excel" },
+  "products.table.export.dimensions": { ar: "تصدير الأبعاد CSV", en: "Export Dimensions CSV" },
+  "products.table.export.success": { ar: "تم التصدير بنجاح", en: "Export Successful" },
+  "products.table.export.excelDesc": { ar: "تم تنزيل ملف Excel لـ {count} منتج ({mode})", en: "Excel file downloaded for {count} products ({mode})" },
+  "products.table.export.csvDesc": { ar: "تم تنزيل ملف CSV لـ {count} منتج", en: "CSV file downloaded for {count} products" },
+  "products.table.export.excelError": { ar: "حدث خطأ أثناء تصدير ملف Excel", en: "Error exporting Excel file" },
+  "products.table.export.error": { ar: "خطأ في التصدير", en: "Export Error" },
+  "products.table.export.mode.filtered": { ar: "مفلتر", en: "Filtered" },
+  "products.table.export.mode.all": { ar: "الكل", en: "All" },
+  "common.reset": { ar: "إعادة تعيين", en: "Reset" },
+  "common.showAll": { ar: "إظهار الكل", en: "Show All" },
+  "common.hideAll": { ar: "إخفاء الكل", en: "Hide All" },
+
   // Image messages
   "products.image.uploadNew": { ar: "اضغط لرفع صورة جديدة", en: "Click to upload a new image" },
   "products.image.unavailable": { ar: "الصورة غير متاحة حالياً", en: "Image currently unavailable" },
@@ -438,14 +482,6 @@ export const dict: Dict = {
   // Products turnover settings
   "products.turnover.settings": { ar: "إعدادات معدل الدوران", en: "Turnover Settings" },
   "products.turnover.settings.title": { ar: "إعدادات معدل الدوران", en: "Turnover Settings" },
-  "products.turnover.filter.placeholder": { ar: "حسب معدل الدوران", en: "By turnover rate" },
-  "products.turnover.period.placeholder": { ar: "الفترة", en: "Period" },
-  "products.turnover.filter.all": { ar: "الكل", en: "All" },
-  "products.turnover.filter.fast": { ar: "سريع", en: "Fast" },
-  "products.turnover.filter.normal": { ar: "عادي", en: "Normal" },
-  "products.turnover.filter.slow": { ar: "بطيء", en: "Slow" },
-  "products.turnover.filter.stagnant": { ar: "راكد", en: "Stagnant" },
-  "products.turnover.filter.new": { ar: "جديد", en: "New" },
   "products.turnover.period.today": { ar: "اليوم", en: "Today" },
   "products.turnover.period.week": { ar: "أسبوع", en: "Week" },
   "products.turnover.period.month": { ar: "شهر", en: "Month" },
@@ -750,6 +786,8 @@ export const dict: Dict = {
   "bulkIssue.error.selectBranch": { ar: "يرجى اختيار الفرع", en: "Please select a branch" },
   "bulkIssue.error.noProducts": { ar: "يرجى إضافة منتجات صحيحة", en: "Please add valid products" },
   "bulkIssue.error.insufficientStock": { ar: "المخزون غير كافٍ للمنتج", en: "Insufficient stock for product" },
+  "bulkIssue.error.zeroStock": { ar: "المنتج غير متوفر في المخزون حالياً", en: "Product currently out of stock" },
+  "bulkIssue.error.adjustQuantity": { ar: "يرجى تعديل الكمية أو اختيار منتج آخر.", en: "Please adjust quantity or select another product." },
   "bulkIssue.success.issued": { ar: "تم صرف المنتجات بنجاح", en: "Products issued successfully" },
   "bulkIssue.success.updated": { ar: "تم تحديث الفاتورة بنجاح", en: "Invoice updated successfully" },
   "bulkIssue.noImage": { ar: "لا صورة", en: "No Image" },
@@ -1271,9 +1309,6 @@ export const dict: Dict = {
   "common.saveChanges": { ar: "حفظ التعديلات", en: "Save Changes" },
   "common.addProduct": { ar: "إضافة المنتج", en: "Add Product" },
 
-  "bulkIssue.error.zeroStock": { ar: "مخزون صفري", en: "Zero Stock" },
-  "bulkIssue.error.adjustQuantity": { ar: "يجب تعديل الكمية", en: "Must adjust quantity" },
-
   // Product Form Toasts & Logic
   "productForm.error.dimensions.title": { ar: "تحقق من الأبعاد", en: "Check Dimensions" },
   "productForm.error.dimensions.desc": { ar: "الأبعاد لا يمكن أن تكون سالبة", en: "Dimensions cannot be negative" },
@@ -1293,12 +1328,7 @@ export const dict: Dict = {
   "productForm.uploading": { ar: "جاري الرفع...", en: "Uploading..." },
 
   // Products Table Toasts & Logic
-  "products.table.export.success": { ar: "تم التصدير", en: "Export Successful" },
-  "products.table.export.error": { ar: "فشل التصدير", en: "Export Failed" },
-  "products.table.export.excelDesc": { ar: "تم تصدير {count} صف إلى Excel ({mode})", en: "Exported {count} rows to Excel ({mode})" },
-  "products.table.export.csvDesc": { ar: "تم تصدير {count} صف أبعاد إلى CSV", en: "Exported {count} dimension rows to CSV" },
-  "products.table.export.excelError": { ar: "تعذر إنشاء ملف Excel", en: "Could not create Excel file" },
-  "products.table.export.csvError": { ar: "تعذر إنشاء ملف CSV", en: "Could not create CSV file" },
+  // Products Table Toasts & Logic
   "products.table.image.saveSuccess": { ar: "تم حفظ الصورة", en: "Image Saved" },
   "products.table.image.saveDesc": { ar: "تم رفع الصورة للسحابة بنجاح", en: "Image uploaded to cloud successfully" },
   "products.table.image.uploadError": { ar: "فشل رفع الصورة", en: "Image Upload Failed" },
@@ -1307,9 +1337,6 @@ export const dict: Dict = {
   "products.table.image.invalidFormatDesc": { ar: "صيغة غير مدعومة. استخدم JPG أو PNG أو GIF", en: "Unsupported format. Use JPG, PNG, or GIF" },
   "products.table.image.tooLarge": { ar: "فشل إضافة الصورة", en: "Failed to Add Image" },
   "products.table.image.tooLargeDesc": { ar: "حجم الصورة كبير جداً (أقصى حد 5 ميجابايت)", en: "File too large (Max 5MB)" },
-  "products.table.export.mode.filtered": { ar: "المفلتر", en: "Filtered" },
-  "products.table.export.mode.all": { ar: "الكامل", en: "All" },
-
   // Purchase Order Dialog
   "purchaseOrder.title.new": { ar: "إنشاء طلب شراء جديد", en: "Create New Purchase Order" },
   "purchaseOrder.title.edit": { ar: "تعديل طلب الشراء", en: "Edit Purchase Order" },
@@ -1407,6 +1434,53 @@ export const dict: Dict = {
   "issues.toast.restoreErrorRead": { ar: "فشل قراءة الملف", en: "Failed to read file" },
   "issues.invoice.confirm.saveBeforeExport": { ar: "هل تريد حفظ التغييرات قبل التصدير؟", en: "Do you want to save changes before exporting?" },
   "issues.invoice.confirm.saveBeforePrint": { ar: "هل تريد حفظ التغييرات قبل الطباعة؟", en: "Do you want to save changes before printing?" },
+  "settings.notifications.ordersDesc": { ar: "تنبيه عند إنشاء طلب جديد من الفروع", en: "Notify when new branch order is created" },
+  "settings.tabs.site": { ar: "صفحات الموقع", en: "Site Pages" },
+  "settings.site.backup": { ar: "نسخ الموقع", en: "Backup Site" },
+  "settings.site.restore": { ar: "استعادة النسخة", en: "Restore Backup" },
+
+  // Backup Dialog
+  "backup.title": { ar: "النسخ الاحتياطي واستعادة البيانات", en: "Backup & Restore Data" },
+  "backup.desc": { ar: "قم بإنشاء نسخة احتياطية (يمكنك استثناء الصور لتسريع العملية)", en: "Create a backup (exclude images for speed)" },
+  "backup.excludeImages": { ar: "استثناء الصور (تقليل الحجم)", en: "Exclude Images (Reduce Size)" },
+  "backup.excludeImagesDesc": { ar: "حدد هذا الخيار إذا كان الملف كبيراً جداً، ولكن لن يتم حفظ صور المنتجات.", en: "Select if file is too large. Product images won't be saved." },
+  "backup.includedData": { ar: "البيانات المشمولة", en: "Included Data" },
+  "backup.selectAll": { ar: "تحديد الكل", en: "Select All" },
+  "backup.deselectAll": { ar: "إلغاء الكل", en: "Deselect All" },
+  "backup.downloadButton": { ar: "تحميل النسخة الاحتياطية", en: "Download Backup" },
+  "backup.exporting": { ar: "جاري التصدير...", en: "Exporting..." },
+  "backup.restoreButton": { ar: "استعادة نسخة من ملف", en: "Restore from File" },
+  "backup.restoring": { ar: "جاري الاستعادة...", en: "Restoring..." },
+  "backup.warningTitle": { ar: "تحذير", en: "Warning" },
+  "backup.warningDesc": { ar: "تحذير: استعادة النسخة الاحتياطية ستستبدل البيانات الحالية.", en: "Warning: Restoring backup will replace current data." },
+  "backup.success.title": { ar: "تم إنشاء النسخة الاحتياطية", en: "Backup Created" },
+  "backup.success.desc": { ar: "تم تصدير جميع البيانات بنجاح", en: "All data exported successfully" },
+  "backup.error.title": { ar: "فشل في إنشاء النسخة الاحتياطية", en: "Backup Failed" },
+  "backup.restore.success.title": { ar: "تم استعادة البيانات", en: "Data Restored" },
+  "backup.restore.success.desc": { ar: "تم استيراد جميع البيانات بنجاح. سيتم تحديث الصفحة...", en: "All data imported successfully. Reloading..." },
+  "backup.restore.error.title": { ar: "فشل في استعادة البيانات", en: "Restore Failed" },
+  "backup.confirm.create": { ar: "هل تريد إنشاء نسخة احتياطية؟", en: "Do you want to create a backup?" },
+  "backup.confirm.restore": { ar: "سيتم استبدال البيانات الحالية بالعناصر المحددة. هل تريد المتابعة؟", en: "Current data will be replaced. Continue?" },
+
+
+  // Table Names
+  "table.products": { ar: "المنتجات", en: "Products" },
+  "table.categories": { ar: "التصنيفات", en: "Categories" },
+  "table.branches": { ar: "الفروع", en: "Branches" },
+  "table.transactions": { ar: "المعاملات", en: "Transactions" },
+  "table.issues": { ar: "الصرف", en: "Issues" },
+  "table.returns": { ar: "المرتجعات", en: "Returns" },
+  "table.units": { ar: "الوحدات", en: "Units" },
+  "table.locations": { ar: "المواقع", en: "Locations" },
+  "table.purchaseOrders": { ar: "طلبات الشراء", en: "Purchase Orders" },
+  "table.verificationLogs": { ar: "سجلات المطابقة", en: "Verification Logs" },
+  "table.adjustments": { ar: "تسويات المخزون", en: "Stock Adjustments" },
+  "table.branchInvoices": { ar: "فواتير الفروع", en: "Branch Invoices" },
+  "table.branchRequests": { ar: "طلبات الفروع", en: "Branch Requests" },
+  "table.purchaseRequests": { ar: "طلبات شراء (جديد)", en: "Purchase Requests (New)" },
+  "table.appSettings": { ar: "إعدادات التطبيق", en: "App Settings" },
+
+  "common.settingsAndActions": { ar: "الإعدادات والإجراءات", en: "Settings & Actions" },
   "issues.invoice.pdfTitle": { ar: "فاتورة إجمالية للمنتجات المصروفة", en: "Total Issued Products Invoice" },
 }
 

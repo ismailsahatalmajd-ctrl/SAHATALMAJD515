@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ProductImage } from "@/components/product-image"
+import { DualText, getDualString } from "@/components/ui/dual-text"
+import { useI18n } from "@/components/language-provider"
 import type { Product } from "@/lib/types"
 
 interface ProductComboboxProps {
@@ -17,6 +19,7 @@ interface ProductComboboxProps {
 }
 
 export function ProductCombobox({ products, value, onChange, disabled }: ProductComboboxProps) {
+    const { lang } = useI18n()
     const [open, setOpen] = useState(false)
     const [searchQuery, setSearchQuery] = useState("")
     const parentRef = useRef<HTMLDivElement>(null)
@@ -63,11 +66,13 @@ export function ProductCombobox({ products, value, onChange, disabled }: Product
                                 {selectedProduct.productName}
                             </div>
                             <span className="text-xs text-gray-600 block mt-1">
-                                ({selectedProduct.currentStock} متوفر)
+                                (<DualText k="common.available" /> {selectedProduct.currentStock})
                             </span>
                         </div>
                     ) : (
-                        <span className="text-black">اختر المنتج</span>
+                        <span className="text-black">
+                            <DualText k="purchaseOrder.placeholders.selectProduct" />
+                        </span>
                     )}
                     <Search className="mr-2 h-4 w-4 opacity-50 flex-shrink-0" />
                 </Button>
@@ -75,13 +80,17 @@ export function ProductCombobox({ products, value, onChange, disabled }: Product
             <PopoverContent className="w-[450px] p-0" align="start">
                 <Command shouldFilter={false}>
                     <CommandInput
-                        placeholder="ابحث بالاسم أو الباركود..."
+                        placeholder={getDualString("purchaseOrder.placeholders.search", undefined, lang)}
                         className="text-black"
                         value={searchQuery}
                         onValueChange={setSearchQuery}
                     />
                     <CommandList>
-                        {filteredOptions.length === 0 && <CommandEmpty>لا توجد منتجات</CommandEmpty>}
+                        {filteredOptions.length === 0 && (
+                            <CommandEmpty>
+                                <DualText k="common.noProducts" />
+                            </CommandEmpty>
+                        )}
 
                         <div ref={parentRef} style={{ height: '300px', overflow: 'auto' }}>
                             <div
@@ -123,7 +132,7 @@ export function ProductCombobox({ products, value, onChange, disabled }: Product
                                                             {product.productName}
                                                         </div>
                                                         <div className="text-xs text-gray-500">
-                                                            {product.productCode} - {product.currentStock} متوفر - {product.price.toFixed(2)} ريال
+                                                            {product.productCode} - {product.currentStock} <DualText k="common.available" /> - {product.price.toFixed(2)} <DualText k="common.riyal" />
                                                         </div>
                                                     </div>
                                                 </div>

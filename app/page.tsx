@@ -28,12 +28,13 @@ import { useToast } from "@/hooks/use-toast"
 import type { Product } from "@/lib/types"
 import { useLiveQuery } from "dexie-react-hooks"
 import { getProducts, addProduct, updateProduct, deleteProduct, getCategories, getLocations, syncAllFromServer, db, initDataStore, reloadFromDb, fixDuplicates } from "@/lib/storage"
-import { convertNumbersToEnglish, getSafeImageSrc } from "@/lib/utils"
+import { convertNumbersToEnglish, getSafeImageSrc, getApiUrl } from "@/lib/utils"
 import { collectPerf, savePerf } from "@/lib/perf"
 import { saveInvoiceSettings as saveSettingsLib, getInvoiceSettings } from "@/lib/invoice-settings-store"
 import { CounterToggle } from "@/components/counter-toggle"
 import { DualText, getDualString } from "@/components/ui/dual-text"
 import { useAuth } from "@/components/auth-provider"
+import { hasPermission } from "@/lib/auth-utils"
 import { useProductsRealtime, useCategoriesRealtime, useLocationsRealtime } from "@/hooks/use-store"
 import { syncProduct, deleteProductApi } from "@/lib/sync-api"
 import { useRouter } from "next/navigation"
@@ -160,32 +161,79 @@ export default function Home() {
   const locationsData = locationsDataRaw as { name: string }[]
 
   // Derived State
-  const categories = useMemo(() => categoriesData?.map(c => c.name) || [], [categoriesData])
-  const locations = useMemo(() => locationsData?.map(l => l.name) || [], [locationsData])
+  const categories = useMemo(() => {
+    if (categoriesDataRaw && categoriesDataRaw.length > 0) return categoriesData.map(c => c.name)
+    const unique = new Set((products || []).map(p => p.category).filter(c => c && typeof c === 'string' && c.trim() !== ''))
+    return Array.from(unique).sort()
+  }, [categoriesData, products])
+
+  const locations = useMemo(() => {
+    if (locationsDataRaw && locationsDataRaw.length > 0) return locationsData.map(l => l.name)
+    const unique = new Set((products || []).map(p => p.location).filter(l => l && typeof l === 'string' && l.trim() !== ''))
+    return Array.from(unique).sort()
+  }, [locationsData, products])
 
   // Auto-fix quantityPerCarton = 0 for existing products
+  // Auto-Correction Background Task: Ensure DB meets consistency rules
+  // "Take its time" -> Process very slowly to avoid performance impact
   useEffect(() => {
     if (!products || products.length === 0) return
 
-    const fixQuantity = async () => {
-      const toFix = products.filter(p => !p.quantityPerCarton || p.quantityPerCarton === 0)
-      if (toFix.length === 0) return
+    const ensureConsistency = async () => {
+      // 1. Fix QuantityPerCarton
+      // 2. Fix CurrentStock mismatch (Opening + Purchases - Issues)
 
-      console.log(`Auto-fixing ${toFix.length} products with quantityPerCarton = 0`)
+      const updates = []
 
-      for (const product of toFix) {
-        if (product.id) {
-          await db.products.update(product.id, { quantityPerCarton: 1 })
+      for (const p of products) {
+        if (!p.id) continue
+
+        // Rule 1: QtyPerCarton default 1
+        if (!p.quantityPerCarton || p.quantityPerCarton === 0) {
+          updates.push({ id: p.id, changes: { quantityPerCarton: 1 } })
+        }
+
+        // Rule 2: Stock Consistency
+        const op = Number(p.openingStock) || 0
+        const pu = Number(p.purchases) || 0
+        const iss = Number(p.issues) || 0
+        const theoretical = op + pu - iss
+        const stored = Number(p.currentStock)
+
+        // If mismatch > 0.001 (float tolerance), schedule update
+        if (Math.abs(stored - theoretical) > 0.001) {
+          // Avoid adding duplicates if already fixing carton
+          const existing = updates.find(u => u.id === p.id)
+          if (existing) {
+            existing.changes.currentStock = theoretical
+          } else {
+            updates.push({ id: p.id, changes: { currentStock: theoretical } })
+          }
         }
       }
 
-      console.log(`✅ Fixed ${toFix.length} products`)
+      if (updates.length === 0) return
+
+      console.log(`🧹 Found ${updates.length} products needing consistency fix. Starting slow fix...`)
+
+      // Process updates slowly: 1 product every 200ms
+      // This is "Taking its time" to the extreme to satisfy user request
+      for (let i = 0; i < updates.length; i++) {
+        const u = updates[i]
+        try {
+          await db.products.update(u.id, u.changes)
+        } catch (e) { console.error('Auto-fix failed', e) }
+
+        if (i % 5 === 0) await new Promise(r => setTimeout(r, 1000)) // Wait 1 second every 5 items
+      }
+
+      console.log("✅ Background consistency check complete.")
     }
 
-    // Run once on mount
-    const timer = setTimeout(fixQuantity, 1000)
+    // Start after 5 seconds to let initial load finish
+    const timer = setTimeout(ensureConsistency, 5000)
     return () => clearTimeout(timer)
-  }, []) // Empty deps = run once
+  }, [products?.length]) // Run when product count changes (load finished)
 
 
   const [searchTerm, setSearchTerm] = useState("")
@@ -202,9 +250,9 @@ export default function Home() {
       const lowerTerm = searchTerm.toLowerCase()
       filtered = filtered.filter(
         (p) =>
-          (p.productName || "").toLowerCase().includes(lowerTerm) ||
-          (p.productCode || "").toLowerCase().includes(lowerTerm) ||
-          (p.itemNumber || "").toLowerCase().includes(lowerTerm),
+          String(p.productName || "").toLowerCase().includes(lowerTerm) ||
+          String(p.productCode || "").toLowerCase().includes(lowerTerm) ||
+          String(p.itemNumber || "").toLowerCase().includes(lowerTerm),
       )
     }
 
@@ -374,7 +422,7 @@ export default function Home() {
 
           // Force proxy for PDF generation if it's an external URL
           if (src.startsWith('http')) {
-            src = `/api/image-proxy?url=${encodeURIComponent(src)}`;
+            src = getApiUrl(`/api/image-proxy?url=${encodeURIComponent(src)}`);
           }
 
           // If it's already base64, return as is
@@ -410,6 +458,10 @@ export default function Home() {
   };
 
   const printProductsFullPDF = async () => {
+    if (!hasPermission(user, 'page.reports')) {
+      toast({ title: "غير مسموح", description: "لا تملك صلاحية التقارير", variant: "destructive" })
+      return
+    }
     // Convert images first
     const productsWithImages = await convertImagesToBase64(products);
 
@@ -648,6 +700,10 @@ export default function Home() {
   }
 
   const printFilteredTableCardsPDF = async () => {
+    if (!hasPermission(user, 'page.reports')) {
+      toast({ title: "غير مسموح", description: "لا تملك صلاحية التقارير", variant: "destructive" })
+      return
+    }
     // Convert images first
     const filteredProductsWithImages = await convertImagesToBase64(filteredProducts);
 
@@ -940,11 +996,22 @@ export default function Home() {
 
   const handleAddProduct = async (product: Partial<Product>) => {
     // Generate full product object
+    const price = Number(product.price || 0)
+    const averagePrice = Number(product.averagePrice ?? price ?? 0)
+    const openingStock = Number(product.openingStock || 0)
+    const purchases = Number(product.purchases || 0)
+    const issues = Number(product.issues || 0)
+    const currentStock = openingStock + purchases - issues
+
     const newProduct = {
       ...product,
       id: product.id || Date.now().toString(),
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      // Ensure calculated fields
+      currentStock: currentStock,
+      currentStockValue: currentStock * averagePrice,
+      averagePrice: averagePrice,
     } as Product
 
     // Optimistic Local Update (Always)
@@ -995,6 +1062,10 @@ export default function Home() {
   }
 
   const handleFixQuantityPerCarton = async () => {
+    if (!hasPermission(user, 'inventory.edit')) {
+      toast({ title: "غير مسموح", description: "لا تملك صلاحية تعديل المخزون", variant: "destructive" })
+      return
+    }
     try {
       const toFix = products.filter(p => !p.quantityPerCarton || p.quantityPerCarton === 0)
       if (toFix.length === 0) {
@@ -1060,57 +1131,7 @@ export default function Home() {
                 />
               </div>
 
-              <div style={{ display: filterShowCategory ? undefined : 'none' }}>
-                <Select value={selectedCategory} onValueChange={(v) => setSelectedCategory(v)}>
-                  <SelectTrigger className="w-[160px] h-9">
-                    <Filter className="ml-2 h-4 w-4" />
-                    <SelectValue placeholder={t("common.category")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all"><DualText k="branches.report.filters.allCategories" /></SelectItem>
-                    {categories.map((cat) => (
-                      <SelectItem key={cat} value={cat}>
-                        {cat}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div style={{ display: filterShowLocation ? undefined : 'none' }}>
-                <Select value={selectedLocation} onValueChange={(v) => setSelectedLocation(v)}>
-                  <SelectTrigger className="w-[160px] h-9">
-                    <Filter className="ml-2 h-4 w-4" />
-                    <SelectValue placeholder={t("common.location")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all"><DualText k="common.all" /></SelectItem>
-                    {locations.map((loc) => (
-                      <SelectItem key={loc} value={loc}>
-                        {loc}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div style={{ display: filterShowStatus ? undefined : 'none' }}>
-                <Select
-                  value={selectedStockStatus}
-                  onValueChange={(value) => setSelectedStockStatus(value as StockStatus)}
-                >
-                  <SelectTrigger className="w-[160px] h-9">
-                    <Filter className="ml-2 h-4 w-4" />
-                    <SelectValue placeholder={t("home.filters.stockStatus")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all"><DualText k="home.filters.all" /></SelectItem>
-                    <SelectItem value="available"><DualText k="home.filters.available" /></SelectItem>
-                    <SelectItem value="low"><DualText k="home.filters.low" /></SelectItem>
-                    <SelectItem value="out"><DualText k="home.filters.out" /></SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* Filters moved to Products Table */}
 
               <div className="flex items-center gap-4 border-l pl-4 ml-2" style={{ display: (filterShowMergeDup || filterShowExcludeZero) ? undefined : 'none' }}>
                 <div className="flex items-center gap-2" style={{ display: filterShowMergeDup ? undefined : 'none' }}>
@@ -1137,6 +1158,7 @@ export default function Home() {
 
               <BulkOperations products={products} filteredProducts={filteredProducts} onProductsUpdate={setProducts} />
 
+              {hasPermission(user, 'page.settings') && (
               <Sheet>
                 <SheetTrigger asChild>
                   <Button variant="outline" size="icon">
@@ -1291,13 +1313,14 @@ export default function Home() {
                   </Tabs>
                 </SheetContent>
               </Sheet>
+              )}
 
               {/* Settings & Actions Dropdown */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="gap-2">
                     <Settings2 className="h-4 w-4" />
-                    <span className="hidden sm:inline">الإعدادات والإجراءات</span>
+                    <DualText k="common.settingsAndActions" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
@@ -1322,7 +1345,7 @@ export default function Home() {
                     )}
                   </DropdownMenuItem>
 
-                  <DropdownMenuItem onClick={() => setCardsDialogOpen(true)}>
+                  <DropdownMenuItem onClick={() => setCardsVisibilityOpen(true)}>
                     <LayoutGrid className="ml-2 h-4 w-4" />
                     <DualText k="settings.manageCards" />
                   </DropdownMenuItem>
@@ -1345,7 +1368,14 @@ export default function Home() {
                   <DropdownMenuLabel><DualText k="settings.inventory" /></DropdownMenuLabel>
 
                   <DropdownMenuItem
-                    onClick={() => setMonthlyClosingOpen(true)}
+                    onClick={() => {
+                      if (!hasPermission(user, 'inventory.adjust')) {
+                        toast({ title: "غير مسموح", description: "لا تملك صلاحية إقفال الشهر", variant: "destructive" })
+                        return
+                      }
+                      setMonthlyClosingOpen(true)
+                    }}
+                    disabled={!hasPermission(user, 'inventory.adjust')}
                     className="text-orange-700"
                   >
                     <Calendar className="ml-2 h-4 w-4" />
@@ -1360,12 +1390,12 @@ export default function Home() {
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel><DualText k="settings.reports" /></DropdownMenuLabel>
 
-                  <DropdownMenuItem onClick={printProductsFullPDF}>
+                  <DropdownMenuItem onClick={printProductsFullPDF} disabled={!hasPermission(user, 'page.reports')}>
                     <FileText className="ml-2 h-4 w-4" />
                     <DualText k="settings.fullPdfReport" />
                   </DropdownMenuItem>
 
-                  <DropdownMenuItem onClick={printFilteredTableCardsPDF}>
+                  <DropdownMenuItem onClick={printFilteredTableCardsPDF} disabled={!hasPermission(user, 'page.reports')}>
                     <FileText className="ml-2 h-4 w-4" />
                     <DualText k="settings.filteredPdfReport" />
                   </DropdownMenuItem>
@@ -1377,34 +1407,12 @@ export default function Home() {
                 <div className="flex flex-col items-start leading-tight">
                   <DualText
                     k="home.products.addNew"
-                    enClassName="text-primary-foreground font-bold"
-                    arClassName="text-primary-foreground/90 font-normal text-[0.8em]"
+                    className="text-primary-foreground font-bold text-sm"
                   />
                 </div>
               </Button>
 
-              {(searchTerm ||
-                selectedCategory !== "all" ||
-                selectedLocation !== "all" ||
-                selectedStockStatus !== "all" ||
-                mergeDuplicates ||
-                excludeZeroStock) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setSearchTerm("")
-                      setSelectedCategory("all")
-                      setSelectedLocation("all")
-                      setSelectedStockStatus("all")
-                      setMergeDuplicates(false)
-                      setExcludeZeroStock(false)
-                    }}
-                  >
-                    <RotateCcw className="ml-2 h-4 w-4" />
-                    <DualText k="common.reset" />
-                  </Button>
-                )}
+
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-4 border-t pt-4">
@@ -1427,7 +1435,25 @@ export default function Home() {
             </div>
           </div>
 
-          <ProductsTable products={filteredProducts} onEdit={handleEdit} onDelete={handleDeleteProduct} />
+          <ProductsTable
+            products={filteredProducts}
+            onEdit={handleEdit}
+            onDelete={handleDeleteProduct}
+            categories={categories}
+            selectedCategory={selectedCategory}
+            onCategoryChange={setSelectedCategory}
+            onLocationChange={setSelectedLocation}
+            searchTerm={searchTerm}
+            onSearchChange={setSearchTerm}
+            onReset={() => {
+              setSearchTerm("")
+              setSelectedCategory("all")
+              setSelectedLocation("all")
+              setSelectedStockStatus("all")
+              setMergeDuplicates(false)
+              setExcludeZeroStock(false)
+            }}
+          />
           <Dialog open={filtersVisibilityOpen} onOpenChange={setFiltersVisibilityOpen}>
             <DialogContent>
               <DialogHeader>
@@ -1485,7 +1511,13 @@ export default function Home() {
       />
 
       {/* Smart Alerts with Month Closing Support */}
-      <SmartAlerts onMonthClosingClick={() => setMonthlyClosingOpen(true)} />
+      <SmartAlerts onMonthClosingClick={() => {
+        if (!hasPermission(user, 'inventory.adjust')) {
+          toast({ title: "غير مسموح", description: "لا تملك صلاحية إقفال الشهر", variant: "destructive" })
+          return
+        }
+        setMonthlyClosingOpen(true)
+      }} />
     </div >
   )
 }

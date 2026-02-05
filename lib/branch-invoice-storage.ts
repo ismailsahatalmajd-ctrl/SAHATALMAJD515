@@ -12,17 +12,17 @@ export function saveBranchInvoices(invoices: BranchInvoice[]): void {
   // Enforce limit: max 5 invoices per branch
   const grouped = new Map<string, BranchInvoice[]>()
   invoices.forEach(inv => {
-      if (!grouped.has(inv.branchId)) grouped.set(inv.branchId, [])
-      grouped.get(inv.branchId)!.push(inv)
+    if (!grouped.has(inv.branchId)) grouped.set(inv.branchId, [])
+    grouped.get(inv.branchId)!.push(inv)
   })
 
   const keptInvoices: BranchInvoice[] = []
   grouped.forEach((group) => {
-      // Sort newest first
-      group.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      // Keep top 5
-      const keep = group.slice(0, 5)
-      keptInvoices.push(...keep)
+    // Sort newest first
+    group.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    // Keep top 5
+    const keep = group.slice(0, 5)
+    keptInvoices.push(...keep)
   })
 
   // Sanitize: ensure items contain only minimal fields; drop heavy image strings
@@ -36,7 +36,7 @@ export function saveBranchInvoices(invoices: BranchInvoice[]): void {
     // Trim notes if needed
     notes: (inv.notes || "").slice(0, 500),
   }))
-  
+
   saveDbInvoices(sanitized)
 }
 
@@ -47,8 +47,24 @@ export function getInvoicesByBranch(branchId: string): BranchInvoice[] {
 function resolveItemPricing(it: Omit<BranchInvoiceItem, "totalPrice" | "unitPrice"> & Partial<BranchInvoiceItem>): BranchInvoiceItem {
   const products = getProducts()
   const p = products.find((x) => x.id === it.productId || x.productCode === it.productCode)
-  const unitPrice = p?.averagePrice ?? p?.price ?? it.unitPrice ?? 0
-  const quantity = Math.max(0, Math.floor(it.quantity))
+
+  let basePrice = p?.averagePrice ?? p?.price ?? 0
+  // Fallback if price is zero, use what was passed (or 0)
+  if (basePrice === 0 && it.unitPrice && it.unitType !== 'carton') basePrice = it.unitPrice
+
+  let finalUnitPrice = basePrice
+  let qtyBase = Math.max(0, Math.floor(it.quantity || 0))
+  let unitName = p?.unit || it.unit
+
+  if (it.unitType === 'carton') {
+    const factor = p?.quantityPerCarton || it.quantityPerCarton || 1
+    finalUnitPrice = basePrice * factor
+    qtyBase = qtyBase * factor
+    unitName = p?.cartonUnit || it.cartonUnit || 'Carton'
+  }
+
+  const quantity = Math.max(0, Math.floor(it.quantity || 0)) // This is the entered quantity (e.g. 5 Cartons)
+
   return {
     id: it.id || generateId(),
     productId: p?.id || it.productId!,
@@ -57,8 +73,15 @@ function resolveItemPricing(it: Omit<BranchInvoiceItem, "totalPrice" | "unitPric
     unit: p?.unit || it.unit,
     image: p?.image || "",
     quantity,
-    unitPrice,
-    totalPrice: unitPrice * quantity,
+    unitPrice: finalUnitPrice,
+    totalPrice: finalUnitPrice * quantity,
+    // Multi-Unit Persistence
+    unitType: it.unitType || 'base',
+    quantityEntered: quantity,
+    quantityBase: qtyBase,
+    selectedUnitName: it.selectedUnitName || unitName,
+    quantityPerCarton: p?.quantityPerCarton || it.quantityPerCarton,
+    cartonUnit: p?.cartonUnit || it.cartonUnit
   }
 }
 

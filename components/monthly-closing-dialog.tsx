@@ -14,6 +14,8 @@ import { AlertTriangle, Calendar, Package, Loader2 } from "lucide-react"
 import { closeMonth } from "@/lib/storage"
 import { toast } from "@/hooks/use-toast"
 import { DualText, getDualString } from "@/components/ui/dual-text"
+import { useAuth } from "@/components/auth-provider"
+import { hasPermission } from "@/lib/auth-utils"
 
 interface MonthlyClosingDialogProps {
     open: boolean
@@ -23,11 +25,24 @@ interface MonthlyClosingDialogProps {
 
 export function MonthlyClosingDialog({ open, onOpenChange, totalProducts }: MonthlyClosingDialogProps) {
     const [isProcessing, setIsProcessing] = useState(false)
+    const [progressMsgs, setProgressMsgs] = useState<string>("")
+    const [progressPct, setProgressPct] = useState(0)
+    const { user } = useAuth()
 
     const handleConfirm = async () => {
+        if (!hasPermission(user, 'inventory.adjust')) {
+            toast({ title: "غير مسموح", description: "لا تملك صلاحية إقفال الشهر", variant: "destructive" })
+            return
+        }
         setIsProcessing(true)
+        setProgressPct(0)
+        setProgressMsgs("جاري البدء...")
         try {
-            const result = await closeMonth()
+            const result = await closeMonth((curr, total, msg) => {
+                const pct = Math.round((curr / total) * 100)
+                setProgressPct(pct)
+                setProgressMsgs(msg)
+            })
 
             toast({
                 title: "✅ تم إقفال الشهر بنجاح",
@@ -37,7 +52,7 @@ export function MonthlyClosingDialog({ open, onOpenChange, totalProducts }: Mont
             onOpenChange(false)
 
             // Reload page to reflect changes
-            setTimeout(() => window.location.reload(), 1000)
+            setTimeout(() => window.location.reload(), 2000)
         } catch (error: any) {
             console.error("Month closing failed:", error)
             toast({
@@ -47,6 +62,8 @@ export function MonthlyClosingDialog({ open, onOpenChange, totalProducts }: Mont
             })
         } finally {
             setIsProcessing(false)
+            setProgressMsgs("")
+            setProgressPct(0)
         }
     }
 
@@ -104,14 +121,16 @@ export function MonthlyClosingDialog({ open, onOpenChange, totalProducts }: Mont
                     </Button>
                     <Button
                         onClick={handleConfirm}
-                        disabled={isProcessing}
+                        disabled={isProcessing || !hasPermission(user, 'inventory.adjust')}
                         className="bg-green-600 hover:bg-green-700"
                     >
                         {isProcessing ? (
-                            <>
-                                <Loader2 className="ml-2 h-4 w-4 animate-spin" />
-                                جاري الإقفال...
-                            </>
+                            <div className="flex flex-col items-center w-full gap-1">
+                                <div className="flex items-center gap-2">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    <span>{progressMsgs || "جاري الإقفال..."} ({progressPct}%)</span>
+                                </div>
+                            </div>
                         ) : (
                             <>
                                 <Calendar className="ml-2 h-4 w-4" />

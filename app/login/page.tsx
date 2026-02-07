@@ -108,7 +108,10 @@ export default function LoginPage() {
           email: null,
           displayName: 'مستخدم عرض (ALI515)',
           role: 'view_only',
-          branchId: 'all'
+          branchId: 'all',
+          isActive: true,
+          createdAt: new Date().toISOString(),
+          lastLogin: new Date().toISOString(),
         }
         // Seed to DBs
         try {
@@ -184,7 +187,10 @@ export default function LoginPage() {
           photoURL: null,
           role: userRole as any,
           branchId: branch.id,
-          permissions: (branch as any).permissions || {}
+          permissions: (branch as any).permissions || {},
+          isActive: true,
+          createdAt: branch.createdAt || new Date().toISOString(),
+          lastLogin: new Date().toISOString(),
         }
 
         // AUTO-SEED OWNER IN FIRESTORE FOR THIS SPECIAL ACCOUNT

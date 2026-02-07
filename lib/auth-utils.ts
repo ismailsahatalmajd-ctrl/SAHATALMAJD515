@@ -119,7 +119,7 @@ export const DEFAULT_PERMISSIONS: Record<UserRole, Partial<Permissions>> = {
  */
 export function hasPermission(user: User | null | undefined, permission: keyof Permissions): boolean {
     if (!user) return false;
-    if (!user.isActive) return false;
+    if (user.isActive === false) return false;
 
     // 1. Owner always has access
     if (user.role === 'owner') return true;

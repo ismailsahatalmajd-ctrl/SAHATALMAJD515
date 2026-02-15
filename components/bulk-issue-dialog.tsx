@@ -496,6 +496,19 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
 
                       const isOverStock = issueProduct.quantity > adjustedStock
 
+                      // Check modification status per field
+                      const originalProduct = issueToEdit && issueToEdit.products[index]
+                      const isNewRow = !originalProduct
+
+                      const isProductChanged = originalProduct && originalProduct.productId !== issueProduct.productId
+                      const isQtyChanged = originalProduct && originalProduct.quantity !== issueProduct.quantity
+                      const isNotesChanged = originalProduct && (originalProduct.notes || "") !== (issueProduct.notes || "")
+
+                      const productBorder = isNewRow ? "border-2 border-green-500" : (isProductChanged ? "border-2 border-orange-500" : "")
+                      // Error (Red) takes precedence over Modified (Orange) or New (Green)
+                      const qtyBorder = isOverStock ? "border-red-500 focus-visible:ring-red-500" : (isNewRow ? "border-2 border-green-500" : (isQtyChanged ? "border-2 border-orange-500" : ""))
+                      const notesBorder = isNewRow ? "border-2 border-green-500" : (isNotesChanged ? "border-2 border-orange-500" : "")
+
                       return (
                         <TableRow key={index}>
                           <TableCell className="text-center font-medium">{index + 1}</TableCell>
@@ -516,6 +529,7 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
                               products={products}
                               value={issueProduct.productId}
                               onChange={(val) => updateProductRow(index, "productId", val)}
+                              className={productBorder}
                             />
                           </TableCell>
                           <TableCell className="text-center font-mono text-sm">{issueProduct.productCode || "-"}</TableCell>
@@ -531,8 +545,7 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
                               step="any"
                               value={issueProduct.quantity}
                               onChange={(e) => updateProductRow(index, "quantity", e.target.value)}
-                              className={`bg-white !text-black font-semibold text-base h-11 border-input ${isOverStock ? "border-red-500 focus-visible:ring-red-500" : ""
-                                }`}
+                              className={`bg-white !text-black font-semibold text-base h-11 border-input ${qtyBorder}`}
                               style={{ color: '#000000 !important' }}
                               placeholder="1"
                             />
@@ -565,7 +578,7 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
                               value={issueProduct.notes || ""}
                               onChange={(e) => updateProductRow(index, "notes", e.target.value)}
                               placeholder="Notes"
-                              className={`bg-white !text-black h-11 border-input transition-all duration-200 ${issueProduct.notes ? "w-[200px]" : "w-[120px] focus:w-[200px]"}`}
+                              className={`bg-white !text-black h-11 border-input transition-all duration-200 ${notesBorder} ${issueProduct.notes ? "w-[200px]" : "w-[120px] focus:w-[200px]"}`}
                               style={{ color: '#000000 !important' }}
                             />
                           </TableCell>

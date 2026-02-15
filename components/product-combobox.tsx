@@ -16,9 +16,10 @@ interface ProductComboboxProps {
     value?: string
     onChange: (productId: string) => void
     disabled?: boolean
+    className?: string
 }
 
-export function ProductCombobox({ products, value, onChange, disabled }: ProductComboboxProps) {
+export function ProductCombobox({ products, value, onChange, disabled, className }: ProductComboboxProps) {
     const { lang } = useI18n()
     const [open, setOpen] = useState(false)
     const [searchQuery, setSearchQuery] = useState("")
@@ -60,7 +61,7 @@ export function ProductCombobox({ products, value, onChange, disabled }: Product
                     role="combobox"
                     aria-expanded={open}
                     disabled={disabled}
-                    className="w-full justify-between bg-white !text-black h-auto py-2 max-w-full"
+                    className={`w-full justify-between bg-white !text-black h-auto py-2 max-w-full ${className || ""}`}
                 >
                     {selectedProduct ? (
                         <div className="flex-1 text-right text-black">

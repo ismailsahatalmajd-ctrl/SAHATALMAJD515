@@ -38,7 +38,9 @@ export class InventoryDatabase extends Dexie {
   verificationLogs!: Table<VerificationLog>;
   inventoryAdjustments!: Table<InventoryAdjustment>;
   branchInvoices!: Table<BranchInvoice>;
+  branchInvoices!: Table<BranchInvoice>;
   branchRequests!: Table<BranchRequest>;
+  branchRequestDrafts!: Table<BranchRequestDraft>; // New table
   purchaseRequests!: Table<PurchaseRequest>;
   settings!: Table<{ key: string; value: any }>;
   auditLogs!: Table<AuditLogEntry>;
@@ -67,8 +69,8 @@ export class InventoryDatabase extends Dexie {
       transactions: 'id, productId, type, createdAt',
       branches: 'id, name, location',
       units: 'id, name',
-      issues: 'id, branchId, status, delivered, createdAt, invoiceNumber',
-      returns: 'id, branchId, status, createdAt',
+      issues: 'id, productId, branchId, status, delivered, createdAt, invoiceNumber',
+      returns: 'id, productId, branchId, status, createdAt',
       locations: 'id, name',
       issueDrafts: 'id, branchId, complete, updatedAt',
       purchaseOrders: 'id, status, createdAt',
@@ -107,6 +109,11 @@ export class InventoryDatabase extends Dexie {
       assetRequests: 'id, branchId, status, requestDate',
       assetStatusReports: 'id, branchId, generatedAt'
     });
+
+    // Version 6: Branch Request Drafts
+    this.version(6).stores({
+      branchRequestDrafts: 'id, branchId, updatedAt'
+    });
   }
 }
 
@@ -138,7 +145,7 @@ if (typeof window === 'undefined') {
     'products', 'categories', 'transactions', 'branches', 'units',
     'issues', 'returns', 'locations', 'issueDrafts', 'purchaseOrders',
     'verificationLogs', 'inventoryAdjustments', 'branchInvoices',
-    'branchRequests', 'purchaseRequests', 'settings', 'auditLogs',
+    'branchRequests', 'branchRequestDrafts', 'purchaseRequests', 'settings', 'auditLogs',
     'notifications', 'backups', 'imageCache', 'syncQueue', 'conflictLogs',
     'changeLogs', 'userSessions', 'userPreferences', 'productImages'
   ];
@@ -186,7 +193,7 @@ if (typeof window === 'undefined') {
       'products', 'categories', 'transactions', 'branches', 'units',
       'issues', 'returns', 'locations', 'issueDrafts', 'purchaseOrders',
       'verificationLogs', 'inventoryAdjustments', 'branchInvoices',
-      'branchRequests', 'purchaseRequests', 'settings', 'auditLogs',
+      'branchRequests', 'branchRequestDrafts', 'purchaseRequests', 'settings', 'auditLogs',
       'notifications', 'backups', 'imageCache', 'syncQueue', 'conflictLogs',
       'changeLogs', 'userSessions', 'userPreferences', 'productImages'
     ];

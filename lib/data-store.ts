@@ -14,6 +14,7 @@ import type {
 } from "./types"
 import type { BranchInvoice } from './branch-invoice-types'
 import type { BranchRequest } from './branch-request-types'
+import type { BranchRequestDraft } from './types'
 import type { PurchaseRequest } from './purchase-request-types'
 import { db } from './db'
 import { notify, StoreEvent } from "./events"
@@ -35,6 +36,7 @@ export class DataStore {
     verificationLogs: VerificationLog[]
     branchInvoices: BranchInvoice[]
     branchRequests: BranchRequest[]
+    branchRequestDrafts: BranchRequestDraft[]
     purchaseRequests: PurchaseRequest[]
   } = {
       products: [],
@@ -51,6 +53,7 @@ export class DataStore {
       verificationLogs: [],
       branchInvoices: [],
       branchRequests: [],
+      branchRequestDrafts: [],
       purchaseRequests: [],
     }
 
@@ -101,6 +104,7 @@ export class DataStore {
           { name: "verificationLogs", label: "سجلات الجرد", query: db.verificationLogs },
           { name: "branchInvoices", label: "فواتير الفروع", query: db.branchInvoices },
           { name: "branchRequests", label: "طلبات الفروع", query: db.branchRequests },
+          { name: "branchRequestDrafts", label: "مسودات الطلبات", query: db.branchRequestDrafts },
           { name: "purchaseRequests", label: "طلبات الشراء", query: db.purchaseRequests },
         ]
 
@@ -115,10 +119,13 @@ export class DataStore {
             broadcastProgress(percent, `تحميل ${task.label}...`);
             console.log(`DataStore: Loading ${task.name}...`);
 
-            // Add a safety timeout per table fetch (Increased to 15s for slower browsers)
+            // Safety timeout per table fetch (60s for large datasets)
+            // Products table can be large, especially with images
+            const timeout = task.name === 'products' ? 90000 : 60000; // 90s for products, 60s for others
+
             const tableData = await Promise.race([
               task.query.toArray(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout loading ${task.label || task.name}`)), 15000))
+              new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout loading ${task.label || task.name}`)), timeout))
             ]) as any[];
 
             results.push(tableData);
@@ -126,8 +133,10 @@ export class DataStore {
             console.log(`DataStore: Done ${task.name} (${tableData.length} records)`);
           } catch (e) {
             console.error(`DataStore: Failed to load ${task.name}`, e);
+            // Push empty array and continue loading other tables
             results.push([]);
             completed++;
+            // Continue even if one table fails
           }
         }
 
@@ -146,7 +155,8 @@ export class DataStore {
         this.cache.verificationLogs = (results[11] as VerificationLog[]) || []
         this.cache.branchInvoices = (results[12] as BranchInvoice[]) || []
         this.cache.branchRequests = (results[13] as BranchRequest[]) || []
-        this.cache.purchaseRequests = (results[14] as PurchaseRequest[]) || []
+        this.cache.branchRequestDrafts = (results[14] as BranchRequestDraft[]) || []
+        this.cache.purchaseRequests = (results[15] as PurchaseRequest[]) || []
 
         broadcastProgress(100, "اكتمل التحميل");
         console.log("DataStore: Initialization complete");

@@ -31,7 +31,7 @@ export function StatsCards({ products = [], visible }: StatsCardsProps) {
       if (currentStock <= 0) return false
       if (p.isLowStock !== undefined) return p.isLowStock
       const threshold = Number(p.lowStockThresholdPercentage || 33.33)
-      const limit = (Number(p.openingStock || 0) + Number(p.purchases || 0)) * (threshold / 100)
+      const limit = (Number(p.openingStock || 0) + Number(p.purchases || 0) + Number(p.returns || 0)) * (threshold / 100)
       return currentStock <= limit
     })
     const lowStockCount = lowStockItems.length

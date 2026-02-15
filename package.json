@@ -1,6 +1,6 @@
 {
   "name": "newproject2",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Sahat Al Majd Inventory System",
   "author": "Sahat Al Majd",
   "private": true,
@@ -21,8 +21,8 @@
     "electron:build-standalone": "npm run clean && npm run desktop:server-build && electron-builder --win"
   },
   "build": {
-    "appId": "com.almajd.desktop2",
-    "productName": "SAHATALMAJD",
+    "appId": "com.soheel.desktop",
+    "productName": "SOHEEL",
     "compression": "store",
     "directories": {
       "buildResources": "public",
@@ -40,7 +40,8 @@
       "target": [
         "nsis",
         "portable"
-      ]
+      ],
+      "icon": "public/public/sahat-almajd-logo.svg"
     },
     "nsis": {
       "oneClick": false,

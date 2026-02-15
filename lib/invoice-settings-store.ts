@@ -10,6 +10,7 @@ export interface InvoiceSettings {
   showQuantity: boolean
   showUnit: boolean
   showTotal: boolean
+  showNotes: boolean
   headerText: string
   footerText: string
   logoUrl?: string
@@ -24,6 +25,7 @@ export const DEFAULT_INVOICE_SETTINGS: InvoiceSettings = {
   showQuantity: true,
   showUnit: true,
   showTotal: false,
+  showNotes: false,
   headerText: "",
   footerText: "",
   template: 'classic', // Default

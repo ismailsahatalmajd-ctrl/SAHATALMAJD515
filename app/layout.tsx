@@ -19,6 +19,19 @@ export const metadata: Metadata = {
   title: "مستودع ساحة المجد",
   description: "نظام مستودع ساحة المجد لإدارة المخزون والمنتجات",
   generator: "v0.app",
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+    googleBot: {
+      index: false,
+      follow: false,
+      noimageindex: true,
+      'max-video-preview': -1,
+      'max-image-preview': 'none',
+      'max-snippet': -1,
+    },
+  },
 }
 
 import { AuthProvider } from "@/components/auth-provider"
@@ -35,7 +48,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="ar" dir="rtl" suppressHydrationWarning>
+    <html lang="ar" dir="rtl" translate="no" suppressHydrationWarning>
       <body className={`font-sans antialiased`} suppressHydrationWarning>
         <ServiceWorkerUnregister />
         <AuthProvider>

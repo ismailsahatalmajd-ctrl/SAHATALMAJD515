@@ -152,7 +152,7 @@ export async function generateReturnPDF(ret: Return) {
       .map((product, index) => {
         let unit = product.unit
         if (!unit) {
-          const currentProduct = allProducts.find(p => p.id === product.productId || p.productCode === product.productCode)
+          const currentProduct = allProducts.find(p => p.id === product.productId)
           if (currentProduct) unit = currentProduct.unit
         }
         return `

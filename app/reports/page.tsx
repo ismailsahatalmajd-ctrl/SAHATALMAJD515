@@ -16,7 +16,8 @@ import { LowStockReportTable } from "@/components/low-stock-report-table"
 import { generateLowStockPDF } from "@/lib/low-stock-pdf-generator"
 import { Switch } from "@/components/ui/switch" // Added Switch
 import type { Product, Transaction, FinancialSummary } from "@/lib/types"
-import { getProducts, getTransactions, calculateFinancialSummary, getCategories, getIssues } from "@/lib/storage"
+import { getProducts, getTransactions, calculateFinancialSummary, getCategories, getIssues, getReturns, getPurchaseOrders, getAdjustments } from "@/lib/storage"
+import { StockMovementReportTable, StockMovement } from "@/components/stock-movement-report-table"
 import Link from "next/link"
 import { useI18n } from "@/components/language-provider"
 import { DualText } from "@/components/ui/dual-text"
@@ -31,6 +32,8 @@ export default function ReportsPage() {
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([])
   const [categories, setCategories] = useState<string[]>([])
   const [locations, setLocations] = useState<string[]>([])
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([])
+  const [filteredStockMovements, setFilteredStockMovements] = useState<StockMovement[]>([])
 
   const [period, setPeriod] = useState<string>("all")
   const [selectedCategory, setSelectedCategory] = useState<string>("all")
@@ -58,10 +61,140 @@ export default function ReportsPage() {
     const allTransactions = getTransactions()
     const allCategories = getCategories()
     const issues = getIssues()
+    const returns = getReturns()
+    const pos = getPurchaseOrders()
+    const adjustments = getAdjustments()
+
+    const movements: StockMovement[] = []
+
+    // 1. Map Issues (Show All, Mark Status)
+    issues.forEach(i => {
+      movements.push({
+        id: i.id,
+        date: i.createdAt,
+        type: 'issue',
+        reference: i.invoiceNumber || i.id.slice(0, 8),
+        itemsCount: i.products.length,
+        totalQuantity: i.products.reduce((sum, p) => sum + (p.quantityBase || p.quantity), 0),
+        totalAmount: i.totalValue,
+        totalAmount: i.totalValue,
+        description: i.branchName,
+        status: i.delivered ? 'Delivered' : i.branchReceived ? 'Received' : 'Pending'
+      })
+    })
+
+    // 2. Map Returns
+    returns.forEach(r => {
+      let retTotalAmount = 0
+      const retTotalQty = r.products.reduce((sum, p) => {
+        const prod = allProducts.find(prod => prod.id === p.productId)
+        if (prod) {
+          retTotalAmount += ((p.quantityBase || p.quantity) * (prod.averagePrice || prod.price || 0))
+        }
+        return sum + (p.quantityBase || p.quantity)
+      }, 0)
+
+      movements.push({
+        id: r.id,
+        date: r.createdAt,
+        type: 'return',
+        reference: r.returnNumber || r.id.slice(0, 8),
+        itemsCount: r.products.length,
+        totalQuantity: retTotalQty,
+        totalAmount: retTotalAmount,
+        description: r.customerName || r.branchName || "Return",
+        status: r.status
+      })
+    })
+
+    // 3. Map Purchase Orders (Show All)
+    pos.forEach(p => {
+      let poTotalAmount = 0
+      const totalQty = p.items.reduce((sum, item) => {
+        const prod = allProducts.find(prod => prod.id === item.productId)
+        if (prod) {
+          poTotalAmount += (item.requestedQuantity * (prod.averagePrice || prod.price || 0))
+        }
+        return sum + item.requestedQuantity
+      }, 0)
+
+      movements.push({
+        id: p.id,
+        date: p.createdAt,
+        type: 'purchase',
+        reference: 'PO-' + p.id.slice(0, 8),
+        itemsCount: p.items.length,
+        totalQuantity: totalQty,
+        totalAmount: poTotalAmount,
+        description: p.notes || "Purchase Order",
+        status: p.status
+      })
+    })
+
+    // 4. Map Adjustments
+    adjustments.forEach(a => {
+      const prod = allProducts.find(p => p.id === a.productId)
+      const adjAmount = prod ? (Math.abs(a.difference) * (prod.averagePrice || prod.price || 0)) : 0
+
+      movements.push({
+        id: a.id,
+        date: a.createdAt,
+        type: 'adjustment',
+        reference: 'ADJ',
+        itemsCount: 1,
+        totalQuantity: a.difference,
+        totalAmount: adjAmount,
+        description: a.reason || "Stock Adjustment",
+      })
+    })
+
+    // Sort Descending (Latest First)
+    movements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+    // 5. Calculate Running Balance (Inventory Value)
+    // Start with Current Total Value and work backwards
+    let currentGlobalValue = allProducts.reduce((sum, p) => sum + p.currentStockValue, 0)
+
+    movements.forEach(m => {
+      m.inventoryValueAfter = currentGlobalValue
+
+      // Reverse the effect ONLY if COMPLETED
+      let isReal = false
+      if (m.type === 'issue' && m.status === 'Completed') isReal = true
+      if (m.type === 'purchase' && (m.status === 'completed' || m.status === 'received')) isReal = true
+      if (m.type === 'return' && (m.status === 'completed' || m.status === 'approved')) isReal = true // Adjust based on Return status logic? Assuming 'approved' counts
+      if (m.type === 'adjustment') isReal = true // Always real?
+
+      if (isReal) {
+        switch (m.type) {
+          case 'issue':
+            currentGlobalValue += m.totalAmount
+            break
+          case 'purchase':
+            currentGlobalValue -= m.totalAmount
+            break
+          case 'return':
+            currentGlobalValue -= m.totalAmount
+            break
+          case 'adjustment':
+            if (m.totalQuantity > 0) {
+              currentGlobalValue -= m.totalAmount
+            } else {
+              currentGlobalValue += m.totalAmount
+            }
+            break
+        }
+        // Safety for float precision
+        currentGlobalValue = Math.round(currentGlobalValue * 100) / 100
+      }
+
+      m.inventoryValueBefore = currentGlobalValue
+    })
 
     if (isMounted) {
       setProducts(allProducts)
       setTransactions(allTransactions)
+      setStockMovements(movements)
       setCategories(allCategories.map((c) => c.name))
 
       const uniqueLocations = [...new Set(allProducts.map((p) => p.location).filter(Boolean))]
@@ -102,7 +235,7 @@ export default function ReportsPage() {
 
     if (mergeIdentical) {
       const mergedMap = new Map<string, Product>()
-      
+
       filtered.forEach(p => {
         const key = `${p.productName}-${p.productCode}`
         if (mergedMap.has(key)) {
@@ -120,7 +253,7 @@ export default function ReportsPage() {
           mergedMap.set(key, { ...p })
         }
       })
-      
+
       filtered = Array.from(mergedMap.values())
     }
 
@@ -129,6 +262,7 @@ export default function ReportsPage() {
 
   useEffect(() => {
     let filtered = [...transactions]
+    let filteredMovements = [...stockMovements]
     let calcStartDate: Date | undefined
     let calcEndDate: Date | undefined
 
@@ -165,9 +299,14 @@ export default function ReportsPage() {
         const tDate = new Date(t.createdAt)
         return tDate >= calcStartDate! && tDate <= calcEndDate!
       })
+      filteredMovements = filteredMovements.filter((m) => {
+        const mDate = new Date(m.date)
+        return mDate >= calcStartDate! && mDate <= calcEndDate!
+      })
     }
 
     setFilteredTransactions(filtered)
+    setFilteredStockMovements(filteredMovements)
 
     // Calculate financial summary
     const summary = calculateFinancialSummary(calcStartDate, calcEndDate)
@@ -295,46 +434,46 @@ export default function ReportsPage() {
 
               <div className="grid gap-4 md:grid-cols-3 mt-4 pt-4 border-t">
                 <div className="flex items-center space-x-2 space-x-reverse">
-                  <Switch 
-                    id="hide-zero" 
-                    checked={hideZeroStock} 
+                  <Switch
+                    id="hide-zero"
+                    checked={hideZeroStock}
                     onCheckedChange={(v) => {
                       setHideZeroStock(v)
                       if (v) {
                         setShowOnlyOutOfStock(false)
                         setShowLowStockOnly(false)
                       }
-                    }} 
+                    }}
                   />
                   <Label htmlFor="hide-zero"><DualText k="reports.hideZero" /></Label>
                 </div>
-                
+
                 <div className="flex items-center space-x-2 space-x-reverse">
-                  <Switch 
-                    id="show-out-of-stock" 
-                    checked={showOnlyOutOfStock} 
+                  <Switch
+                    id="show-out-of-stock"
+                    checked={showOnlyOutOfStock}
                     onCheckedChange={(v) => {
                       setShowOnlyOutOfStock(v)
                       if (v) {
                         setHideZeroStock(false)
                         setShowLowStockOnly(false)
                       }
-                    }} 
+                    }}
                   />
                   <Label htmlFor="show-out-of-stock"><DualText k="reports.showOnlyOutOfStock" /></Label>
                 </div>
 
                 <div className="flex items-center space-x-2 space-x-reverse">
-                  <Switch 
-                    id="show-low-stock" 
-                    checked={showLowStockOnly} 
+                  <Switch
+                    id="show-low-stock"
+                    checked={showLowStockOnly}
                     onCheckedChange={(v) => {
                       setShowLowStockOnly(v)
                       if (v) {
                         setHideZeroStock(false)
                         setShowOnlyOutOfStock(false)
                       }
-                    }} 
+                    }}
                   />
                   <Label htmlFor="show-low-stock"><DualText k="reports.showLowStockOnly" /></Label>
                 </div>
@@ -415,6 +554,65 @@ export default function ReportsPage() {
             </Card>
           </div>
 
+          <div className="grid gap-4 md:grid-cols-4 mb-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground"><DualText k="reports.openingBalance" fallback="رصيد البداية (للفترة)" /></CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {filteredStockMovements.length > 0
+                    ? filteredStockMovements[filteredStockMovements.length - 1].inventoryValueBefore?.toFixed(2)
+                    : (stockMovements.length > 0 ? stockMovements[stockMovements.length - 1].inventoryValueBefore?.toFixed(2) : "0.00")}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground"><DualText k="reports.totalIncrease" fallback="إجمالي الزيادة" /></CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-600">
+                  {filteredStockMovements.reduce((sum, m) => {
+                    if (m.type === 'purchase' || m.type === 'return' || (m.type === 'adjustment' && m.totalQuantity > 0)) {
+                      return sum + m.totalAmount
+                    }
+                    return sum
+                  }, 0).toFixed(2)}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground"><DualText k="reports.totalDecrease" fallback="إجمالي النقص" /></CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-red-600">
+                  {filteredStockMovements.reduce((sum, m) => {
+                    if (m.type === 'issue' || (m.type === 'adjustment' && m.totalQuantity < 0)) {
+                      return sum + m.totalAmount
+                    }
+                    return sum
+                  }, 0).toFixed(2)}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground"><DualText k="reports.closingBalance" fallback="رصيد النهاية" /></CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {filteredStockMovements.length > 0
+                    ? filteredStockMovements[0].inventoryValueAfter?.toFixed(2)
+                    : (stockMovements.length > 0 ? stockMovements[0].inventoryValueAfter?.toFixed(2) : "0.00")}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <StockMovementReportTable movements={filteredStockMovements} />
+
           <InventoryMovementAnalysis products={filteredProducts} />
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -445,11 +643,11 @@ export default function ReportsPage() {
               <CardDescription><DualText k="reports.topProducts.desc" /></CardDescription>
             </CardHeader>
             <CardContent>
-              <TopProductsTable 
-                transactions={filteredTransactions} 
-                products={filteredProducts} 
-                period={period} 
-                threshold={bestSellerThreshold} 
+              <TopProductsTable
+                transactions={filteredTransactions}
+                products={filteredProducts}
+                period={period}
+                threshold={bestSellerThreshold}
               />
             </CardContent>
           </Card>

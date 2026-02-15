@@ -1,6 +1,6 @@
 "use client"
 
-import { Package, BarChart3, Receipt, ShoppingCart, Building2, Barcode, ChevronLeft, Settings, LogOut, Menu, Tag, Wrench } from "lucide-react"
+import { Package, BarChart3, Receipt, ShoppingCart, Building2, Barcode, ChevronLeft, Settings, LogOut, Menu, Tag, Wrench, Server } from "lucide-react"
 import Link from "next/link"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import Image from "next/image"
@@ -41,6 +41,7 @@ export function Header() {
     { href: "/scanner", key: "nav.scanner", label: t("nav.scanner"), icon: Barcode },
     { href: "/label-designer", key: "nav.labelDesigner", label: "مصمم الملصقات", icon: Tag },
     { href: "/admin/assets", key: "nav.assets", label: "إدارة الأصول", icon: Wrench },
+    { href: "/admin/system", key: "nav.system", label: "موارد النظام", icon: Server },
     { href: "/settings", key: "common.settings", label: t("common.settings"), icon: Settings },
   ]
 

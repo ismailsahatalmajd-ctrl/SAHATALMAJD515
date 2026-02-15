@@ -24,6 +24,16 @@ interface TotalIssuedInvoiceOptions {
 }
 
 export async function generateTotalIssuedPDF(issues: Issue[], options: TotalIssuedInvoiceOptions = {}) {
+  const printWindow = window.open("", "_blank")
+  if (!printWindow) return
+  printWindow.document.write(`
+    <div style="font-family:sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; gap:20px;">
+      <div style="width:40px; height:40px; border:4px solid #f3f3f3; border-top:4px solid #dc2626; border-radius:50%; animation: spin 1s linear infinite;"></div>
+      <p style="color:#64748b;">جاري تجهيز تقرير الصرف الإجمالي... (Preparing Total Issued Report...)</p>
+      <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+    </div>
+  `)
+
   const settings = await getInvoiceSettings()
   const allProducts = getProducts()
   const { dateFrom, dateTo, branchFilter, lang = "ar" } = options
@@ -441,9 +451,7 @@ export async function generateTotalIssuedPDF(issues: Issue[], options: TotalIssu
 </html>
   `
 
-  const printWindow = window.open("", "_blank")
-  if (printWindow) {
-    printWindow.document.write(pdfContent)
-    printWindow.document.close()
-  }
+  printWindow.document.open()
+  printWindow.document.write(pdfContent)
+  printWindow.document.close()
 }

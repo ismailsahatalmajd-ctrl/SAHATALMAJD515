@@ -225,6 +225,7 @@ export default function DashboardPage() {
         totalPrice: it.totalPrice,
         image: it.image,
         unit: it.unit,
+        notes: it.notes,
       }))
       await addIssue({
         branchId: created.branchId,

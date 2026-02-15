@@ -26,7 +26,7 @@ function createWindow() {
         height: 900,
         minWidth: 800,
         minHeight: 600,
-        title: 'ساحات المجد - نظام إدارة المخزون',
+        title: 'SOHEEL - نظام سهيل لإدارة المخزون',
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
@@ -37,13 +37,20 @@ function createWindow() {
         mainWindow.loadURL('http://localhost:3000');
         mainWindow.webContents.openDevTools();
     } else {
-        // Load using our custom protocol
-        mainWindow.loadURL('app://localhost/').catch(err => {
-            console.error('CRITICAL: Failed to load app://localhost/', err);
+        // Load the live production site to ensure it's always up-to-date
+        // This makes the desktop app a reflection of the current website
+        const LIVE_URL = 'https://sahatcom.cards';
+
+        console.log(`Loading live application from: ${LIVE_URL}`);
+
+        mainWindow.loadURL(LIVE_URL).catch(err => {
+            console.error(`CRITICAL: Failed to load ${LIVE_URL}`, err);
+            // Fallback to local if offline or error? 
+            // For now, retry or show error is better than stale local version if "reflection" is the goal.
         });
 
-        // Always open DevTools in this phase to help debug
-        mainWindow.webContents.openDevTools();
+        // Optional: Remove DevTools in production for cleaner look
+        // mainWindow.webContents.openDevTools(); 
     }
 
     mainWindow.once('ready-to-show', () => {

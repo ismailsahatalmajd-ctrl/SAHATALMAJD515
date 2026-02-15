@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { TrendingUp, TrendingDown, Minus, AlertTriangle } from "lucide-react"
+import { TrendingUp, TrendingDown, Minus, AlertTriangle, Sparkles } from "lucide-react"
 import type { Product } from "@/lib/types"
 import { useI18n } from "@/components/language-provider"
 
@@ -12,13 +12,28 @@ interface InventoryMovementAnalysisProps {
 
 export function InventoryMovementAnalysis({ products }: InventoryMovementAnalysisProps) {
   const { t } = useI18n()
-  // Calculate movement speed based on issues vs current stock
+  // Calculate movement speed based on new business rules
   const analyzeMovement = (product: Product) => {
-    const turnoverRatio = product.currentStock > 0 ? product.issues / product.currentStock : 0
+    const { openingStock, purchases, issues, currentStock } = product
 
-    // User Rules: Fast > 1, Normal > 0.35, Slow > 0, Stagnant 0
-    if (turnoverRatio > 1) return "fast"
-    if (turnoverRatio > 0.35) return "normal"
+    // Special Case: New Purchases
+    // Condition: Opening Stock = 0, Purchases > 0, No Issues = 0
+    if (openingStock === 0 && (purchases || 0) > 0 && (issues || 0) === 0) {
+      return "new"
+    }
+
+    // Formula: Average Inventory = (Opening Stock + Current Stock) / 2
+    // Formula: Turnover Rate = Total Issues / Average Inventory
+    const averageInventory = (openingStock + currentStock) / 2
+    const turnoverRatio = averageInventory > 0 ? issues / averageInventory : 0
+
+    // Classification based on Turnover Rate:
+    // Fast: > 1.0
+    // Normal: 0.35 - 1.0
+    // Slow: > 0 - 0.35
+    // Stagnant: <= 0
+    if (turnoverRatio > 1.0) return "fast"
+    if (turnoverRatio >= 0.35) return "normal"
     if (turnoverRatio > 0) return "slow"
     return "stagnant"
   }
@@ -27,11 +42,13 @@ export function InventoryMovementAnalysis({ products }: InventoryMovementAnalysi
   const normalMoving = products.filter((p) => analyzeMovement(p) === "normal")
   const slowMoving = products.filter((p) => analyzeMovement(p) === "slow")
   const stagnant = products.filter((p) => analyzeMovement(p) === "stagnant")
+  const newPurchases = products.filter((p) => analyzeMovement(p) === "new")
 
   const fastValue = fastMoving.reduce((sum, p) => sum + p.currentStockValue, 0)
   const normalValue = normalMoving.reduce((sum, p) => sum + p.currentStockValue, 0)
   const slowValue = slowMoving.reduce((sum, p) => sum + p.currentStockValue, 0)
   const stagnantValue = stagnant.reduce((sum, p) => sum + p.currentStockValue, 0)
+  const newValue = newPurchases.reduce((sum, p) => sum + p.currentStockValue, 0)
 
   return (
     <Card>
@@ -40,7 +57,22 @@ export function InventoryMovementAnalysis({ products }: InventoryMovementAnalysi
         <CardDescription>{t("inventory.analysis.desc")}</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+          <div className="space-y-2 p-4 rounded-lg border border-purple-200 bg-purple-50 dark:bg-purple-950/20">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-purple-900 dark:text-purple-100">{t("inventory.analysis.new")}</span>
+              <Sparkles className="h-4 w-4 text-purple-600" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-2xl font-bold text-purple-900 dark:text-purple-100">{newPurchases.length}</p>
+              <p className="text-xs text-purple-700 dark:text-purple-300">{t("common.product")}</p>
+              <p className="text-sm font-semibold text-purple-800 dark:text-purple-200">{newValue.toFixed(2)} {t("common.currency")}</p>
+            </div>
+            <Badge variant="outline" className="bg-purple-100 text-purple-800 border-purple-300">
+              {t("inventory.analysis.badge.new")}
+            </Badge>
+          </div>
+
           <div className="space-y-2 p-4 rounded-lg border border-green-200 bg-green-50 dark:bg-green-950/20">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-green-900 dark:text-green-100">{t("inventory.analysis.fast")}</span>
@@ -105,6 +137,7 @@ export function InventoryMovementAnalysis({ products }: InventoryMovementAnalysi
         <div className="mt-6 p-4 rounded-lg bg-muted">
           <h4 className="font-semibold mb-2">{t("inventory.analysis.criteria.title")}</h4>
           <ul className="text-sm text-muted-foreground space-y-1">
+            <li>{t("inventory.analysis.criteria.new")}</li>
             <li>{t("inventory.analysis.criteria.fast")}</li>
             <li>{t("inventory.analysis.criteria.normal")}</li>
             <li>{t("inventory.analysis.criteria.slow")}</li>

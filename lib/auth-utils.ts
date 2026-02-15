@@ -101,7 +101,7 @@ export const DEFAULT_PERMISSIONS: Record<UserRole, Partial<Permissions>> = {
         'transactions.approve': false,
         'branches.view': true,
         'branch_requests.view': true,
-        'reports.view': true,
+        // reports.view removed (invalid)
         // NO EDIT PERMISSIONS AT ALL
         'page.dashboard': true,
         'page.inventory': true,
@@ -119,23 +119,32 @@ export const DEFAULT_PERMISSIONS: Record<UserRole, Partial<Permissions>> = {
  */
 export function hasPermission(user: User | null | undefined, permission: keyof Permissions): boolean {
     if (!user) return false;
-    if (!user.isActive) return false;
+    // Allow access even if isActive is undefined (legacy support), but block if explicitly false
+    if (user.isActive === false) return false;
 
-    // 1. Owner always has access
-    if (user.role === 'owner') return true;
+    // 0. Normalize Logic
+    const userRole = String(user.role || '').toLowerCase();
+    const username = String(user.username || '').toLowerCase();
+    const displayName = String(user.displayName || '').toLowerCase();
+
+    // 1. Owner always has access (Case Insensitive)
+    if (userRole === 'owner' || userRole === 'main') return true;
 
     // 1.5 Special Override for Super Admin Username
-    if (user.username === 'SAHATALMAJD515' || user.displayName === 'SAHATALMAJD515') return true;
+    if (username === 'sahatalmajd515' || displayName === 'sahatalmajd515') return true;
 
     // 2. Check explicit permission in user object
     if (user.permissions && user.permissions[permission] !== undefined) {
         return user.permissions[permission];
     }
 
-    // 3. Fallback to Role Defaults (if needed, but usually we save full permissions on user creation)
-    // For safety, we prefer explicit permissions saved on the user profile.
-    // But if missing, we can retrieve from default.
-    const roleDefaults = DEFAULT_PERMISSIONS[user.role];
+    // 3. Fallback to Role Defaults
+    // Try refined lowercase role, then original role
+    let roleDefaults = DEFAULT_PERMISSIONS[userRole as UserRole];
+    if (!roleDefaults) {
+        roleDefaults = DEFAULT_PERMISSIONS[user.role];
+    }
+
     if (roleDefaults && roleDefaults[permission] !== undefined) {
         return roleDefaults[permission]!;
     }

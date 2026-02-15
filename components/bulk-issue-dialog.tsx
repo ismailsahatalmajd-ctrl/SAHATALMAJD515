@@ -121,7 +121,7 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
         productId: "",
         productCode: "",
         productName: "",
-        quantity: 0,
+        quantity: 1, // الكمية الافتراضية 1
         unitPrice: 0,
         totalPrice: 0,
         image: "",
@@ -147,13 +147,17 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
         updated[index].unitPrice = product.averagePrice || product.price || 0
         updated[index].image = product.image || ""
         updated[index].unit = product.unit
+        // [User Request] Default quantity is 1
+        if (!updated[index].quantity) updated[index].quantity = 1
         // Ensure totalPrice reflects current quantity when product (unitPrice) changes
         updated[index].totalPrice = (updated[index].quantity || 0) * (product.averagePrice || product.price || 0)
       }
     }
 
     if (field === "quantity" || field === "unitPrice") {
-      updated[index].totalPrice = updated[index].quantity * updated[index].unitPrice
+      const q = parseFloat(String(updated[index].quantity)) || 0
+      const p = parseFloat(String(updated[index].unitPrice)) || 0
+      updated[index].totalPrice = q * p
     }
 
     setIssueProducts(updated)
@@ -218,6 +222,9 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
     }
 
     for (const issueProduct of issueProducts) {
+      // Ensure quantity is a valid number before verification
+      issueProduct.quantity = parseFloat(String(issueProduct.quantity)) || 0
+
       const product = products.find((p) => p.id === issueProduct.productId)
 
       // Check if product has zero stock
@@ -259,9 +266,10 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
           branchName: branch.name,
           products: issueProducts,
           totalValue,
-          notes,
+          notes: notes?.trim() ? notes : "من المستودع",
           extractorName,
           inspectorName,
+          createdBy: "warehouse",
           updatedAt: new Date().toISOString()
         }
 
@@ -278,10 +286,11 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
           branchName: branch.name,
           products: issueProducts,
           totalValue,
-          notes,
+          notes: notes?.trim() ? notes : "من المستودع",
           extractorName,
           inspectorName,
           status: "pending",
+          createdBy: "warehouse",
         })
 
         if (user) {
@@ -320,7 +329,7 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] w-full md:w-auto md:min-w-[700px] lg:min-w-[800px] h-auto max-h-[95vh] overflow-y-auto flex flex-col p-6">
+      <DialogContent className="!w-[98vw] !sm:w-[95vw] !md:w-[92vw] !lg:w-[90vw] !xl:w-[88vw] !max-w-[1600px] h-auto max-h-[95vh] overflow-y-auto flex flex-col p-6">
         <DialogHeader>
           <DialogTitle className="text-xl">
             <DualText k={issueToEdit ? "bulkIssue.editTitle" : "bulkIssue.title"} />
@@ -441,14 +450,23 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
                       <TableHead className="w-[60px]">
                         <DualText k="common.image" />
                       </TableHead>
-                      <TableHead className="w-[280px] sm:w-[360px] md:w-[420px] max-w-[420px]">
+                      <TableHead className="w-auto flex-1 min-w-[300px]">
                         <DualText k="common.product" />
+                      </TableHead>
+                      <TableHead className="w-[100px]">
+                        <div className="flex flex-col">
+                          <span>الباركود</span>
+                          <span className="text-xs">Code</span>
+                        </div>
                       </TableHead>
                       {settings.showUnit && (
                         <TableHead className="w-[80px]">
                           <DualText k="products.columns.unit" />
                         </TableHead>
                       )}
+                      <TableHead className="w-[100px] text-center">
+                        <DualText k="common.available" />
+                      </TableHead>
                       <TableHead className="w-[140px]">
                         <DualText k="form.quantity" />
                       </TableHead>
@@ -462,6 +480,9 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
                           <DualText k="common.total" />
                         </TableHead>
                       )}
+                      <TableHead className="w-[150px]">
+                        Notes / ملاحظات
+                      </TableHead>
                       <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -490,24 +511,30 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
                               </div>
                             )}
                           </TableCell>
-                          <TableCell className="w-[280px] sm:w-[360px] md:w-[420px] max-w-[420px] align-top">
+                          <TableCell className="w-auto flex-1 min-w-[300px] align-top">
                             <ProductCombobox
                               products={products}
                               value={issueProduct.productId}
                               onChange={(val) => updateProductRow(index, "productId", val)}
                             />
                           </TableCell>
+                          <TableCell className="text-center font-mono text-sm">{issueProduct.productCode || "-"}</TableCell>
                           {settings.showUnit && <TableCell className="text-center">{issueProduct.unit || "-"}</TableCell>}
+                          <TableCell className="text-center">
+                            <span className={`font-semibold ${adjustedStock > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {adjustedStock}
+                            </span>
+                          </TableCell>
                           <TableCell>
                             <Input
                               type="number"
-                              min="1"
-                              value={issueProduct.quantity || ""}
-                              onChange={(e) => updateProductRow(index, "quantity", Number(e.target.value))}
+                              step="any"
+                              value={issueProduct.quantity}
+                              onChange={(e) => updateProductRow(index, "quantity", e.target.value)}
                               className={`bg-white !text-black font-semibold text-base h-11 border-input ${isOverStock ? "border-red-500 focus-visible:ring-red-500" : ""
                                 }`}
                               style={{ color: '#000000 !important' }}
-                              placeholder="0"
+                              placeholder="1"
                             />
                             {isOverStock && (
                               <p className="text-xs text-red-500 mt-1 font-medium">
@@ -533,6 +560,15 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
                               {issueProduct.totalPrice.toFixed(2)}
                             </TableCell>
                           )}
+                          <TableCell className="p-0">
+                            <Input
+                              value={issueProduct.notes || ""}
+                              onChange={(e) => updateProductRow(index, "notes", e.target.value)}
+                              placeholder="Notes"
+                              className={`bg-white !text-black h-11 border-input transition-all duration-200 ${issueProduct.notes ? "w-[200px]" : "w-[120px] focus:w-[200px]"}`}
+                              style={{ color: '#000000 !important' }}
+                            />
+                          </TableCell>
                           <TableCell>
                             <Button type="button" size="icon" variant="ghost" onClick={() => removeProductRow(index)}>
                               <Trash2 className="h-4 w-4 text-destructive" />
@@ -595,7 +631,7 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
             )}
           </Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </DialogContent >
+    </Dialog >
   )
 }

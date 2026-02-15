@@ -119,6 +119,27 @@ export function formatEnglishNumber(value: number | string): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 20, useGrouping: false }).format(num)
 }
 
+// Format currency with thousands separator and 2 decimal places (English numerals)
+export function formatCurrency(value: number | string): string {
+  const num = typeof value === "number" ? value : Number(String(value).replace(/[^\d.-]/g, ""))
+  if (Number.isNaN(num)) return "0.00"
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+    useGrouping: true // Add thousands separator
+  }).format(num)
+}
+
+// Format number with thousands separator and NO decimal places (English numerals)
+export function formatNumberWithSeparators(value: number | string): string {
+  const num = typeof value === "number" ? value : Number(String(value).replace(/[^\d.-]/g, ""))
+  if (Number.isNaN(num)) return "0"
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 0,
+    useGrouping: true // Add thousands separator
+  }).format(num)
+}
+
 // Download JSON helper
 export function downloadJSON(data: any, filename: string) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })

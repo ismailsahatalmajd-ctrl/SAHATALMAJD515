@@ -17,6 +17,7 @@ import type {
 export type { PurchaseOrder, PurchaseOrderItem }
 import type { BranchInvoice } from './branch-invoice-types'
 import type { BranchRequest } from './branch-request-types'
+import type { BranchRequestDraft } from './types' // Import Draft Type
 import type { PurchaseRequest } from './purchase-request-types'
 import { db } from './db'
 export { db }
@@ -97,6 +98,7 @@ export function clearAppCache() {
     verificationLogs: [],
     branchInvoices: [],
     branchRequests: [],
+    branchRequestDrafts: [],
     purchaseRequests: []
   }
   notify('change')
@@ -107,40 +109,51 @@ export async function factoryReset() {
   try {
     // 0. Cloud Data Wipe (Optional/Prompted usually, but enforced here based on 'Factory Reset' expectation)
     // We try to clear cloud data to prevent re-sync
-    try {
-      const [
-        products, cats, branches, trans, issues, returns, units, locs, adjs, reqs, invs, preqs, imgs
-      ] = await Promise.all([
-        db.products.toArray(),
-        db.categories.toArray(),
-        db.branches.toArray(),
-        db.transactions.toArray(),
-        db.issues.toArray(),
-        db.returns.toArray(),
-        db.units.toArray(),
-        db.locations.toArray(),
-        db.inventoryAdjustments.toArray(),
-        db.branchRequests.toArray(),
-        db.branchInvoices.toArray(),
-        db.purchaseRequests.toArray(),
-        db.productImages.toArray()
-      ])
+    const [
+      products, cats, branches, trans, issues, returns, units, locs, adjs, reqs, invs, preqs, imgs
+    ] = await Promise.all([
+      db.products.toArray(),
+      db.categories.toArray(),
+      db.branches.toArray(),
+      db.transactions.toArray(),
+      db.issues.toArray(),
+      db.returns.toArray(),
+      db.units.toArray(),
+      db.locations.toArray(),
+      db.inventoryAdjustments.toArray(),
+      db.branchRequests.toArray(),
+      db.branchInvoices.toArray(),
+      db.purchaseRequests.toArray(),
+      db.productImages.toArray()
+    ])
 
-      await Promise.all([
-        deleteAllProductsApi(products.map(p => p.id)),
-        deleteAllCategoriesApi(cats.map(p => p.id)),
-        deleteAllBranchesApi(branches.map(p => p.id)),
-        deleteAllTransactionsApi(trans.map(p => p.id)),
-        deleteAllIssuesApi(issues.map(p => p.id)),
-        deleteAllReturnsApi(returns.map(p => p.id)),
-        deleteAllUnitsApi(units.map(p => p.id)),
-        deleteAllLocationsApi(locs.map(p => p.id)),
-        deleteAllAdjustmentsApi(adjs.map(p => p.id)),
-        deleteAllBranchRequestsApi(reqs.map(p => p.id)),
-        deleteAllBranchInvoicesApi(invs.map(p => p.id)),
-        deleteAllPurchaseRequestsApi(preqs.map(p => p.id)),
-        deleteAllProductImagesApi(imgs.map(p => p.productId))
-      ])
+    // 4. Clear Cloud Data (Best Effort)
+    try {
+      // Products (Chunked)
+      const pIds = products.map(p => p.id)
+      for (let i = 0; i < pIds.length; i += 200) {
+        await deleteAllProductsApi(pIds.slice(i, i + 200)).catch(console.error)
+        await new Promise(r => setTimeout(r, 100))
+      }
+
+      await deleteAllCategoriesApi(cats.map(p => p.id)).catch(console.error)
+      await deleteAllBranchesApi(branches.map(p => p.id)).catch(console.error)
+      await deleteAllTransactionsApi(trans.map(p => p.id)).catch(console.error)
+      await deleteAllIssuesApi(issues.map(p => p.id)).catch(console.error)
+      await deleteAllReturnsApi(returns.map(p => p.id)).catch(console.error)
+      await deleteAllUnitsApi(units.map(p => p.id)).catch(console.error)
+      await deleteAllLocationsApi(locs.map(p => p.id)).catch(console.error)
+      await deleteAllAdjustmentsApi(adjs.map(p => p.id)).catch(console.error)
+      await deleteAllBranchRequestsApi(reqs.map(p => p.id)).catch(console.error)
+      await deleteAllBranchInvoicesApi(invs.map(p => p.id)).catch(console.error)
+      await deleteAllPurchaseRequestsApi(preqs.map(p => p.id)).catch(console.error)
+
+      // Images (Chunked)
+      const imgIds = imgs.map(p => p.productId)
+      for (let i = 0; i < imgIds.length; i += 50) {
+        await deleteAllProductImagesApi(imgIds.slice(i, i + 50)).catch(console.error)
+        await new Promise(r => setTimeout(r, 100))
+      }
     } catch (e) {
       console.error("Failed to clear cloud data:", e)
     }
@@ -163,6 +176,7 @@ export async function factoryReset() {
       db.inventoryAdjustments.clear(),
       db.branchInvoices.clear(),
       db.branchRequests.clear(),
+      db.branchRequestDrafts.clear(),
       db.purchaseRequests.clear(),
       // db.settings.clear(),
       db.auditLogs.clear(),
@@ -190,6 +204,7 @@ export async function factoryReset() {
       inventoryAdjustments: [],
       branchInvoices: [],
       branchRequests: [],
+      branchRequestDrafts: [],
       purchaseRequests: [],
       notifications: [],
       productImages: [],
@@ -418,11 +433,22 @@ export async function updateProduct(id: string, updates: Partial<Product>): Prom
     if (fromDb) {
       const updated = { ...fromDb, ...updates, updatedAt: new Date().toISOString() };
       await db.products.put(updated);
+
+      // Also update cache
+      const cacheIndex = products.findIndex(p => p.id === id)
+      if (cacheIndex !== -1) {
+        products[cacheIndex] = updated
+      } else {
+        products.push(updated)
+      }
+
       try {
         await syncProduct(updated)
       } catch (e) {
         console.error("Sync Error updateProduct fallback:", e)
       }
+
+      notify("products_change")
       return updated;
     }
 
@@ -602,13 +628,27 @@ export async function addTransaction(transaction: Omit<Transaction, "id" | "crea
           product.lastActivity = new Date().toISOString()
           break
         case "return":
-          // Sales Return: Decrease total "issues" (sales)
-          // This mathematically increases currentStock = opening + purchases - issues
-          quantityChange = transaction.quantity
-          product.issues = Math.max(0, (product.issues || 0) - transaction.quantity)
+          // Internal Return: Increase 'returns' (Inbound)
+          // This mathematically increases currentStock = opening + purchases + returns - issues
 
-          // Ensure the product average price doesn't change, but we assume the return
-          // enters inventory at the current average price.
+          const currentStockForReturn = (product.openingStock || 0) + (product.purchases || 0) + (product.returns || 0) - (product.issues || 0)
+          const oldAvgReturn = Number(product.averagePrice || product.price || 0)
+          const returnQty = Number(transaction.quantity || 0)
+          const returnValue = Number(transaction.unitPrice || 0)
+
+          if (returnQty > 0) {
+            const oldStockValue = currentStockForReturn * oldAvgReturn
+            const addedReturnValue = returnQty * returnValue
+            const newTotalStock = currentStockForReturn + returnQty
+
+            if (newTotalStock > 0) {
+              product.averagePrice = (oldStockValue + addedReturnValue) / newTotalStock
+            }
+          }
+
+          quantityChange = transaction.quantity
+          product.returns = (product.returns || 0) + transaction.quantity
+          product.returnsValue = (product.returnsValue || 0) + (transaction.totalAmount || 0)
           break
         case "adjustment":
           quantityChange = transaction.quantity
@@ -617,33 +657,27 @@ export async function addTransaction(transaction: Omit<Transaction, "id" | "crea
           break
       }
 
-      // Formula: currentStock = openingStock + purchases - issues
-      product.currentStock = (product.openingStock || 0) + (product.purchases || 0) - (product.issues || 0)
-      // inventoryCount is the PHYSICAL count (from audit/inventory counts)
-      // It's set manually via inventory count page, not through transactions
-      // Use currentStock for valuation with average price
-      product.currentStockValue = product.currentStock * product.averagePrice
-      product.updatedAt = new Date().toISOString()
-      product.lastModifiedBy = getDeviceId()
+      // Save updated product
+      product.averagePrice = isNaN(product.averagePrice) ? 0 : product.averagePrice
+      product.purchases = (Number(product.purchases) || 0) + quantityChange
 
-      // Update Cache
-      const pIdx = store.cache.products.findIndex(p => p.id === product.id)
-      if (pIdx !== -1) store.cache.products[pIdx] = product
+      // Formula: currentStock = openingStock + purchases + returns - issues
+      product.currentStock = (Number(product.openingStock) || 0) + (Number(product.purchases) || 0) + (Number(product.returns) || 0) - (Number(product.issues) || 0)
+
+      product.currentStockValue = (Number(product.currentStock) || 0) * (Number(product.averagePrice) || 0)
+
+      // Update Last Activity
+      product.lastActivity = new Date().toISOString()
 
       await db.products.put(product)
+      if (typeof window !== 'undefined') await syncProduct(product)
 
-      try {
-        if (typeof window !== 'undefined') await syncProduct(product)
-      } catch (e) {
-        console.error("Sync Error updateProduct (transaction):", e)
-      }
-
+      store.cache.products = store.cache.products.map(p => p.id === product.id ? product : p)
       notify('products_change')
     }
-  } catch (err) {
-    console.error("Failed to update product for transaction:", err)
+  } catch (error) {
+    console.error("Failed to update product stats from transaction", error)
   }
-
   notify('transactions_change')
   return newTransaction
 }
@@ -798,34 +832,17 @@ export function savePurchaseOrders(orders: PurchaseOrder[]): void {
 export function calculateProductValues(product: Product) {
   const openingStock = Number(product.openingStock || 0)
   const purchases = Number(product.purchases || 0)
+  const returns = Number(product.returns || 0)
   const issues = Number(product.issues || 0)
-  const price = Number(product.price || 0)
-  // Use stored averagePrice if available, otherwise fallback to price.
-  // We use `??` to allow 0 as a valid average price if specifically set.
-  const averagePrice = Number(product.averagePrice ?? price ?? 0)
 
-  // Logic: Current Stock should be calculated from history
-  const currentStock = openingStock + purchases - issues
-  const quantity = currentStock
+  // New Formula: Stock = Opening + Purchases + Returns - Issues
+  product.currentStock = openingStock + purchases + returns - issues
+  product.currentStockValue = product.currentStock * (product.averagePrice || product.price || 0)
 
-  // inventoryCount is the PHYSICAL count entered by user, DO NOT overwrite it with theoretical formula
-  // The 'difference' will be calculated in UI/Reports as (currentStock - inventoryCount)
-
-  return {
-    ...product,
-    openingStock,
-    purchases,
-    issues,
-    currentStock,
-    quantity,
-    price,
-    averagePrice,
-    // inventoryCount: product.inventoryCount, // Keep existing value (don't overwrite)
-    // Use currentStock for valuation with weighted average price
-    currentStockValue: currentStock * averagePrice,
-    issuesValue: issues * price
-  }
+  return product
 }
+
+
 
 export function getAdjustments(): InventoryAdjustment[] {
   return store.cache.adjustments
@@ -987,11 +1004,69 @@ export async function updateIssue(id: string, updates: Partial<Issue>): Promise<
   const issues = getIssues()
   const idx = issues.findIndex(i => i.id === id)
   if (idx === -1) return null
-  issues[idx] = { ...issues[idx], ...updates, updatedAt: new Date().toISOString(), lastModifiedBy: getDeviceId() }
+
+  const oldIssue = issues[idx]
+
+  // If Delivered, we must manage stock reversal/re-application
+  if (oldIssue.delivered) {
+    try {
+      // 1. Revert Stock for OLD products
+      const allProducts = await db.products.toArray()
+      await Promise.all(oldIssue.products.map(async (ip) => {
+        const p = allProducts.find(prod => prod.id === ip.productId)
+        if (p) {
+          const qty = (ip as any).quantityBase || ip.quantity
+          p.issues = (p.issues || 0) - qty
+          p.issuesValue = (p.issuesValue || 0) - ip.totalPrice
+          // Recalc Stock
+          p.currentStock = (p.openingStock || 0) + (p.purchases || 0) + (p.returns || 0) - (p.issues || 0)
+          p.currentStockValue = p.currentStock * (p.averagePrice || p.price || 0)
+          p.updatedAt = new Date().toISOString()
+          p.lastModifiedBy = getDeviceId()
+          // Update Cache & DB
+          const pIdx = store.cache.products.findIndex(prod => prod.id === p.id)
+          if (pIdx !== -1) store.cache.products[pIdx] = p
+          await db.products.put(p)
+          if (typeof window !== 'undefined') await syncProduct(p).catch(console.error)
+        }
+      }))
+    } catch (e) { console.error("Error reverting stock in updateIssue", e) }
+  }
+
+  // 2. Apply Updates to Issue
+  const updatedIssue = { ...oldIssue, ...updates, updatedAt: new Date().toISOString(), lastModifiedBy: getDeviceId() }
+  issues[idx] = updatedIssue
   store.cache.issues = issues
-  await db.issues.put(issues[idx])
-  if (typeof window !== 'undefined') await syncIssue(issues[idx]).catch(console.error)
-  return issues[idx]
+  await db.issues.put(updatedIssue)
+  if (typeof window !== 'undefined') await syncIssue(updatedIssue).catch(console.error)
+
+  // 3. Re-apply Stock for NEW products (if Delivered)
+  if (updatedIssue.delivered) {
+    try {
+      const allProducts = await db.products.toArray() // Refresh
+      await Promise.all(updatedIssue.products.map(async (ip) => {
+        const p = allProducts.find(prod => prod.id === ip.productId)
+        if (p) {
+          const qty = (ip as any).quantityBase || ip.quantity
+          p.issues = (p.issues || 0) + qty
+          p.issuesValue = (p.issuesValue || 0) + ip.totalPrice
+          // Recalc Stock
+          p.currentStock = (p.openingStock || 0) + (p.purchases || 0) + (p.returns || 0) - (p.issues || 0)
+          p.currentStockValue = p.currentStock * (p.averagePrice || p.price || 0)
+          p.updatedAt = new Date().toISOString()
+          p.lastModifiedBy = getDeviceId()
+
+          const pIdx = store.cache.products.findIndex(prod => prod.id === p.id)
+          if (pIdx !== -1) store.cache.products[pIdx] = p
+          await db.products.put(p)
+          if (typeof window !== 'undefined') await syncProduct(p).catch(console.error)
+        }
+      }))
+      notify('products_change')
+    } catch (e) { console.error("Error applying stock in updateIssue", e) }
+  }
+
+  return updatedIssue
 }
 
 export async function addIssue(issue: Omit<Issue, "id" | "createdAt">): Promise<Issue> {
@@ -1029,6 +1104,36 @@ export async function addIssue(issue: Omit<Issue, "id" | "createdAt">): Promise<
   return newIssue
 }
 
+export async function deleteIssue(id: string): Promise<boolean> {
+  try {
+    const issues = getIssues()
+    const issueToDelete = issues.find(i => i.id === id)
+    if (!issueToDelete) return false
+
+    // 1. If it has a related branch request, delete it too
+    if (issueToDelete.requestId) {
+      const { deleteBranchRequest } = await import('./branch-request-storage')
+      await deleteBranchRequest(issueToDelete.requestId)
+    }
+
+    // 2. Remove from local cache & DB
+    const filtered = issues.filter(i => i.id !== id)
+    store.cache.issues = filtered
+    await db.issues.delete(id)
+
+    // 3. Sync deletion to cloud
+    if (typeof window !== 'undefined') {
+      await deleteAllIssuesApi([id]).catch(console.error)
+    }
+
+    notify('change')
+    return true
+  } catch (err) {
+    console.error("Failed to delete issue:", err)
+    return false
+  }
+}
+
 export async function setIssueDelivered(issueId: string, deliveredBy: string): Promise<boolean> {
   const issue = await db.issues.get(issueId);
   if (!issue) return false
@@ -1056,8 +1161,8 @@ export async function setIssueDelivered(issueId: string, deliveredBy: string): P
         p.issues = (p.issues || 0) + qtyToDeduct
         p.issuesValue = (p.issuesValue || 0) + ip.totalPrice
 
-        // Recalculate currentStock using formula: opening + purchases - issues
-        p.currentStock = (p.openingStock || 0) + (p.purchases || 0) - (p.issues || 0)
+        // Recalculate currentStock using formula: opening + purchases + returns - issues
+        p.currentStock = (p.openingStock || 0) + (p.purchases || 0) + (p.returns || 0) - (p.issues || 0)
         p.currentStockValue = p.currentStock * (p.averagePrice || p.price || 0)
         p.updatedAt = new Date().toISOString()
         p.lastModifiedBy = getDeviceId()
@@ -1086,6 +1191,27 @@ export async function setIssueDelivered(issueId: string, deliveredBy: string): P
   if (typeof window !== 'undefined') {
     await syncIssue(issue).catch(console.error)
   }
+  return true
+}
+
+export async function setIssueShipped(issueId: string): Promise<boolean> {
+  const issue = await db.issues.get(issueId);
+  if (!issue) return false
+
+  if (issue.shipped) return true
+
+  // Update Issue Status ONLY (No Stock Deduction)
+  issue.shipped = true
+  issue.updatedAt = new Date().toISOString()
+  issue.lastModifiedBy = getDeviceId()
+
+  // Update cache
+  const iIdx = store.cache.issues.findIndex(i => i.id === issueId)
+  if (iIdx !== -1) store.cache.issues[iIdx] = issue
+
+  await db.issues.put(issue)
+  if (typeof window !== 'undefined') await syncIssue(issue).catch(console.error)
+
   return true
 }
 
@@ -1219,7 +1345,7 @@ export async function approveReturn(returnId: string, approvedBy: string): Promi
     await Promise.all(ret.products.map(async (rp) => {
       const p = await db.products.get(rp.productId)
       if (p) {
-        const oldStock = Number(p.currentStock || ((p.openingStock || 0) + (p.purchases || 0) - (p.issues || 0)))
+        const oldStock = Number(p.currentStock || ((p.openingStock || 0) + (p.purchases || 0) + (p.returns || 0) - (p.issues || 0)))
         const qtyToRestore = Number((rp as any).quantityBase || rp.quantity || 0)
         const prevAvg = Number(p.averagePrice || p.price || 0)
         const prevValue = Number(p.currentStockValue ?? (oldStock * prevAvg))
@@ -1227,12 +1353,12 @@ export async function approveReturn(returnId: string, approvedBy: string): Promi
         const unitPriceToUse = isInvoiceReturn ? Number(rp.unitPrice || prevAvg) : prevAvg
         const addValue = unitPriceToUse * qtyToRestore
 
-        // Reverse issue quantities and value
-        p.issues = Math.max(0, (p.issues || 0) - qtyToRestore)
-        p.issuesValue = Math.max(0, (p.issuesValue || 0) - (rp.totalPrice || unitPriceToUse * qtyToRestore))
+        // Internal Return: Increase 'returns' (Inbound)
+        p.returns = (p.returns || 0) + qtyToRestore
+        p.returnsValue = (p.returnsValue || 0) + (rp.totalPrice || unitPriceToUse * qtyToRestore)
 
         // New stock after return
-        p.currentStock = (p.openingStock || 0) + (p.purchases || 0) - (p.issues || 0)
+        p.currentStock = (p.openingStock || 0) + (p.purchases || 0) + (p.returns || 0) - (p.issues || 0)
         const newStock = Number(p.currentStock || 0)
 
         // Recalculate value and average price using weighted method
@@ -1506,4 +1632,28 @@ export async function fixDuplicates() {
     console.error("Deduplication failed", e)
     throw e
   }
+}
+
+// Branch Request Drafts
+export function getBranchRequestDrafts(): BranchRequestDraft[] {
+  return store.cache.branchRequestDrafts || []
+}
+
+export async function saveBranchRequestDraft(draft: BranchRequestDraft): Promise<void> {
+  const drafts = getBranchRequestDrafts()
+  const idx = drafts.findIndex(d => d.id === draft.id)
+  if (idx >= 0) {
+    drafts[idx] = draft
+  } else {
+    drafts.push(draft)
+  }
+  store.cache.branchRequestDrafts = drafts
+  await db.branchRequestDrafts.put(draft)
+}
+
+export async function deleteBranchRequestDraft(id: string): Promise<void> {
+  const drafts = getBranchRequestDrafts()
+  const filtered = drafts.filter(d => d.id !== id)
+  store.cache.branchRequestDrafts = filtered
+  await db.branchRequestDrafts.delete(id)
 }

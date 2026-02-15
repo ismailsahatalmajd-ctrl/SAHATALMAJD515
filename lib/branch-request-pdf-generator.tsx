@@ -25,38 +25,51 @@ export async function generateBranchRequestPDF(request: BranchRequest): Promise<
     (it) => typeof it.availableQuantity === "number" && it.requestedQuantity > (it.availableQuantity ?? 0),
   )
 
-  const rows = (await Promise.all(request.items
-    .map(async (it: any, idx) => {
-      const exceeded = !isReturn && typeof it.availableQuantity === "number" && it.requestedQuantity > (it.availableQuantity ?? 0)
-      const noteCell = hasExceeded
-        ? `<td>${exceeded ? '<span class="note-warning">يتجاوز الكمية</span>' : ''}</td>`
-        : ""
+  // Resolve images (Batch fetch optimization)
+  const itemsNeedingImage = request.items.filter(it => it.image === 'DB_IMAGE' && it.productId);
+  const uniqueProductIds = Array.from(new Set(itemsNeedingImage.map(it => it.productId as string)));
 
-      let imageSrc = it.image
-      if (imageSrc === 'DB_IMAGE') {
-        try {
-          // We need product ID... item usually doesn't have it directly?
-          // branch-request items have productId usually.
-          if (it.productId) {
-            const imgData = await db.productImages.get(it.productId)
-            if (imgData) imageSrc = imgData.data
+  let imageMap = new Map<string, string>();
+  if (uniqueProductIds.length > 0) {
+    // Process in chunks of 20 to avoid memory issues
+    const chunkSize = 20;
+    for (let i = 0; i < uniqueProductIds.length; i += chunkSize) {
+      const chunk = uniqueProductIds.slice(i, i + chunkSize);
+      try {
+        const images = await db.productImages.bulkGet(chunk);
+        images.forEach((img, idx) => {
+          if (img && img.data) {
+            imageMap.set(chunk[idx], img.data);
           }
-        } catch (e) { console.error(e) }
+        });
+      } catch (e) {
+        console.error("Failed to batch fetch images chunk", e);
       }
+    }
+  }
 
-      const imageCell = isReturn
-        ? `<td>${imageSrc ? `<img src="${imageSrc}" style="width:40px;height:40px;object-fit:cover;">` : ''}</td>`
-        : ''
+  const rows = request.items.map((it: any, idx) => {
+    const exceeded = !isReturn && typeof it.availableQuantity === "number" && it.requestedQuantity > (it.availableQuantity ?? 0)
+    const noteCell = hasExceeded
+      ? `<td>${exceeded ? '<span class="note-warning">يتجاوز الكمية</span>' : ''}</td>`
+      : ""
 
-      const reasonCell = isReturn
-        ? `<td>${it.returnReason || ''}</td>`
-        : ''
+    let imageSrc = it.image
+    if (imageSrc === 'DB_IMAGE' && it.productId && imageMap.has(it.productId)) {
+      imageSrc = imageMap.get(it.productId)
+    }
 
-      const qty = it.requestedQuantity || it.quantity || 0
-      // const unitPrice = it.unitPrice || it.price || 0
-      // const totalPrice = unitPrice * qty
+    const imageCell = isReturn
+      ? `<td>${imageSrc ? `<img src="${imageSrc}" style="width:40px;height:40px;object-fit:cover;">` : ''}</td>`
+      : ''
 
-      return `
+    const reasonCell = isReturn
+      ? `<td>${it.returnReason || ''}</td>`
+      : ''
+
+    const qty = it.requestedQuantity || it.quantity || 0
+
+    return `
       <tr>
         <td>${idx + 1}</td>
         ${imageCell}
@@ -69,7 +82,7 @@ export async function generateBranchRequestPDF(request: BranchRequest): Promise<
         ${noteCell}
       </tr>
     `
-    })))
+  })
     .join("")
 
   const html = `
@@ -87,9 +100,21 @@ export async function generateBranchRequestPDF(request: BranchRequest): Promise<
 
         body { 
           font-family: system-ui, -apple-system, "Segoe UI", Tahoma, Arial; 
-          margin: ${settings.template === 'thermal' ? '0' : '24px'}; 
-          padding: ${settings.template === 'thermal' ? '10px' : '0'};
-          width: ${settings.template === 'thermal' ? '80mm' : 'auto'};
+          margin: ${settings.template === 'thermal' ? '0' : '0 auto'}; 
+          padding: ${settings.template === 'thermal' ? '10px' : '20px'};
+          max-width: ${settings.template === 'thermal' ? '80mm' : '210mm'};
+        }
+        
+        @page { size: ${settings.template === 'thermal' ? 'auto' : 'A4'}; margin: ${settings.template === 'thermal' ? '0' : '10mm'}; }
+        
+        @media print {
+            body { 
+                width: 100%; 
+                max-width: none; 
+                padding: 0;
+            }
+            table { font-size: 12px; }
+            th, td { padding: 4px 6px; }
         }
         
         .header { display:flex; align-items:center; justify-content:space-between; margin-bottom: 16px; flex-direction: ${settings.template === 'thermal' ? 'column' : 'row'}; text-align: ${settings.template === 'thermal' ? 'center' : 'left'}; }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { startRealtimeSync, stopRealtimeSync, syncAllLocalToCloud, syncAllCloudToLocal } from "@/lib/firebase-sync-engine"
+import { usePathname } from "next/navigation"
 import { enableOfflinePersistence, auth, db } from "@/lib/firebase"
 import { collection, getCountFromServer, query } from "firebase/firestore"
 import { db as localDb } from "@/lib/db"
@@ -12,6 +13,8 @@ export function FirebaseSyncManager() {
     const [status, setStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connecting')
     const [isUploading, setIsUploading] = useState(false)
     const [uploadProgress, setUploadProgress] = useState("")
+    const pathname = usePathname()
+    const isBranchesPage = pathname === '/branches' || pathname.startsWith('/branches/')
 
     const [logs, setLogs] = useState<string[]>([])
 
@@ -106,6 +109,17 @@ export function FirebaseSyncManager() {
         }
     }, [])
 
+    const [isExpanded, setIsExpanded] = useState(false)
+
+    // Auto-collapse after successful sync or after 10 seconds of inactivity if expanded
+    useEffect(() => {
+        let timer: NodeJS.Timeout
+        if (isExpanded && status === 'connected' && !isUploading) {
+            timer = setTimeout(() => setIsExpanded(false), 5000)
+        }
+        return () => clearTimeout(timer)
+    }, [isExpanded, status, isUploading])
+
     const handleForceUpload = async () => {
         if (!confirm("هل أنت متأكد؟ سيتم رفع جميع البيانات المحلية إلى السحابة. استخدم هذا الزر فقط من الجهاز الذي يحتوي على البيانات.")) return;
 
@@ -152,21 +166,53 @@ export function FirebaseSyncManager() {
         }
     }
 
+    // Collapsed View
+    if (!isExpanded) {
+        return (
+            <div
+                className="fixed bottom-4 left-4 z-[9999] pointer-events-auto cursor-pointer transition-all hover:scale-110"
+                onClick={() => setIsExpanded(true)}
+                title="Click to expand sync options / اضغط لفتح خيارات المزامنة"
+            >
+                <div className="flex items-center justify-center w-10 h-10 bg-background/90 backdrop-blur border rounded-full shadow-lg">
+                    {status === 'connected' && !isUploading && <Cloud className="h-5 w-5 text-green-500" />}
+                    {status === 'connected' && isUploading && <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />}
+                    {status === 'connecting' && <Loader2 className="h-5 w-5 text-amber-500 animate-spin" />}
+                    {status === 'disconnected' && <CloudOff className="h-5 w-5 text-red-500" />}
+                </div>
+                {/* Status indicator dot */}
+                <div className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-white ${status === 'connected' ? 'bg-green-500' :
+                        status === 'connecting' ? 'bg-amber-500' : 'bg-red-500'
+                    }`} />
+            </div>
+        )
+    }
+
+    // Expanded View
     return (
         <div className="fixed bottom-4 left-4 z-[9999] flex flex-col items-start gap-1 pointer-events-none">
             {/* Status Bar */}
             <div className="flex items-center gap-2 px-3 py-1.5 bg-background/90 backdrop-blur border rounded-full shadow-lg text-xs font-medium pointer-events-auto">
+                <button
+                    onClick={(e) => { e.stopPropagation(); setIsExpanded(false); }}
+                    className="mr-1 hover:bg-muted rounded-full p-0.5"
+                    title="Collapse / تصغير"
+                >
+                    <Cloud className={`h-3 w-3 ${status === 'connected' ? 'text-green-500' :
+                            status === 'connecting' ? 'text-amber-500' : 'text-red-500'
+                        }`} />
+                </button>
+
                 {status === 'connected' && (
                     <>
-                        <Cloud className="h-3 w-3 text-green-500" />
                         <span className="text-green-600">متصل</span>
 
-                        {!isUploading ? (
+                        {!isUploading && !isBranchesPage ? (
                             <>
                                 <button
                                     onClick={handleForceUpload}
                                     className="mr-1 flex items-center gap-1 bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-0.5 rounded transition-colors"
-                                    title="رفع البيانات للسحابة"
+                                    title="رفع البيانات للسحابة (Upload)"
                                 >
                                     <UploadCloud className="h-3 w-3" />
                                     <span>رفع</span>
@@ -174,7 +220,7 @@ export function FirebaseSyncManager() {
                                 <button
                                     onClick={handleForceDownload}
                                     className="flex items-center gap-1 bg-green-100 hover:bg-green-200 text-green-700 px-2 py-0.5 rounded transition-colors"
-                                    title="تحميل البيانات من السحابة"
+                                    title="تحميل البيانات من السحابة (Download)"
                                 >
                                     <DownloadCloud className="h-3 w-3" />
                                     <span>تحميل</span>
@@ -182,28 +228,26 @@ export function FirebaseSyncManager() {
                             </>
                         ) : (
                             <span className="mr-2 text-blue-600 animate-pulse">
-                                جاري العمل...
+                                {isUploading ? `جاري العمل... ${uploadProgress}` : 'جاري المعالجة...'}
                             </span>
                         )}
                     </>
                 )}
                 {status === 'connecting' && (
-                    <>
-                        <Loader2 className="h-3 w-3 animate-spin text-amber-500" />
-                        <span className="text-amber-600">جاري الاتصال...</span>
-                    </>
+                    <span className="text-amber-600">جاري الاتصال...</span>
                 )}
                 {status === 'disconnected' && (
-                    <>
-                        <CloudOff className="h-3 w-3 text-red-500" />
-                        <span className="text-red-600">غير متصل</span>
-                    </>
+                    <span className="text-red-600">غير متصل</span>
                 )}
             </div>
 
             {/* Debug Logs (Small) */}
             {logs.length > 0 && (
-                <div className="bg-black/80 text-white p-2 rounded text-[10px] max-w-[300px] overflow-hidden">
+                <div className="bg-black/80 text-white p-2 rounded text-[10px] max-w-[300px] overflow-hidden pointer-events-auto">
+                    <div className="flex justify-between items-center mb-1 text-gray-400 border-b border-gray-700 pb-1">
+                        <span>السجل</span>
+                        <button onClick={() => setLogs([])} className="hover:text-white">مسح</button>
+                    </div>
                     {logs.map((log, i) => (
                         <div key={i} className="truncate">• {log}</div>
                     ))}

@@ -958,29 +958,47 @@ export default function IssuesPage() {
                               <TableCell className="border-x text-center">{formatArabicGregorianDateTime(new Date(issue.createdAt))}</TableCell>
 
                               {/* Branch Status Column */}
-                              <TableCell className="border-x text-center">
+                              <TableCell className="border-x text-center align-middle">
                                 {issue.branchReceived ? (
-                                  <Badge variant="outline" className="text-green-600 border-green-600 bg-green-50 flex items-center justify-center gap-1 w-fit mx-auto">
-                                    <Check className="w-3 h-3" />
-                                    <span>Received / تم الاستلام</span>
+                                  <Badge variant="outline" className="text-green-600 border-green-600 bg-green-50 flex flex-col items-center justify-center gap-0.5 w-full max-w-[120px] px-1 py-1 mx-auto h-auto">
+                                    <div className="flex items-center gap-1">
+                                      <Check className="w-3 h-3 flex-shrink-0" />
+                                      <span className="text-[10px] font-bold">تم الاستلام</span>
+                                    </div>
+                                    <span className="text-[9px] opacity-90 leading-none">Received</span>
+                                    {issue.branchReceivedAt && (
+                                      <span className="text-[8px] opacity-75 mt-0.5 font-mono dir-ltr">
+                                        {formatArabicGregorianDateTime(new Date(issue.branchReceivedAt))}
+                                      </span>
+                                    )}
                                   </Badge>
                                 ) : (
-                                  <Badge variant="secondary" className="bg-gray-100 text-gray-500 w-fit mx-auto">
-                                    Pending / قيد الانتظار
+                                  <Badge variant="secondary" className="bg-gray-100 text-gray-500 flex flex-col items-center justify-center gap-0.5 w-full max-w-[120px] px-1 py-1 mx-auto h-auto">
+                                    <span className="text-[10px] font-bold">قيد الانتظار</span>
+                                    <span className="text-[9px] opacity-90 leading-none">Pending</span>
                                   </Badge>
                                 )}
                               </TableCell>
 
                               {/* Warehouse Status Column */}
-                              <TableCell className="border-x text-center">
+                              <TableCell className="border-x text-center align-middle">
                                 {issue.delivered ? (
-                                  <Badge variant="default" className="bg-green-600 hover:bg-green-700 flex items-center justify-center gap-1 w-fit mx-auto">
-                                    <Check className="w-3 h-3" />
-                                    <span>Delivered / تم التسليم</span>
+                                  <Badge variant="default" className="bg-green-600 hover:bg-green-700 flex flex-col items-center justify-center gap-0.5 w-full max-w-[120px] px-1 py-1 mx-auto h-auto">
+                                    <div className="flex items-center gap-1">
+                                      <Check className="w-3 h-3 flex-shrink-0 text-white" />
+                                      <span className="text-[10px] font-bold text-white">تم التسليم</span>
+                                    </div>
+                                    <span className="text-[9px] opacity-90 leading-none text-white/90">Delivered</span>
+                                    {issue.deliveredAt && (
+                                      <span className="text-[8px] opacity-80 mt-0.5 font-mono text-white/80 dir-ltr">
+                                        {formatArabicGregorianDateTime(new Date(issue.deliveredAt))}
+                                      </span>
+                                    )}
                                   </Badge>
                                 ) : (
-                                  <Badge variant="secondary" className="bg-orange-100 text-orange-600 w-fit mx-auto">
-                                    Waiting / انتظار
+                                  <Badge variant="secondary" className="bg-orange-100 text-orange-600 flex flex-col items-center justify-center gap-0.5 w-full max-w-[120px] px-1 py-1 mx-auto h-auto">
+                                    <span className="text-[10px] font-bold">انتظار</span>
+                                    <span className="text-[9px] opacity-90 leading-none">Waiting</span>
                                   </Badge>
                                 )}
                               </TableCell>

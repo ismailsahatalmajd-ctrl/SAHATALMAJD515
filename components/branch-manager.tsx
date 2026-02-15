@@ -36,20 +36,22 @@ import { useToast } from "@/hooks/use-toast"
 import * as XLSX from "xlsx"
 import { useBranchesRealtime } from "@/hooks/use-store"
 import { syncBranch, deleteBranchApi } from "@/lib/sync-api"
+import { useRef } from "react"
+import { Upload } from "lucide-react"
 
 export function BranchManager() {
   const { t } = useI18n()
   const { toast } = useToast()
-  
+
   // Realtime Data
   const { data: branches } = useBranchesRealtime()
-  
+
   const [searchTerm, setSearchTerm] = useState("")
   const [isOpen, setIsOpen] = useState(false)
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  
+
   const [formData, setFormData] = useState({
     name: "",
     location: "",
@@ -94,11 +96,11 @@ export function BranchManager() {
           phone: formData.phone || undefined,
           username: formData.username || undefined,
         }
-        
+
         if (formData.password) {
           updates.passwordHash = await hashPassword(formData.password)
         }
-        
+
         const updated = updateBranch(editingBranch.id, updates)
         if (updated) {
           syncBranch(updated).catch(console.error)
@@ -108,7 +110,7 @@ export function BranchManager() {
       } else {
         // Check if username exists
         if (branches.some(b => b.username === formData.username)) {
-           toast({
+          toast({
             title: "اسم المستخدم مستخدم",
             description: "يرجى اختيار اسم مستخدم آخر",
             variant: "destructive",
@@ -180,12 +182,12 @@ export function BranchManager() {
       "اسم المستخدم": b.username || "-",
       "تاريخ الإنشاء": new Date(b.createdAt).toLocaleDateString('ar-SA')
     }))
-    
+
     const ws = XLSX.utils.json_to_sheet(data)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "الفروع")
     XLSX.writeFile(wb, "branches_list.xlsx")
-    
+
     addAuditLog("admin", "Admin User", "export", "branch", "all", "All Branches")
   }
 
@@ -250,6 +252,103 @@ export function BranchManager() {
     }
   }
 
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setIsLoading(true)
+    try {
+      const data = await file.arrayBuffer()
+      const workbook = XLSX.read(data)
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]]
+      const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[]
+
+      let successCount = 0
+      let failCount = 0
+      const errors: string[] = []
+
+      for (const row of jsonData) {
+        // Map Arabic/English headers
+        const name = row['اسم الفرع'] || row['Name'] || row['name']
+        const location = row['الموقع'] || row['Location'] || row['location']
+        const username = row['اسم المستخدم'] || row['Username'] || row['username']
+        let password = row['كلمة المرور'] || row['Password'] || row['password']
+
+        // Optional
+        const manager = row['المدير'] || row['Manager'] || row['manager'] || ""
+        const phone = row['رقم الهاتف'] || row['Phone'] || row['phone'] || ""
+
+        if (!name || !location || !username || !password) {
+          failCount++
+          continue
+        }
+
+        // Convert password to string explicitly to avoid issues with numeric passwords
+        password = String(password)
+
+        // Check duplicates
+        if (branches.some(b => b.username === username)) {
+          failCount++
+          errors.push(`اسم المستخدم ${username} موجود مسبقاً`)
+          continue
+        }
+
+        try {
+          const passwordHash = await hashPassword(password)
+          const newBranch = addBranch({
+            name,
+            location,
+            manager,
+            phone,
+            username,
+            passwordHash,
+          })
+          await syncBranch(newBranch)
+          addAuditLog("admin", "Admin User", "create", "branch", newBranch.id, newBranch.name, undefined, { method: 'bulk_import' })
+          successCount++
+        } catch (err) {
+          console.error(err)
+          failCount++
+        }
+      }
+
+      toast({
+        title: "تم الاستيراد",
+        description: `تم إضافة ${successCount} فرع بنجاح. ${failCount > 0 ? `فشل ${failCount} (تحقق من البيانات المكررة أو الناقصة)` : ''}`,
+        variant: failCount > 0 ? "default" : "default" // Keep default unless critical failure? User might want to know about failures prominently.
+      })
+
+      if (errors.length > 0) {
+        console.error("Import Errors:", errors)
+      }
+
+    } catch (err) {
+      console.error("Import Failed", err)
+      toast({ title: "فشل الاستيراد", description: "تأكد من صيغة الملف (Excel)", variant: "destructive" })
+    } finally {
+      setIsLoading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
+
+  const downloadTemplate = () => {
+    const headers = [
+      { "اسم الفرع": "فرع الرياض 1", "الموقع": "الرياض - حي العليا", "المدير": "أحمد محمد", "رقم الهاتف": "0500000000", "اسم المستخدم": "riyadh1", "كلمة المرور": "123456" },
+      { "اسم الفرع": "فرع جدة 1", "الموقع": "جدة - التحلية", "المدير": "سعيد علي", "رقم الهاتف": "0550000000", "اسم المستخدم": "jeddah1", "كلمة المرور": "password" }
+    ]
+    const ws = XLSX.utils.json_to_sheet(headers)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Template")
+    XLSX.writeFile(wb, "branches_import_template.xlsx")
+  }
+
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -271,7 +370,24 @@ export function BranchManager() {
             <Download className="ml-2 h-4 w-4" />
             تصدير CSV
           </Button>
-          <Dialog open={isOpen} onOpenChange={(open) => { setIsOpen(open); if(!open) resetForm(); }}>
+          <Button variant="outline" onClick={downloadTemplate} title="تحميل نموذج الإكسل">
+            <FileText className="ml-2 h-4 w-4" />
+            نموذج
+          </Button>
+          <div className="relative">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              accept=".xlsx, .xls"
+              className="hidden"
+            />
+            <Button variant="secondary" onClick={handleImportClick} disabled={isLoading}>
+              <Upload className="ml-2 h-4 w-4" />
+              {isLoading ? "جاري الاستيراد..." : "استيراد إكسل"}
+            </Button>
+          </div>
+          <Dialog open={isOpen} onOpenChange={(open) => { setIsOpen(open); if (!open) resetForm(); }}>
             <DialogTrigger asChild>
               <Button>
                 <Plus className="ml-2 h-4 w-4" />
@@ -306,7 +422,7 @@ export function BranchManager() {
                     />
                   </div>
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="manager">المدير المسؤول</Label>
@@ -420,7 +536,7 @@ export function BranchManager() {
             </CardContent>
           </Card>
         ))}
-        
+
         {filteredBranches.length === 0 && (
           <div className="col-span-full py-12 text-center border rounded-lg border-dashed">
             <p className="text-muted-foreground">لا توجد فروع مطابقة للبحث</p>
@@ -447,6 +563,6 @@ export function BranchManager() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </div >
   )
 }

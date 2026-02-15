@@ -28,9 +28,10 @@ export function ProductCombobox({ products, value, onChange, disabled }: Product
         products.find(p => p.id === value),
         [products, value])
 
+    // عرض جميع المنتجات عند الفتح، وتطبيق البحث كفلتر
     const filteredOptions = useMemo(() => {
-        if (!searchQuery) return products
         const lower = searchQuery.toLowerCase()
+        if (!lower) return products // عرض جميع المنتجات عند الفتح
         return products.filter(p =>
             (p.productName || "").toLowerCase().includes(lower) ||
             (p.productCode || "").toLowerCase().includes(lower) ||
@@ -38,11 +39,12 @@ export function ProductCombobox({ products, value, onChange, disabled }: Product
         )
     }, [products, searchQuery])
 
+    // ارتفاع ثابت لكل صف لتجنب التداخل
     const rowVirtualizer = useVirtualizer({
         count: filteredOptions.length,
         getScrollElement: () => parentRef.current,
-        estimateSize: () => 60,
-        overscan: 5,
+        estimateSize: () => 68, // ارتفاع ثابت
+        overscan: 2, // تقليل للأداء الأفضل
     })
 
     // Reset search when closed
@@ -66,7 +68,7 @@ export function ProductCombobox({ products, value, onChange, disabled }: Product
                                 {selectedProduct.productName}
                             </div>
                             <span className="text-xs text-gray-600 block mt-1">
-                                (<DualText k="common.available" /> {selectedProduct.currentStock})
+                                {selectedProduct.productCode} - (<DualText k="common.available" /> {selectedProduct.currentStock})
                             </span>
                         </div>
                     ) : (
@@ -77,7 +79,7 @@ export function ProductCombobox({ products, value, onChange, disabled }: Product
                     <Search className="mr-2 h-4 w-4 opacity-50 flex-shrink-0" />
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[450px] p-0" align="start">
+            <PopoverContent className="w-[550px] p-0" align="start">
                 <Command shouldFilter={false}>
                     <CommandInput
                         placeholder={getDualString("purchaseOrder.placeholders.search", undefined, lang)}
@@ -92,7 +94,22 @@ export function ProductCombobox({ products, value, onChange, disabled }: Product
                             </CommandEmpty>
                         )}
 
-                        <div ref={parentRef} style={{ height: '300px', overflow: 'auto' }}>
+                        <div
+                            ref={parentRef}
+                            className="scroll-smooth"
+                            style={{
+                                height: '350px',
+                                overflowY: 'auto',
+                                overflowX: 'hidden',
+                                WebkitOverflowScrolling: 'touch'
+                            }}
+                            onWheel={(e) => {
+                                // تأكيد أن التمرير بالماوس يعمل
+                                if (parentRef.current) {
+                                    parentRef.current.scrollTop += e.deltaY;
+                                }
+                            }}
+                        >
                             <div
                                 style={{
                                     height: `${rowVirtualizer.getTotalSize()}px`,
@@ -110,7 +127,7 @@ export function ProductCombobox({ products, value, onChange, disabled }: Product
                                                 top: 0,
                                                 left: 0,
                                                 width: '100%',
-                                                height: `${virtualRow.size}px`,
+                                                height: `68px`, // ارتفاع ثابت
                                                 transform: `translateY(${virtualRow.start}px)`,
                                             }}
                                         >
@@ -120,23 +137,26 @@ export function ProductCombobox({ products, value, onChange, disabled }: Product
                                                     onChange(product.id)
                                                     setOpen(false)
                                                 }}
-                                                className="flex items-center gap-2 text-black cursor-pointer w-full h-full"
+                                                className="flex items-center gap-3 text-black cursor-pointer w-full px-3 py-2 hover:bg-gray-100"
+                                                style={{ height: '68px' }}
                                             >
                                                 <ProductImage
                                                     product={product}
-                                                    className="w-8 h-8 rounded shrink-0"
+                                                    className="w-12 h-12 rounded shrink-0"
                                                 />
-                                                <div className="flex-1 overflow-hidden">
-                                                    <div className="flex-1">
-                                                        <div className="font-medium text-sm leading-tight break-words whitespace-normal max-h-12 overflow-hidden text-ellipsis">
-                                                            {product.productName}
-                                                        </div>
-                                                        <div className="text-xs text-gray-500">
-                                                            {product.productCode} - {product.currentStock} <DualText k="common.available" /> - {product.price.toFixed(2)} <DualText k="common.riyal" />
-                                                        </div>
+                                                <div className="flex-1 overflow-hidden min-w-0">
+                                                    <div className="font-medium text-sm leading-tight break-words line-clamp-2">
+                                                        {product.productName}
+                                                    </div>
+                                                    <div className="flex items-center gap-3 text-xs text-gray-600 mt-1">
+                                                        <span className="font-mono bg-gray-100 px-2 py-0.5 rounded">{product.productCode}</span>
+                                                        <span className="text-green-600 font-semibold">
+                                                            <DualText k="common.available" />: {product.currentStock}
+                                                        </span>
+                                                        <span>{product.price.toFixed(2)} <DualText k="common.riyal" /></span>
                                                     </div>
                                                 </div>
-                                                {product.id === value && <Check className="h-4 w-4 ml-auto" />}
+                                                {product.id === value && <Check className="h-5 w-5 ml-auto text-green-600 shrink-0" />}
                                             </CommandItem>
                                         </div>
                                     )

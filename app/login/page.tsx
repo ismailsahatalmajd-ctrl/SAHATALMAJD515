@@ -7,8 +7,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, Lock, WifiOff } from "lucide-react"
+import { Loader2, WifiOff } from "lucide-react"
 import { DualText } from "@/components/ui/dual-text"
+import Image from "next/image"
 import { useI18n } from "@/components/language-provider"
 import { useAuth } from "@/components/auth-provider"
 import { getBranches, initDataStore, addBranch } from "@/lib/storage"
@@ -283,7 +284,13 @@ export default function LoginPage() {
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
             <div className="p-3 bg-primary/10 rounded-full">
-              <Lock className="w-8 h-8 text-primary" />
+              <Image
+                src="/sahat-almajd-logo.svg"
+                alt="Sahat Al-Majd Logo"
+                width={32}
+                height={32}
+                className="w-8 h-8"
+              />
             </div>
           </div>
           <CardTitle className="text-2xl font-bold"><DualText k="login.title" /></CardTitle>
@@ -346,19 +353,6 @@ export default function LoginPage() {
               ) : (
                 <DualText k="login.submit" />
               )}
-            </Button>
-
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-background px-2 text-muted-foreground"><DualText k="login.or" /></span>
-              </div>
-            </div>
-
-            <Button variant="outline" type="button" className="w-full h-auto py-2" onClick={handleGoogleLogin}>
-              <DualText k="login.google" />
             </Button>
           </form>
         </CardContent>

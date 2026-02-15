@@ -46,19 +46,39 @@ export async function generateBranchInvoicePDF(inv: BranchInvoice): Promise<stri
   headers += `<th style="width: 150px">ملاحظات<br/><span style="font-size:10px;font-weight:normal">Notes</span></th>`
 
   // Resolve images
-  const itemsWithImages = await Promise.all(inv.items.map(async (it) => {
+  // Resolve images (Batch fetch optimization)
+  const itemsNeedingImage = inv.items.filter(it => it.image === 'DB_IMAGE' && (it as any).productId);
+  const uniqueProductIds = Array.from(new Set(itemsNeedingImage.map(it => (it as any).productId as string)));
+
+  let imageMap = new Map<string, string>();
+  if (uniqueProductIds.length > 0) {
+    // Process in chunks of 20 to avoid memory issues
+    const chunkSize = 20;
+    for (let i = 0; i < uniqueProductIds.length; i += chunkSize) {
+      const chunk = uniqueProductIds.slice(i, i + chunkSize);
+      try {
+        const images = await db.productImages.bulkGet(chunk);
+        images.forEach((img, idx) => {
+          if (img && img.data) {
+            imageMap.set(chunk[idx], img.data);
+          }
+        });
+      } catch (e) {
+        console.error("Failed to batch fetch images chunk", e);
+      }
+    }
+  }
+
+  const itemsWithImages = inv.items.map((it) => {
     let finalImage = it.image
     if (it.image === 'DB_IMAGE') {
-      try {
-        const prodId = (it as any).productId
-        if (prodId) {
-          const rec = await db.productImages.get(prodId)
-          if (rec?.data) finalImage = rec.data
-        }
-      } catch (e) { console.error(e) }
+      const pId = (it as any).productId
+      if (pId && imageMap.has(pId)) {
+        finalImage = imageMap.get(pId) || it.image
+      }
     }
     return { ...it, resolvedImage: finalImage }
-  }))
+  })
 
   const rows = itemsWithImages
     .map(
@@ -99,15 +119,25 @@ export async function generateBranchInvoicePDF(inv: BranchInvoice): Promise<stri
         <meta charset="utf-8" />
         <title>${title}</title>
         <style>
-          body { font-family: system-ui, -apple-system, Segoe UI, Tahoma, sans-serif; padding: 20px; }
+          /* A4 Print Settings */
+          @page { size: A4; margin: 10mm; }
+          
+          body { font-family: system-ui, -apple-system, Segoe UI, Tahoma, sans-serif; padding: 20px; max-width: 210mm; margin: 0 auto; }
+          
+          @media print {
+            body { padding: 0; width: 100%; max-width: none; }
+            table { font-size: 12px; }
+            th, td { padding: 6px; }
+          }
+          
           h1 { font-size: 20px; margin: 0 0 8px; text-align: center; }
           .header-text { text-align: center; margin-bottom: 20px; color: #555; }
           .meta { margin: 6px 0 16px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
           table { width: 100%; border-collapse: collapse; margin-top: 10px; }
           th, td { border: 1px solid #e5e7eb; padding: 10px; font-size: 13px; text-align: center; vertical-align: middle; }
-          th { background: #2563eb; color: white; font-weight: bold; padding: 12px; }
-          .totals { margin-top: 20px; font-weight: 600; text-align: left; padding: 10px; background: #f9f9f9; border-radius: 4px; }
-          .footer-text { margin-top: 30px; text-align: center; font-size: 12px; color: #777; border-top: 1px solid #eee; padding-top: 10px; }
+          th { background: #2563eb; color: white; font-weight: bold; padding: 8px; }
+          .totals { margin-top: 20px; font-weight: 600; text-align: left; padding: 10px; background: #f9f9f9; border-radius: 4px; page-break-inside: avoid; }
+          .footer-text { margin-top: 30px; text-align: center; font-size: 12px; color: #777; border-top: 1px solid #eee; padding-top: 10px; page-break-inside: avoid; }
         </style>
       </head>
       <body>

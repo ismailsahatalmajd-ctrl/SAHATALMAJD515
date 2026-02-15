@@ -5,6 +5,7 @@ const path = require('path');
 const routesToHide = [
     path.join('app', 'api', 'image-proxy', 'route.ts'),
     path.join('app', 'api', 'upload', 'route.ts'),
+    path.join('app', 'api', 'debug-firebase', 'route.ts'),
 ];
 
 console.log('--- Electron Build Wrapper (Surgical Mode) ---');
@@ -50,6 +51,7 @@ try {
 
     if (result.status !== 0) {
         console.error('\nBuild failed with exit code:', result.status);
+        process.exit(1);
     } else {
         console.log('\nBuild completed successfully.');
     }

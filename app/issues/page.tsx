@@ -1,19 +1,20 @@
 "use client"
 
 import { useMemo, useState, useEffect } from "react"
-import { Plus, Search, FileText, Undo2, Download, Edit, Package, Barcode, Check, MoreHorizontal } from 'lucide-react'
+import { Plus, Search, FileText, Undo2, Download, Edit, Package, Barcode, Check, MoreHorizontal, Trash2, Settings2 } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import { DualText, getDualString } from "@/components/ui/dual-text"
 import { Header } from "@/components/header"
 import { BulkIssueDialog } from "@/components/bulk-issue-dialog"
 import { ReturnDialog } from "@/components/return-dialog"
 import { db } from "@/lib/db"
-import { getIssues, getReturns, getProducts, setIssueDelivered, getIssueDrafts, deleteIssueDraft, clearAllIssues, saveIssues, restoreIssues } from "@/lib/storage"
+import { getIssues, getReturns, getProducts, setIssueDelivered, getIssueDrafts, deleteIssueDraft, clearAllIssues, saveIssues, restoreIssues, deleteIssue } from "@/lib/storage"
 import type { Issue, Return, Product } from "@/lib/types"
 import { generateIssuePDF } from "@/lib/pdf-generator"
 import { generateAssemblyPDF } from "@/lib/assembly-pdf-generator"
@@ -35,6 +36,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 
 export default function IssuesPage() {
   const settings = useInvoiceSettings()
@@ -59,6 +63,7 @@ export default function IssuesPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [invoiceNumberSearch, setInvoiceNumberSearch] = useState("")
   const [issuesLimit, setIssuesLimit] = useState<string>("15")
+  const [statusFilters, setStatusFilters] = useState<string[]>(['pending', 'received', 'delivered'])
   const [filteredIssues, setFilteredIssues] = useState<Issue[]>([])
   const [isIssueDialogOpen, setIsIssueDialogOpen] = useState(false)
   const [isReturnDialogOpen, setIsReturnDialogOpen] = useState(false)
@@ -66,6 +71,16 @@ export default function IssuesPage() {
   const [hasDrafts, setHasDrafts] = useState(false)
   const [deliverDialogIssueId, setDeliverDialogIssueId] = useState<string | null>(null)
   const [sessionBranchId, setSessionBranchId] = useState<string>("")
+
+  // Smart Assembly Selection State
+  const [selectedIssueIds, setSelectedIssueIds] = useState<string[]>([])
+  const [isAssemblyDialogOpen, setIsAssemblyDialogOpen] = useState(false)
+  const [assemblySettings, setAssemblySettings] = useState({
+    mode: 'merged' as 'merged' | 'detailed',
+    showImages: true,
+    showPrice: true,
+    showTotal: true
+  })
 
   // Invoice filters
   const [startDate, setStartDate] = useState<string>("")
@@ -128,8 +143,21 @@ export default function IssuesPage() {
         return d >= start && d <= end
       })
     }
+    // Filter by Status (Split Statuses)
+    if (statusFilters.length < 3) {
+      list = list.filter(i => {
+        const isPending = !i.delivered && !i.branchReceived
+        const isReceived = !i.delivered && i.branchReceived
+        const isDelivered = !!i.delivered
+
+        if (statusFilters.includes('pending') && isPending) return true
+        if (statusFilters.includes('received') && isReceived) return true
+        if (statusFilters.includes('delivered') && isDelivered) return true
+        return false
+      })
+    }
     setFilteredIssues(list)
-  }, [searchTerm, invoiceNumberSearch, branchMode, branchSelected, startDate, endDate, issues])
+  }, [searchTerm, invoiceNumberSearch, branchMode, branchSelected, startDate, endDate, issues, statusFilters])
 
   const handleIssueAdded = () => {
     loadData()
@@ -146,7 +174,7 @@ export default function IssuesPage() {
     if (!deliverDialogIssueId) return
 
     // Update Local (Optimistic)
-    const updated = setIssueDelivered(deliverDialogIssueId, "admin")
+    const updated = await setIssueDelivered(deliverDialogIssueId, "admin")
 
     if (updated) {
       if (user) {
@@ -178,6 +206,26 @@ export default function IssuesPage() {
       })
     }
     setDeliverDialogIssueId(null)
+  }
+
+  const handleDeleteIssue = async (issue: Issue) => {
+    const invoiceNum = getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))
+    if (confirm(`${t("common.delete")} ${t("issues.invoiceNumber")} ${invoiceNum}?`)) {
+      const success = await deleteIssue(issue.id)
+      if (success) {
+        toast({
+          title: getDualString("common.success"),
+          description: getDualString("common.deleted")
+        })
+        loadData()
+      } else {
+        toast({
+          title: getDualString("common.error"),
+          description: getDualString("common.error"),
+          variant: "destructive"
+        })
+      }
+    }
   }
 
   const handleReturnAdded = () => {
@@ -334,6 +382,23 @@ export default function IssuesPage() {
     reset()
   }
 
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      const sorted = [...filteredIssues].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      const limitNum = issuesLimit === "all" ? sorted.length : Number(issuesLimit || 15)
+      const limited = sorted.slice(0, limitNum)
+      setSelectedIssueIds(limited.map(i => i.id))
+    } else {
+      setSelectedIssueIds([])
+    }
+  }
+
+  const toggleSelectIssue = (id: string) => {
+    setSelectedIssueIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    )
+  }
+
   // Aggregated issued products for invoice section
   const filteredIssuesForInvoice = useMemo(() => {
     let list = issues
@@ -354,29 +419,12 @@ export default function IssuesPage() {
     return map
   }, [products])
 
-  // Map المنتج -> الصورة لاستخدامها في الفاتورة والمعرض
-  const productImageMap = useMemo(() => {
-    const m = new Map<string, string | undefined>()
-    products.forEach((p) => m.set(p.id, p.image))
-    return m
-  }, [products])
-
   // Map المنتج -> الاسم لضمان عرض الاسم حتى لو غاب productName في بيانات الصرف
   const productNameById = useMemo(() => {
     const m = new Map<string, string>()
     products.forEach((p) => m.set(p.id, (p as any).productName ?? (p as any).name ?? ""))
     return m
   }, [products])
-
-  // إظهار عمود/معرض الصور فقط عند تفعيل أي فلتر
-  const filtersActive = useMemo(() => {
-    const hasRange = !!startDate && !!endDate
-    const hasQty = !!minQty || !!maxQty
-    const hasCategory = categoryFilter !== "all"
-    const hasProductSpecific = productMode === "specific" && (productSearch.trim().length > 0 || !!productSelectedId)
-    const hasBranchSpecific = branchMode === "specific" && !!branchSelected
-    return hasRange || hasQty || hasCategory || hasProductSpecific || hasBranchSpecific
-  }, [startDate, endDate, minQty, maxQty, categoryFilter, productMode, productSearch, productSelectedId, branchMode, branchSelected])
 
   const aggregatedInvoiceRows = useMemo(() => {
     type Row = { productId: string; productCode: string; productName: string; unitPrice: number; quantity: number; subtotal: number; category?: string; unit?: string; image?: string; overRequested?: boolean }
@@ -408,11 +456,11 @@ export default function IssuesPage() {
           productCode: ip.productCode || "",
           productName: ip.productName || productNameById.get(ip.productId) || "",
           unitPrice: ip.unitPrice,
-          image: productImageMap.get(ip.productId),
+          unit: ip.unit,
           quantity: 0,
           subtotal: 0,
           category: productCategoryMap.get(ip.productId),
-          unit: ip.unit,
+          image: ip.image,
         }
         row.quantity += ip.quantity
         // تعليم الصف إذا تجاوزت الكمية المخزون عند وقت الصرف
@@ -438,7 +486,7 @@ export default function IssuesPage() {
     // Sort by quantity desc for readability
     rows.sort((a, b) => b.quantity - a.quantity)
     return rows
-  }, [filteredIssuesForInvoice, productCategoryMap, minQty, maxQty, productSearch, productSelectedId, categoryFilter, branchMode, branchSelected, productMode])
+  }, [filteredIssuesForInvoice, productCategoryMap, minQty, maxQty, productSearch, productSelectedId, categoryFilter, branchMode, branchSelected, productMode, productNameById])
 
   const totalProductsCount = aggregatedInvoiceRows.length
   const totalInvoiceAmount = aggregatedInvoiceRows.reduce((sum, r) => sum + r.subtotal, 0)
@@ -472,6 +520,17 @@ export default function IssuesPage() {
   const printInvoicePDF = () => {
     const confirmed = window.confirm(getDualString("issues.invoice.confirm.saveBeforePrint"))
     if (!confirmed) return
+
+    const w = window.open("", "_blank")
+    if (!w) return
+    w.document.write(`
+      <div style="font-family:sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; gap:20px;">
+        <div style="width:40px; height:40px; border:4px solid #f3f3f3; border-top:4px solid #2563eb; border-radius:50%; animation: spin 1s linear infinite;"></div>
+        <p style="color:#64748b;">جاري تجهيز الفاتورة الإجمالية... (Preparing Aggregated Invoice...)</p>
+        <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+      </div>
+    `)
+
     const period = startDate && endDate
       ? `${formatArabicGregorianDate(new Date(startDate))} - ${formatArabicGregorianDate(new Date(endDate))}`
       : t("reports.period.all")
@@ -483,7 +542,7 @@ export default function IssuesPage() {
         ${settings.showUnit ? `<td>${r.unit || '-'}</td>` : ''}
         ${settings.showQuantity ? `<td class="qty">${formatEnglishNumber(r.quantity)}</td>` : ''}
         ${settings.showPrice ? `<td>${formatEnglishNumber(r.unitPrice)}</td>` : ''}
-        ${settings.showTotal ? `<td class="subtotal">${formatEnglishNumber(r.subtotal.toFixed(2))}</td>` : ''}
+        ${settings.showTotal ? `<td>${formatEnglishNumber(r.subtotal.toFixed(2))}</td>` : ''}
       </tr>
     `).join("")
     const html = `<!DOCTYPE html>
@@ -537,12 +596,50 @@ export default function IssuesPage() {
       </div>
     </body>
     </html>`
-    const w = window.open("", "_blank")
-    if (!w) return
+
+    w.document.open()
     w.document.write(html)
     w.document.close()
     w.focus()
-    setTimeout(() => w.print(), 300)
+    setTimeout(() => w.print(), 350)
+  }
+
+  const handlePrintAssemblyFromAggregated = async () => {
+    if (aggregatedInvoiceRows.length === 0) {
+      toast({
+        title: t("common.error"),
+        description: t("issues.invoice.table.empty"),
+        variant: "destructive"
+      })
+      return
+    }
+
+    // Create a virtual issue for the assembly generator
+    const virtualIssue: Issue = {
+      id: `agg-${Date.now()}`,
+      branchId: "all",
+      branchName: t("common.all"),
+      products: aggregatedInvoiceRows.map(r => ({
+        productId: r.productId,
+        productCode: r.productCode,
+        productName: r.productName,
+        quantity: r.quantity,
+        unitPrice: r.unitPrice,
+        totalPrice: r.subtotal,
+        unit: r.unit,
+        image: r.image
+      })),
+      totalValue: totalInvoiceAmount,
+      createdAt: new Date().toISOString(),
+      delivered: false
+    }
+
+    await generateAssemblyPDF(virtualIssue, {
+      mode: 'merged',
+      showImages: true,
+      showPrice: false,
+      showTotal: false
+    })
   }
 
   return (
@@ -689,26 +786,91 @@ export default function IssuesPage() {
                   <div className="relative w-full md:w-64">
                     <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
-                      placeholder={t("issues.table.issues.search")}
+                      placeholder="Search / بحث في العمليات..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       className="pr-10 w-full"
                     />
                   </div>
                   <Input
-                    placeholder={t("issues.invoiceNumber")}
+                    placeholder="Invoice No / رقم الفاتورة"
                     value={invoiceNumberSearch}
                     onChange={(e) => setInvoiceNumberSearch(e.target.value)}
                     className="w-full md:w-40"
                   />
-                  <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full md:w-40" />
-                  <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full md:w-40" />
+                  {/* Status Filter Multi-Select */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className="w-full md:w-auto justify-between px-3">
+                        <span className="truncate text-sm">
+                          {statusFilters.length === 3
+                            ? "All / الكل"
+                            : statusFilters.length === 0
+                              ? "All / الكل"
+                              : `${statusFilters.length} Selected / تم تحديد`}
+                        </span>
+                        <Settings2 className="ml-2 h-4 w-4 opacity-50" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent className="w-56" align="end">
+                      <DropdownMenuLabel>Filter by Status / تصفية بالحالة</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                        <div className="flex items-center space-x-2 w-full">
+                          <Checkbox
+                            id="status-pending"
+                            checked={statusFilters.includes('pending')}
+                            onCheckedChange={(checked) => {
+                              setStatusFilters(prev => checked ? [...prev, 'pending'] : prev.filter(s => s !== 'pending'))
+                            }}
+                          />
+                          <label htmlFor="status-pending" className="flex-1 cursor-pointer ml-2 text-sm">Pending / انتظار</label>
+                        </div>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                        <div className="flex items-center space-x-2 w-full">
+                          <Checkbox
+                            id="status-received"
+                            checked={statusFilters.includes('received')}
+                            onCheckedChange={(checked) => {
+                              setStatusFilters(prev => checked ? [...prev, 'received'] : prev.filter(s => s !== 'received'))
+                            }}
+                          />
+                          <label htmlFor="status-received" className="flex-1 cursor-pointer ml-2 text-sm">Branch Received / استلام فرع</label>
+                        </div>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                        <div className="flex items-center space-x-2 w-full">
+                          <Checkbox
+                            id="status-delivered"
+                            checked={statusFilters.includes('delivered')}
+                            onCheckedChange={(checked) => {
+                              setStatusFilters(prev => checked ? [...prev, 'delivered'] : prev.filter(s => s !== 'delivered'))
+                            }}
+                          />
+                          <label htmlFor="status-delivered" className="flex-1 cursor-pointer ml-2 text-sm">Delivered / تم التسليم</label>
+                        </div>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full md:w-40" aria-label="From Date / من تاريخ" />
+                  <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full md:w-40" aria-label="To Date / إلى تاريخ" />
                   <select className="border rounded h-9 px-2 w-full md:w-auto" value={issuesLimit} onChange={(e) => setIssuesLimit(e.target.value)}>
-                    <option value="15">{t("issues.filter.limit.15")}</option>
-                    <option value="30">{t("issues.filter.limit.30")}</option>
-                    <option value="60">{t("issues.filter.limit.60")}</option>
-                    <option value="all">{t("issues.filter.limit.all")}</option>
+                    <option value="15">Latest 15 / أحدث 15</option>
+                    <option value="30">Latest 30 / أحدث 30</option>
+                    <option value="60">Latest 60 / أحدث 60</option>
+                    <option value="all">All / الكل</option>
                   </select>
+                  {selectedIssueIds.length > 0 && (
+                    <Button
+                      className="bg-blue-600 hover:bg-blue-700"
+                      onClick={() => setIsAssemblyDialogOpen(true)}
+                    >
+                      <Package className="ml-2 h-4 w-4" />
+                      <span>تجميع / Assemble ({selectedIssueIds.length})</span>
+                    </Button>
+                  )}
                 </div>
               </div>
             </CardHeader>
@@ -717,30 +879,64 @@ export default function IssuesPage() {
                 <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-[50px] border-x text-center">
+                        <Checkbox
+                          checked={selectedIssueIds.length > 0 && selectedIssueIds.length === (issuesLimit === "all" ? filteredIssues.length : Math.min(filteredIssues.length, Number(issuesLimit)))}
+                          onCheckedChange={handleSelectAll}
+                        />
+                      </TableHead>
                       <TableHead className="w-[120px] border-x text-center"><DualText k="issues.table.issues.columns.id" /></TableHead>
                       <TableHead className="w-[150px] border-x text-center"><DualText k="issues.table.issues.columns.branch" /></TableHead>
                       <TableHead className="w-[120px] border-x text-center"><DualText k="issues.table.issues.columns.productsCount" /></TableHead>
                       <TableHead className="w-[140px] border-x text-center"><DualText k="issues.table.issues.columns.total" /></TableHead>
                       <TableHead className="w-[180px] border-x text-center"><DualText k="issues.table.issues.columns.date" /></TableHead>
-                      <TableHead className="w-[120px] border-x text-center"><DualText k="common.status" /></TableHead>
+                      <TableHead className="w-[120px] border-x text-center text-xs text-muted-foreground font-bold">
+                        Branch Received / استلام الفرع
+                      </TableHead>
+                      <TableHead className="w-[120px] border-x text-center text-xs text-muted-foreground font-bold">
+                        Warehouse Delivered / تسليم المستودع
+                      </TableHead>
+                      <TableHead className="w-[120px] border-x text-center"><DualText k="issues.table.issues.columns.source" /></TableHead>
                       <TableHead className="w-[150px] border-x text-center"><DualText k="issues.table.issues.columns.notes" /></TableHead>
                       <TableHead className="text-center w-[280px] border-x"><DualText k="issues.table.issues.columns.actions" /></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {(() => {
-                      const sorted = [...filteredIssues].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                      const sorted = [...filteredIssues].sort((a, b) => {
+                        const score = (i: Issue) => {
+                          // 3: Pending (Highest)
+                          if (!i.delivered && !i.branchReceived) return 3
+                          // 2: Branch Received, Waiting Warehouse Delivery
+                          if (!i.delivered && i.branchReceived) return 2
+                          // 1: Delivered (Lowest)
+                          return 1
+                        }
+                        const scoreA = score(a)
+                        const scoreB = score(b)
+                        if (scoreA !== scoreB) return scoreB - scoreA // Descending Score
+
+                        // Tie-break: Date Newest
+                        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                      })
+
                       const limitNum = issuesLimit === "all" ? sorted.length : Number(issuesLimit || 15)
                       const limited = sorted.slice(0, limitNum)
                       return limited.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center text-muted-foreground">
+                          <TableCell colSpan={11} className="text-center text-muted-foreground">
                             <DualText k="issues.table.issues.empty" />
                           </TableCell>
                         </TableRow>
                       ) : (
                         limited.map((issue) => (
-                          <TableRow key={issue.id}>
+                          <TableRow key={issue.id} className={selectedIssueIds.includes(issue.id) ? "bg-blue-50/50" : ""}>
+                            <TableCell className="border-x text-center">
+                              <Checkbox
+                                checked={selectedIssueIds.includes(issue.id)}
+                                onCheckedChange={() => toggleSelectIssue(issue.id)}
+                              />
+                            </TableCell>
                             <TableCell className="font-medium border-x text-center">{getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))}</TableCell>
                             <TableCell className="border-x text-center">
                               <Badge variant="outline">{issue.branchName}</Badge>
@@ -748,19 +944,44 @@ export default function IssuesPage() {
                             <TableCell className="border-x text-center">{formatEnglishNumber(issue.products.length)} <DualText k="common.product" /></TableCell>
                             <TableCell className="font-semibold border-x text-center">{formatEnglishNumber(issue.totalValue.toFixed(2))} <DualText k="common.currency" /></TableCell>
                             <TableCell className="border-x text-center">{formatArabicGregorianDateTime(new Date(issue.createdAt))}</TableCell>
+
+                            {/* Branch Status Column */}
                             <TableCell className="border-x text-center">
-                              {issue.delivered ? (
-                                <Badge variant="default" className="bg-green-600 hover:bg-green-700">
-                                  <Check className="w-3 h-3 mr-1" />
-                                  <DualText k="issues.status.delivered" />
-                                </Badge>
-                              ) : issue.branchReceived ? (
-                                <Badge variant="outline" className="text-green-600 border-green-600 bg-green-50">
-                                  <Check className="w-3 h-3 mr-1" />
-                                  <DualText k="issues.status.branchReceived" />
+                              {issue.branchReceived ? (
+                                <Badge variant="outline" className="text-green-600 border-green-600 bg-green-50 flex items-center justify-center gap-1 w-fit mx-auto">
+                                  <Check className="w-3 h-3" />
+                                  <span>Received / تم الاستلام</span>
                                 </Badge>
                               ) : (
-                                <Badge variant="secondary"><DualText k="issues.status.pending" /></Badge>
+                                <Badge variant="secondary" className="bg-gray-100 text-gray-500 w-fit mx-auto">
+                                  Pending / قيد الانتظار
+                                </Badge>
+                              )}
+                            </TableCell>
+
+                            {/* Warehouse Status Column */}
+                            <TableCell className="border-x text-center">
+                              {issue.delivered ? (
+                                <Badge variant="default" className="bg-green-600 hover:bg-green-700 flex items-center justify-center gap-1 w-fit mx-auto">
+                                  <Check className="w-3 h-3" />
+                                  <span>Delivered / تم التسليم</span>
+                                </Badge>
+                              ) : (
+                                <Badge variant="secondary" className="bg-orange-100 text-orange-600 w-fit mx-auto">
+                                  Waiting / انتظار
+                                </Badge>
+                              )}
+                            </TableCell>
+
+                            <TableCell className="border-x text-center">
+                              {(issue.requestId || issue.createdBy === 'branch' || /فرع/i.test(String(issue.notes || ''))) ? (
+                                <Badge variant="outline" className="text-blue-600 border-blue-600 bg-blue-50">
+                                  <DualText k="issues.source.request" />
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-purple-600 border-purple-600 bg-purple-50">
+                                  <DualText k="issues.source.direct" />
+                                </Badge>
                               )}
                             </TableCell>
                             <TableCell className="text-muted-foreground border-x text-center">
@@ -803,6 +1024,18 @@ export default function IssuesPage() {
                                     <Check className="mr-2 h-4 w-4" />
                                     <span><DualText k="issues.status.delivered" /></span>
                                   </DropdownMenuItem>
+                                  {!issue.delivered && (
+                                    <>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem
+                                        onClick={() => handleDeleteIssue(issue)}
+                                        className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                                      >
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        <span><DualText k="common.delete" /></span>
+                                      </DropdownMenuItem>
+                                    </>
+                                  )}
                                 </DropdownMenuContent>
                               </DropdownMenu>
                             </TableCell>
@@ -826,6 +1059,118 @@ export default function IssuesPage() {
               <DialogFooter>
                 <Button variant="outline" onClick={() => setDeliverDialogIssueId(null)}><DualText k="common.no" /></Button>
                 <Button onClick={handleConfirmDelivered}><DualText k="common.yes" /></Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Smart Assembly Settings Dialog */}
+          <Dialog open={isAssemblyDialogOpen} onOpenChange={setIsAssemblyDialogOpen}>
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Settings2 className="h-5 w-5 text-blue-600" />
+                  <span>{getDualString('issues.actions.assemble')}</span>
+                </DialogTitle>
+                <DialogDescription>
+                  {getDualString('issues.assembly.desc')}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-6 py-4">
+                {/* Selection Summary */}
+                <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 flex items-center justify-between text-sm">
+                  <span className="font-medium text-blue-800">{getDualString('issues.assembly.selectedCount')}:</span>
+                  <Badge variant="secondary" className="bg-blue-600 text-white border-none">
+                    {selectedIssueIds.length} {getDualString('issues.metrics.operationsLabel')}
+                  </Badge>
+                </div>
+
+                {/* Assembly Mode */}
+                <div className="space-y-3">
+                  <Label className="text-base font-bold">{getDualString('issues.assembly.mode.title')}</Label>
+                  <RadioGroup
+                    value={assemblySettings.mode}
+                    onValueChange={(val: any) => setAssemblySettings(prev => ({ ...prev, mode: val }))}
+                    className="grid grid-cols-2 gap-4"
+                  >
+                    <div>
+                      <RadioGroupItem value="merged" id="merged" className="peer sr-only" />
+                      <Label
+                        htmlFor="merged"
+                        className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-blue-600 [&:has([data-state=checked])]:border-blue-600 cursor-pointer"
+                      >
+                        <Package className="mb-2 h-6 w-6" />
+                        <span className="text-sm font-medium">{getDualString('issues.assembly.mode.merged')}</span>
+                        <span className="text-[10px] text-muted-foreground mt-1 text-center">{getDualString('issues.assembly.mode.mergedDesc')}</span>
+                      </Label>
+                    </div>
+                    <div>
+                      <RadioGroupItem value="detailed" id="detailed" className="peer sr-only" />
+                      <Label
+                        htmlFor="detailed"
+                        className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-blue-600 [&:has([data-state=checked])]:border-blue-600 cursor-pointer"
+                      >
+                        <FileText className="mb-2 h-6 w-6" />
+                        <span className="text-sm font-medium">{getDualString('issues.assembly.mode.detailed')}</span>
+                        <span className="text-[10px] text-muted-foreground mt-1 text-center">{getDualString('issues.assembly.mode.detailedDesc')}</span>
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+
+                {/* Display Options */}
+                <div className="space-y-4 pt-2 border-t">
+                  <Label className="text-base font-bold">{getDualString('issues.assembly.options.title')}</Label>
+
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="show-images">{getDualString('issues.assembly.options.showImages')}</Label>
+                    </div>
+                    <Switch
+                      id="show-images"
+                      checked={assemblySettings.showImages}
+                      onCheckedChange={(checked) => setAssemblySettings(prev => ({ ...prev, showImages: checked }))}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="show-price">{getDualString('issues.assembly.options.showPrice')}</Label>
+                    </div>
+                    <Switch
+                      id="show-price"
+                      checked={assemblySettings.showPrice}
+                      onCheckedChange={(checked) => setAssemblySettings(prev => ({ ...prev, showPrice: checked }))}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="show-total">{getDualString('issues.assembly.options.showTotal')}</Label>
+                    </div>
+                    <Switch
+                      id="show-total"
+                      checked={assemblySettings.showTotal}
+                      onCheckedChange={(checked) => setAssemblySettings(prev => ({ ...prev, showTotal: checked }))}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsAssemblyDialogOpen(false)}>{t('common.cancel')}</Button>
+                <Button
+                  className="bg-blue-600 hover:bg-blue-700"
+                  onClick={async () => {
+                    const selectedIssues = issues.filter(i => selectedIssueIds.includes(i.id))
+                    await generateAssemblyPDF(selectedIssues, assemblySettings)
+                    setIsAssemblyDialogOpen(false)
+                    setSelectedIssueIds([])
+                  }}
+                >
+                  <Download className="ml-2 h-4 w-4" />
+                  {t('common.print')}
+                </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -876,6 +1221,10 @@ export default function IssuesPage() {
                 <p className="text-muted-foreground"><DualText k="issues.invoice.desc" /></p>
               </div>
               <div className="flex gap-2">
+                <Button variant="outline" onClick={handlePrintAssemblyFromAggregated} className="border-blue-200 hover:bg-blue-50 text-blue-700">
+                  <Package className="ml-2 h-4 w-4" />
+                  <DualText k="issues.actions.assemble" />
+                </Button>
                 <Button variant="outline" onClick={printInvoicePDF}>
                   <FileText className="ml-2 h-4 w-4" />
                   <DualText k="issues.invoice.actions.exportPrint" />
@@ -974,9 +1323,6 @@ export default function IssuesPage() {
                     <Table className="table-fixed">
                       <TableHeader>
                         <TableRow>
-                          {filtersActive && (
-                            <TableHead className="w-[80px] border-x text-center"><DualText k="issues.invoice.table.image" /></TableHead>
-                          )}
                           <TableHead className="w-[150px] border-x text-center"><DualText k="issues.invoice.table.productCode" /></TableHead>
                           <TableHead className="w-[200px] border-x text-center"><DualText k="issues.invoice.table.productName" /></TableHead>
                           {settings.showUnit && <TableHead className="w-[100px] border-x text-center"><DualText k="issues.invoice.table.unit" /></TableHead>}
@@ -995,16 +1341,6 @@ export default function IssuesPage() {
                             const subtotalPos = row.subtotal >= 0
                             return (
                               <TableRow key={row.productId} className={row.overRequested ? "text-red-600" : undefined}>
-                                {filtersActive && (
-                                  <TableCell className="border-x text-center">
-                                    <img
-                                      src={getSafeImageSrc(row.image || "/placeholder.svg")}
-                                      alt={row.productName}
-                                      className="w-12 h-12 object-cover rounded mx-auto"
-                                      onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/placeholder.svg" }}
-                                    />
-                                  </TableCell>
-                                )}
                                 <TableCell className="font-medium border-x text-center">{row.productCode}</TableCell>
                                 <TableCell className="font-medium border-x text-center">{row.productName}</TableCell>
                                 {settings.showUnit && <TableCell className="border-x text-center">{row.unit || '-'}</TableCell>}
@@ -1047,31 +1383,6 @@ export default function IssuesPage() {
           </Card>
         </div>
       </main>
-      {/* Image gallery shows only when filters are active */}
-      {filtersActive && aggregatedInvoiceRows.length > 0 && (
-        <div className="container mx-auto px-4 pb-10">
-          <Card>
-            <CardHeader>
-              <CardTitle suppressHydrationWarning><DualText k="issues.invoice.gallery.title" /></CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                {aggregatedInvoiceRows.map((row) => (
-                  <div key={row.productId} className="flex flex-col items-center gap-2">
-                    <img
-                      src={getSafeImageSrc(row.image || "/placeholder.svg")}
-                      alt={row.productName}
-                      className="w-24 h-24 object-cover rounded border"
-                      onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/placeholder.svg" }}
-                    />
-                    <div className="text-xs text-center text-muted-foreground">{row.productName}</div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
 
       <BulkIssueDialog
         open={isIssueDialogOpen}

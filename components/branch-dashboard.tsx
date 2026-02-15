@@ -4,13 +4,14 @@
 import { useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 
-import { getBranches, getProducts, getIssues, addIssue, setIssueDelivered, setIssueBranchReceived, clearAllBranchRequests, saveBranches, getBranchRequests, getBranchInvoices } from "@/lib/storage"
+import { getBranches, getProducts, getIssues, addIssue, setIssueDelivered, setIssueBranchReceived, clearAllBranchRequests, saveBranches, getBranchRequests, getBranchInvoices, saveBranchRequestDraft, getBranchRequestDrafts, deleteBranchRequestDraft } from "@/lib/storage"
 import { addBranchRequest, updateBranchRequest } from "@/lib/branch-request-storage"
 import type { Product } from "@/lib/types"
 import type { BranchInvoiceItem } from "@/lib/branch-invoice-types"
 import { addBranchInvoice } from "@/lib/branch-invoice-storage"
 import { generateBranchInvoicePDF } from "@/lib/branch-invoice-pdf-generator"
 import { generateBranchRequestPDF } from "@/lib/branch-request-pdf-generator"
+import { generateIssuePDF } from "@/lib/pdf-generator"
 import { useInvoiceSettings } from "@/lib/invoice-settings-store"
 import { normalize, getSafeImageSrc } from "@/lib/utils"
 import { useProductsRealtime, useBranchesRealtime, useBranchRequestsRealtime, useBranchInvoicesRealtime, useIssuesRealtime, useLocationsRealtime } from "@/hooks/use-store"
@@ -32,6 +33,7 @@ import { toast } from "@/components/ui/use-toast"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 import { useAuth } from "@/components/auth-provider"
 import { ProductImage } from "@/components/product-image"
@@ -264,87 +266,89 @@ export function BranchDashboard() {
   const displayProducts = filteredProducts
 
   const [cart, setCart] = useState<BranchInvoiceItem[]>([])
+
+  // Load products in cart to get their current stock
+  const cartProducts = useLiveQuery(async () => {
+    if (cart.length === 0) return []
+    return await db.products.where('id').anyOf(cart.map(c => c.productId)).toArray()
+  }, [cart]) || []
   // const allRequests = mounted ? getBranchRequests() : []
   const invoices = (allInvoicesData || []).filter(i => i.branchId === branchId)
   const requests = (allRequests || []).filter((r) => r.branchId === branchId)
   const issues = (allIssuesData || []).filter((i) => i.branchId === branchId)
 
-  const displayInvoices = invoices.slice(0, 5)
-  const displayRequests = requests.slice(0, 5)
-  const displayIssues = issues.slice(0, 5)
+  const displayInvoices = invoices.slice(0, 50)
+  const displayRequests = requests.slice(0, 50)
+  const displayIssues = issues.slice(0, 50)
 
   const [requestType, setRequestType] = useState<"supply" | "return">("return")
   const [requestNotes, setRequestNotes] = useState("")
   const [cartLoaded, setCartLoaded] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Cart Sync (Persistence via Draft)
+  // Local Draft Logic
   useEffect(() => {
     if (!branchId || cartLoaded) return
 
-    const draft = allRequests.find(r => r.branchId === branchId && r.status === 'draft')
-    if (draft && draft.items.length > 0) {
+    const drafts = getBranchRequestDrafts()
+    const draft = drafts.find(d => d.branchId === branchId)
+
+    if (draft && draft.items && draft.items.length > 0) {
+      // Map draft items back to cart items (ensure types match)
       const items: BranchInvoiceItem[] = draft.items.map((it: any) => ({
         id: it.id,
         productId: it.productId,
         productCode: it.productCode,
         productName: it.productName,
-        quantity: it.requestedQuantity || it.quantity,
+        quantity: it.quantity,
         unitPrice: it.unitPrice || 0,
-        totalPrice: (it.unitPrice || 0) * (it.requestedQuantity || it.quantity),
+        totalPrice: it.totalPrice,
         image: it.image,
         unit: it.unit,
-        returnReason: it.returnReason
+        returnReason: it.returnReason,
+        // Preserve other fields if any
+        unitType: it.unitType || 'base',
+        quantityEntered: it.quantityEntered || it.quantity,
+        quantityBase: it.quantityBase || it.quantity,
+        selectedUnitName: it.selectedUnitName || it.unit,
+        quantityPerCarton: it.quantityPerCarton,
+        cartonUnit: it.cartonUnit,
+        notes: it.notes
       }))
       setCart(items)
+      if (draft.notes) setRequestNotes(draft.notes)
+      if (draft.type) setRequestType(draft.type)
+
+      toast({ title: t("common.draftLoaded", "تم استعادة المسودة"), description: t("common.draftLoadedDesc", "تم استعادة طلبك السابق غير المكتمل") })
     }
     setCartLoaded(true)
-  }, [branchId, allRequests, cartLoaded])
+  }, [branchId, cartLoaded, t])
 
+  // Auto-Save Draft
   useEffect(() => {
     if (!branchId || !cartLoaded) return
 
     const timer = setTimeout(async () => {
-      const draft = allRequests.find(r => r.branchId === branchId && r.status === 'draft')
-
-      // Map cart to request items
-      const items = cart.map(item => ({
-        productId: item.productId,
-        productCode: item.productCode,
-        productName: item.productName,
-        quantity: item.quantity,
-        requestedQuantity: item.quantity,
-        unit: item.unit,
-        unitPrice: item.unitPrice,
-        totalPrice: item.totalPrice,
-        image: item.image,
-        returnReason: item.returnReason
-      }))
-
-      if (draft) {
-        if (cart.length === 0) {
-          // If cart empty, maybe delete draft or keep empty?
-          // updateBranchRequest(draft.id, { items: [] })
-          // actually if cart is empty we might want to clear draft
-        }
-        const updated = updateBranchRequest(draft.id, { items: items as any })
-        if (updated) syncBranchRequest(updated).catch(console.error)
+      // Save draft locally regardless of connection
+      if (cart.length > 0) {
+        await saveBranchRequestDraft({
+          id: branchId, // Use branchId as draft ID for simplicity (one draft per branch)
+          branchId: branchId,
+          branchName: branch?.name || "",
+          items: cart,
+          type: requestType,
+          notes: requestNotes,
+          updatedAt: new Date().toISOString()
+        })
       } else {
-        if (cart.length > 0) {
-          const created = await addBranchRequest({
-            branchId: branchId,
-            branchName: branch?.name || "",
-            items: items as any,
-            type: requestType, // Save current type preference
-            notes: requestNotes,
-            status: "draft",
-            createdBy: "branch"
-          })
-          syncBranchRequest(created).catch(console.error)
-        }
+        // If empty, delete draft? Or keep empty? 
+        // Getting behavior from Issues page: it clears if empty?
+        // Let's delete if empty to keep clean.
+        await deleteBranchRequestDraft(branchId)
       }
     }, 1000)
     return () => clearTimeout(timer)
-  }, [cart, branchId, cartLoaded, requestType, requestNotes, allRequests, branch])
+  }, [cart, branchId, cartLoaded, requestType, requestNotes, branch])
 
   async function confirmIssue(id: string) {
     if (!confirm("Confirm receipt? / هل أنت متأكد من استلام هذه الشحنة؟")) return
@@ -392,7 +396,7 @@ export function BranchDashboard() {
   }
 
   function addToCart(p: Product, forceUnit?: 'base' | 'carton') {
-    const existIdx = cart.findIndex((x) => x.productId === p.id || x.productCode === p.productCode)
+    const existIdx = cart.findIndex((x) => x.productId === p.id)
     const unitPrice = p.averagePrice ?? p.price ?? 0
 
     // Determine Logic
@@ -511,88 +515,111 @@ export function BranchDashboard() {
   }
 
   async function submitInvoice() {
-    if (!branch) return
+    if (!branch || isSubmitting) return
     if (!cart.length) {
       toast({ title: "Add Items / أضف عناصر", description: "Please add products to invoice / يرجى إضافة منتجات إلى الفاتورة" })
       return
     }
-    const created = await addBranchInvoice({ branchId: branch.id, branchName: branch.name, items: cart, notes: "فاتورة فرع" })
 
-    // Sync Invoice
-    syncBranchInvoice(created).catch(console.error)
-
+    setIsSubmitting(true)
     try {
-      const issueProducts = created.items.map((it) => ({
-        productId: it.productId,
-        productCode: it.productCode,
-        productName: it.productName,
-        quantity: it.quantity,
-        unitPrice: it.unitPrice,
-        totalPrice: it.totalPrice,
-        image: it.image,
-        unit: it.unit,
-      }))
-      const newIssue = await addIssue({
-        branchId: created.branchId,
-        branchName: created.branchName,
-        products: issueProducts,
-        totalValue: created.totalValue,
-        notes: created.notes ?? "صرف نتيجة فاتورة فرع",
-      })
+      const created = await addBranchInvoice({ branchId: branch.id, branchName: branch.name, items: cart, notes: "فاتورة فرع" })
 
-      // Sync Issue
-      syncIssue(newIssue).catch(console.error)
-    } catch (e) {
-      console.error("Failed to add issue for branch invoice:", e)
+      // Sync Invoice
+      syncBranchInvoice(created).catch(console.error)
+
+      try {
+        const issueProducts = created.items.map((it) => ({
+          productId: it.productId,
+          productCode: it.productCode,
+          productName: it.productName,
+          quantity: it.quantity,
+          unitPrice: it.unitPrice,
+          totalPrice: it.totalPrice,
+          image: it.image,
+          unit: it.unit,
+          notes: it.notes,
+        }))
+        const newIssue = await addIssue({
+          branchId: created.branchId,
+          branchName: created.branchName,
+          products: issueProducts,
+          totalValue: created.totalValue,
+          notes: created.notes ?? "صرف نتيجة فاتورة فرع",
+          createdBy: "branch",
+        })
+
+        // Sync Issue
+        syncIssue(newIssue).catch(console.error)
+      } catch (e) {
+        console.error("Failed to add issue for branch invoice:", e)
+      }
+
+      const url = await generateBranchInvoicePDF(created)
+      toast({ title: "Invoice Created / تم إنشاء فاتورة", description: `Total: ${created.totalValue.toFixed(2)}` })
+      window.open(url, "_blank")
+      setCart([])
+    } catch (error) {
+      console.error("Submit invoice failed:", error)
+      toast({ title: "Error / خطأ", description: "Failed to create invoice / فشل إنشاء الفاتورة", variant: "destructive" })
+    } finally {
+      setIsSubmitting(false)
     }
-
-    const url = await generateBranchInvoicePDF(created)
-    toast({ title: "Invoice Created / تم إنشاء فاتورة", description: `Total: ${created.totalValue.toFixed(2)}` })
-    window.open(url, "_blank")
-    setCart([])
   }
 
   async function submitRequest() {
-    if (!branch) return
+    if (!branch || isSubmitting) return
     if (!cart.length) {
       toast({ title: "أضف عناصر", description: "يرجى إضافة منتجات إلى الطلب" })
       return
     }
 
-    const items = cart.map(item => ({
-      productId: item.productId,
-      productCode: item.productCode,
-      productName: item.productName,
-      quantity: item.quantity,
-      requestedQuantity: item.quantity,
-      unit: item.unit,
-      unitPrice: item.unitPrice,
-      totalPrice: item.totalPrice,
-      image: item.image,
-      returnReason: item.returnReason
-    }))
+    setIsSubmitting(true)
+    try {
+      const items = cart.map(item => ({
+        productId: item.productId,
+        productCode: item.productCode,
+        productName: item.productName,
+        quantity: item.quantity,
+        requestedQuantity: item.quantity,
+        unit: item.unit,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        image: item.image,
+        returnReason: item.returnReason,
+        notes: item.notes  // Add notes field
+      }))
 
-    const created = await addBranchRequest({
-      branchId: branch.id,
-      branchName: branch.name,
-      items: items as any,
-      type: requestType,
-      notes: requestNotes,
-      status: "submitted",
-      createdBy: "branch",
-    })
+      const created = await addBranchRequest({
+        branchId: branch.id,
+        branchName: branch.name,
+        items: items as any,
+        type: requestType,
+        notes: requestNotes,
+        status: "submitted",
+        createdBy: "branch",
+      })
 
-    // Sync Request
-    syncBranchRequest(created).catch(console.error)
+      // Delete Draft
+      await deleteBranchRequestDraft(branchId)
 
-    toast({ title: "تم إرسال الطلب", description: "تم إرسال طلبك بنجاح" })
+      // Sync Request
+      syncBranchRequest(created).catch(console.error)
 
-    if (requestType === 'return') {
-      await generateBranchRequestPDF(created)
+      toast({ title: "تم إرسال الطلب", description: "تم إرسال طلبك بنجاح" })
+
+      if (requestType === 'return') {
+        await generateBranchRequestPDF(created)
+      }
+
+      setCart([])
+      setRequestNotes("")
+    } catch (error) {
+      console.error("Submit request failed:", error)
+      toast({ title: "Error / خطأ", description: "Failed to submit request / فشل إرسال الطلب", variant: "destructive" })
+    } finally {
+      setIsSubmitting(false)
     }
-
-    setCart([])
-    setRequestNotes("")
   }
 
   const handleLogout = async () => {
@@ -767,6 +794,7 @@ export function BranchDashboard() {
                       <TableHead>Image / الصورة</TableHead>
                       <TableHead>Code / الكود</TableHead>
                       <TableHead>Name / الاسم</TableHead>
+                      <TableHead>Stock / المخزون</TableHead>
                       {settings.showUnit && <TableHead>Unit / الوحدة</TableHead>}
                       <TableHead>Add / إضافة</TableHead>
                     </TableRow>
@@ -781,6 +809,17 @@ export function BranchDashboard() {
                         </TableCell>
                         <TableCell>{p.productCode}</TableCell>
                         <TableCell>{p.productName}</TableCell>
+                        <TableCell>
+                          {p.currentStock > 0 ? (
+                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100">
+                              Available / متوفر
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100">
+                              Out of Stock / نفذت الكمية
+                            </Badge>
+                          )}
+                        </TableCell>
                         {settings.showUnit && <TableCell>{p.unit}</TableCell>}
                         <TableCell>
                           <Button size="sm" onClick={() => addToCart(p)}>Add / أضف</Button>
@@ -802,6 +841,7 @@ export function BranchDashboard() {
                       {settings.showUnit && <TableHead>Unit / الوحدة</TableHead>}
                       <TableHead>Quantity / الكمية</TableHead>
                       {activeTab === 'request' && requestType === 'return' && <TableHead>Return Reason / سبب الارجاع</TableHead>}
+                      <TableHead>Stock / المخزون</TableHead>
                       <TableHead>Notes / ملاحظات</TableHead>
                       <TableHead>Delete / حذف</TableHead>
                     </TableRow>
@@ -817,22 +857,7 @@ export function BranchDashboard() {
                           </div>
                         </TableCell>
                         {settings.showUnit && <TableCell>
-                          {it.quantityPerCarton && it.quantityPerCarton > 1 ? (
-                            <Select
-                              value={it.unitType || 'base'}
-                              onValueChange={(v: 'base' | 'carton') => updateCartUnit(idx, v)}
-                            >
-                              <SelectTrigger className="w-[110px] h-8">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="base">{it.unit}</SelectItem>
-                                <SelectItem value="carton">{it.cartonUnit || 'Carton'}</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            it.selectedUnitName || it.unit || "-"
-                          )}
+                          {it.selectedUnitName || it.unit || "-"}
                         </TableCell>}
                         <TableCell>
                           <Input type="number" value={it.quantity} onChange={(e) => updateQty(idx, Number(e.target.value))} className="w-24" />
@@ -847,6 +872,21 @@ export function BranchDashboard() {
                             />
                           </TableCell>
                         )}
+                        <TableCell>
+                          {(() => {
+                            const p = cartProducts.find(cp => cp.id === it.productId)
+                            const stock = p ? p.currentStock : 0
+                            return stock > 0 ? (
+                              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100">
+                                Available / متوفر
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100">
+                                Out of Stock / نفذت الكمية
+                              </Badge>
+                            )
+                          })()}
+                        </TableCell>
                         <TableCell>
                           <Input
                             placeholder="Notes... / ملاحظات..."
@@ -866,7 +906,10 @@ export function BranchDashboard() {
                 <div className="mt-4 pt-4 border-t">
                   <TabsContent value="invoice">
                     <div className="flex justify-between items-center">
-                      <Button onClick={submitInvoice}>Create Invoice / إنشاء فاتورة</Button>
+                      <Button onClick={submitInvoice} disabled={isSubmitting}>
+                        {isSubmitting && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
+                        Create Invoice / إنشاء فاتورة
+                      </Button>
                     </div>
                   </TabsContent>
                   <TabsContent value="request">
@@ -886,7 +929,10 @@ export function BranchDashboard() {
                           <Textarea value={requestNotes} onChange={e => setRequestNotes(e.target.value)} placeholder="Additional Notes... / ملاحظات إضافية..." />
                         </div>
                       </div>
-                      <Button onClick={submitRequest} className="w-full">Submit Request / إرسال الطلب</Button>
+                      <Button onClick={submitRequest} className="w-full" disabled={isSubmitting}>
+                        {isSubmitting && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
+                        Submit Request / إرسال الطلب
+                      </Button>
                     </div>
                   </TabsContent>
                 </div>
@@ -907,7 +953,7 @@ export function BranchDashboard() {
           <Tabs defaultValue="requests">
             <TabsList>
               <TabsTrigger value="requests">My Requests / طلباتي</TabsTrigger>
-              <TabsTrigger value="incoming">Incoming (For Receipt) / الوارد (للاستلام)</TabsTrigger>
+              <TabsTrigger value="incoming">Shipments History / سجل الشحنات</TabsTrigger>
               <TabsTrigger value="invoices">Invoices Log / سجل الفواتير</TabsTrigger>
             </TabsList>
             <TabsContent value="requests" className="space-y-4 pt-4">
@@ -933,8 +979,17 @@ export function BranchDashboard() {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge variant={r.status === 'approved' ? 'default' : r.status === 'cancelled' ? 'destructive' : 'secondary'}>
-                            {r.status === 'submitted' ? 'Pending / قيد المراجعة' : r.status === 'approved' ? 'Approved / مقبول' : r.status === 'cancelled' ? 'Rejected / مرفوض' : r.status}
+                          <Badge variant={r.status === 'approved' || r.status === 'shipped' || r.status === 'received' ? 'default' : r.status === 'cancelled' ? 'destructive' : 'secondary'}
+                            className={
+                              r.status === 'shipped' ? "bg-blue-100 text-blue-800 hover:bg-blue-100" :
+                                r.status === 'received' ? "bg-green-100 text-green-800 hover:bg-green-100" : ""
+                            }
+                          >
+                            {r.status === 'submitted' ? 'Pending / قيد المراجعة' :
+                              r.status === 'approved' ? 'Approved / مقبول' :
+                                r.status === 'shipped' ? 'Shipped / تم الشحن' :
+                                  r.status === 'received' ? 'Received / تم الاستلام' :
+                                    r.status === 'cancelled' ? 'Rejected / مرفوض' : r.status}
                           </Badge>
                         </TableCell>
                         <TableCell>{new Date(r.createdAt).toLocaleDateString('ar-SA')}</TableCell>
@@ -955,29 +1010,114 @@ export function BranchDashboard() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Issue No / رقم الصرف</TableHead>
-                    <TableHead>Value / القيمة</TableHead>
                     <TableHead>Status / الحالة</TableHead>
-                    <TableHead>Date / التاريخ</TableHead>
+                    <TableHead>Dates / التواريخ</TableHead>
                     <TableHead>Action / الإجراء</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {displayIssues.filter(i => !i.branchReceived).length === 0 ? <TableRow><TableCell colSpan={5} className="text-center">No Pending Shipments / لا توجد شحنات معلقة</TableCell></TableRow> :
-                    displayIssues.filter(i => !i.branchReceived).map(i => (
-                      <TableRow key={i.id}>
-                        <TableCell>{i.id.slice(0, 8)}</TableCell>
-                        <TableCell>{i.totalValue.toFixed(2)}</TableCell>
-                        <TableCell><Badge variant="outline">On the way / في الطريق</Badge></TableCell>
-                        <TableCell>{new Date(i.createdAt).toLocaleDateString('ar-SA')}</TableCell>
-                        <TableCell>
-                          <Button size="sm" onClick={() => confirmIssue(i.id)}>
-                            <CheckCircle className="w-4 h-4 ml-2" />
-                            Confirm Receipt / تأكيد الاستلام
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  }
+                  {(() => {
+                    // Filter: Delivered (Incoming) OR Received (History)
+                    const shipments = displayIssues.filter(i => i.delivered || i.branchReceived);
+
+                    // Sort: Newest First (Descending) based on Received Date (if exists) OR Delivered Date
+                    const sortedShipments = shipments.sort((a, b) => {
+                      const dateA = a.branchReceivedAt ? new Date(a.branchReceivedAt).getTime() : (a.deliveredAt ? new Date(a.deliveredAt).getTime() : new Date(a.createdAt).getTime());
+                      const dateB = b.branchReceivedAt ? new Date(b.branchReceivedAt).getTime() : (b.deliveredAt ? new Date(b.deliveredAt).getTime() : new Date(b.createdAt).getTime());
+                      return dateB - dateA;
+                    });
+
+                    if (sortedShipments.length === 0) {
+                      return <TableRow><TableCell colSpan={4} className="text-center">No Shipments / لا توجد شحنات</TableCell></TableRow>
+                    }
+
+                    return sortedShipments.map(i => {
+                      const isModified = i.updatedAt && (new Date(i.updatedAt).getTime() > new Date(i.createdAt).getTime() + 60000);
+                      return (
+                        <TableRow key={i.id} className={isModified ? "bg-blue-50" : ""}>
+                          <TableCell>{i.id.slice(0, 8)}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1 items-start">
+                              {i.branchReceived ? (
+                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">Received / تم الاستلام</Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">In Transit / في الطريق</Badge>
+                              )}
+
+                              {isModified && (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div className="flex items-center gap-1 cursor-pointer">
+                                        <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 text-[10px] px-1 py-0 h-5">
+                                          <AlertTriangle className="w-3 h-3 mr-1" />
+                                          Modified / معدل
+                                        </Badge>
+                                      </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <div className="text-xs">
+                                        <p>Last modified: {new Date(i.updatedAt || "").toLocaleString('ar-SA')}</p>
+                                        {i.lastModifiedBy && <p>By: {i.lastModifiedBy}</p>}
+                                      </div>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col text-xs gap-1">
+                              {/* Received Date (Top) */}
+                              {i.branchReceivedAt && (
+                                <div className="flex items-center gap-1 text-green-700">
+                                  <span className="font-semibold">Received:</span>
+                                  <span>{new Date(i.branchReceivedAt).toLocaleDateString('ar-SA')}</span>
+                                </div>
+                              )}
+                              {/* Delivered Date (Bottom) */}
+                              {i.deliveredAt && (
+                                <div className="flex items-center gap-1 text-muted-foreground">
+                                  <span className="font-semibold">Delivered:</span>
+                                  <span>{new Date(i.deliveredAt).toLocaleDateString('ar-SA')}</span>
+                                </div>
+                              )}
+                              {!i.branchReceivedAt && !i.deliveredAt && (
+                                <span>{new Date(i.createdAt).toLocaleDateString('ar-SA')}</span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button size="sm" variant="outline" onClick={() => generateIssuePDF(i)} title="View Invoice / عرض الفاتورة">
+                                <FileText className="w-4 h-4 ml-2" />
+                                View Invoice / عرض الفاتورة
+                              </Button>
+                              {(() => {
+                                const linkedReq = requests.find(r => r.id === i.requestId)
+                                if (linkedReq) {
+                                  return (
+                                    <Button size="sm" variant="ghost" onClick={() => generateBranchRequestPDF(linkedReq)} title="View Request / عرض الطلب">
+                                      <ClipboardList className="w-4 h-4 ml-2" />
+                                      Request / الطلب
+                                    </Button>
+                                  )
+                                }
+                                return null
+                              })()}
+                              {/* Only show Confirm Receipt if Not Received */}
+                              {!i.branchReceived && (
+                                <Button size="sm" onClick={() => confirmIssue(i.id)}>
+                                  <CheckCircle className="w-4 h-4 ml-2" />
+                                  Confirm Receipt / تأكيد الاستلام
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    });
+                  })()}
                 </TableBody>
               </Table>
             </TabsContent>
@@ -1105,6 +1245,6 @@ export function BranchDashboard() {
           )}
         </DialogContent>
       </Dialog>
-    </div>
+    </div >
   )
 }

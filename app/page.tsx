@@ -40,6 +40,9 @@ import { syncProduct, deleteProductApi } from "@/lib/sync-api"
 import { useRouter } from "next/navigation"
 import { SmartAlerts } from "@/components/smart-alerts"
 import { MonthlyClosingDialog } from "@/components/monthly-closing-dialog"
+import { TABLE_VIEW_MODES, type TableViewMode, calculateTurnoverRate, getStockStatus as getTableStockStatus } from "@/lib/table-view-modes"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { MobileProductCard } from "@/components/mobile-product-card"
 
 type StockStatus = "all" | "available" | "low" | "out"
 
@@ -140,6 +143,7 @@ export default function Home() {
   const { toast } = useToast()
   const { t } = useI18n()
   const { user } = useAuth()
+  const isMobile = useIsMobile()
 
   // PROTECT: Redirect Branch users to Branch Requests
   useEffect(() => {
@@ -242,6 +246,19 @@ export default function Home() {
   const [selectedStockStatus, setSelectedStockStatus] = useState<StockStatus>("all")
   const [mergeDuplicates, setMergeDuplicates] = useState(false)
   const [excludeZeroStock, setExcludeZeroStock] = useState(false)
+  const [tableViewMode, setTableViewMode] = useState<string>('default')
+
+  // Load saved view mode from localStorage
+  useEffect(() => {
+    const savedView = localStorage.getItem('productsTableView')
+    if (savedView) setTableViewMode(savedView)
+  }, [])
+
+  // Save view mode to localStorage when changed
+  const handleViewModeChange = (mode: string) => {
+    setTableViewMode(mode)
+    localStorage.setItem('productsTableView', mode)
+  }
 
   const filteredProducts = useMemo(() => {
     let filtered = products || []
@@ -285,6 +302,30 @@ export default function Home() {
 
     return filtered
   }, [searchTerm, selectedCategory, selectedLocation, selectedStockStatus, excludeZeroStock, mergeDuplicates, products])
+
+  // Sort products by productCode (ascending) by default
+  const sortedFilteredProducts = useMemo(() => {
+    const sorted = [...filteredProducts]
+
+    // Default sort: by productCode (ascending)
+    sorted.sort((a, b) => {
+      const codeA = String(a.productCode || a.itemNumber || '').toLowerCase()
+      const codeB = String(b.productCode || b.itemNumber || '').toLowerCase()
+
+      // Try numeric sorting if both are numbers
+      const numA = parseFloat(codeA)
+      const numB = parseFloat(codeB)
+
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return numA - numB
+      }
+
+      // Fallback to string sorting
+      return codeA.localeCompare(codeB, 'ar')
+    })
+
+    return sorted
+  }, [filteredProducts])
   const [isSideSheetOpen, setIsSideSheetOpen] = useState(false)
 
   // Monthly Closing Dialog
@@ -399,8 +440,8 @@ export default function Home() {
     });
 
     const results: Product[] = [];
-    // Process in batches to avoid rate limits
-    const BATCH_SIZE = 5;
+    // Increased batch size for faster processing
+    const BATCH_SIZE = 20; // 5 -> 20 for 4x speed boost
 
     for (let i = 0; i < productsList.length; i += BATCH_SIZE) {
       const batch = productsList.slice(i, i + BATCH_SIZE);
@@ -420,13 +461,13 @@ export default function Home() {
 
           let src = getSafeImageSrc(p.image);
 
+          // If it's already base64, return as is (skip conversion!)
+          if (src.startsWith('data:')) return { ...p, image: src };
+
           // Force proxy for PDF generation if it's an external URL
           if (src.startsWith('http')) {
             src = getApiUrl(`/api/image-proxy?url=${encodeURIComponent(src)}`);
           }
-
-          // If it's already base64, return as is
-          if (src.startsWith('data:')) return { ...p, image: src };
 
           // Fetch the image
           const response = await fetch(src);
@@ -459,7 +500,7 @@ export default function Home() {
 
   const printProductsFullPDF = async () => {
     if (!hasPermission(user, 'page.reports')) {
-      toast({ title: "غير مسموح", description: "لا تملك صلاحية التقارير", variant: "destructive" })
+      toast({ title: getDualString("common.notAllowed"), description: getDualString("common.permissionRequired"), variant: "destructive" })
       return
     }
     // Convert images first
@@ -701,7 +742,7 @@ export default function Home() {
 
   const printFilteredTableCardsPDF = async () => {
     if (!hasPermission(user, 'page.reports')) {
-      toast({ title: "غير مسموح", description: "لا تملك صلاحية التقارير", variant: "destructive" })
+      toast({ title: getDualString("common.notAllowed"), description: getDualString("common.permissionRequired"), variant: "destructive" })
       return
     }
     // Convert images first
@@ -1033,16 +1074,13 @@ export default function Home() {
       const updated = { ...editingProduct, ...product, updatedAt: new Date().toISOString() }
 
       // Optimistic Local Update
-      updateProduct(editingProduct.id, product)
+      await updateProduct(editingProduct.id, product)
 
+      // Cloud Sync (non-blocking - happens in background)
       if (user) {
-        // Cloud Sync
-        try {
-          await syncProduct(updated)
-        } catch (e) {
-          console.error("Cloud sync failed", e)
-        }
+        syncProduct(updated).catch(e => console.error("Cloud sync failed", e))
       }
+
       setEditingProduct(undefined)
     }
   }
@@ -1159,160 +1197,160 @@ export default function Home() {
               <BulkOperations products={products} filteredProducts={filteredProducts} onProductsUpdate={setProducts} />
 
               {hasPermission(user, 'page.settings') && (
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Button variant="outline" size="icon">
-                    <Settings className="h-4 w-4" />
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="left" className="w-full sm:max-w-2xl overflow-y-auto">
-                  <SheetHeader>
-                    <SheetTitle><DualText k="home.settings.title" /></SheetTitle>
-                    <SheetDescription><DualText k="home.settings.desc" /></SheetDescription>
-                  </SheetHeader>
-                  <Tabs defaultValue="categories" className="mt-6">
-                    <TabsList className="grid w-full grid-cols-5">
-                      <TabsTrigger value="categories"><DualText k="home.settings.tabs.categories" /></TabsTrigger>
-                      <TabsTrigger value="locations"><DualText k="home.settings.tabs.locations" /></TabsTrigger>
-                      <TabsTrigger value="branches"><DualText k="home.settings.tabs.branches" /></TabsTrigger>
-                      <TabsTrigger value="units"><DualText k="home.settings.tabs.units" /></TabsTrigger>
-                      <TabsTrigger value="invoice"><DualText k="home.settings.tabs.invoice" /></TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="categories" className="mt-4">
-                      <CategoryManager />
-                    </TabsContent>
-                    <TabsContent value="locations" className="mt-4">
-                      <LocationManager />
-                    </TabsContent>
-                    <TabsContent value="branches" className="mt-4">
-                      <BranchManager />
-                    </TabsContent>
-                    <TabsContent value="units" className="mt-4">
-                      <UnitManager />
-                    </TabsContent>
-                    <TabsContent value="invoice" className="mt-4 space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="invoiceType"><DualText k="home.settings.invoice.type" /></Label>
-                        <select
-                          id="invoiceType"
-                          value={invoiceType}
-                          onChange={(e) => setInvoiceType(e.target.value)}
-                          className="w-full rounded-md border border-input bg-background px-3 py-2"
-                        >
-                          <option value="فاتورة صرف">{t("home.settings.invoice.types.issue")}</option>
-                          <option value="فاتورة تجميع">{t("home.settings.invoice.types.assembly")}</option>
-                          <option value="فاتورة مشتريات">{t("home.settings.invoice.types.purchase")}</option>
-                          <option value="طلبات فروع">{t("home.settings.invoice.types.branch")}</option>
-                          <option value="طلبات مشتريات جديدة">{t("home.settings.invoice.types.newPurchase")}</option>
-                          <option value="نوع آخر">{t("home.settings.invoice.types.other")}</option>
-                        </select>
-                        {invoiceType === "نوع آخر" && (
-                          <div className="mt-2">
-                            <Input
-                              placeholder={t("home.settings.invoice.typePlaceholder")}
-                              value={customInvoiceType}
-                              onChange={(e) => setCustomInvoiceType(e.target.value)}
-                            />
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label><DualText k="home.settings.invoice.columns" /></Label>
-                        <div className="grid grid-cols-2 gap-3">
-                          {availableColumns.map((key) => {
-                            const labels: Record<string, string> = {
-                              id: t("common.id"),
-                              productCode: t("common.code"),
-                              itemNumber: t("common.itemNumber"),
-                              productName: t("common.productName"),
-                              price: t("common.price"),
-                              averagePrice: t("common.avgPrice"),
-                              quantity: t("common.quantity"),
-                              unit: t("common.unit"),
-                              category: t("common.category"),
-                              location: t("common.location"),
-                            }
-                            const label = labels[key] || key
-                            const checked = invoiceColumns.includes(key)
-                            return (
-                              <label key={key} className="flex items-center gap-2">
-                                <Checkbox
-                                  checked={checked}
-                                  onCheckedChange={(val) => {
-                                    const isOn = Boolean(val)
-                                    setInvoiceColumns((prev) =>
-                                      isOn ? Array.from(new Set([...prev, key])) : prev.filter((k) => k !== key),
-                                    )
-                                  }}
-                                />
-                                <span>{label}</span>
-                              </label>
-                            )
-                          })}
+                <Sheet>
+                  <SheetTrigger asChild>
+                    <Button variant="outline" size="icon">
+                      <Settings className="h-4 w-4" />
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="left" className="w-full sm:max-w-2xl overflow-y-auto">
+                    <SheetHeader>
+                      <SheetTitle><DualText k="home.settings.title" /></SheetTitle>
+                      <SheetDescription><DualText k="home.settings.desc" /></SheetDescription>
+                    </SheetHeader>
+                    <Tabs defaultValue="categories" className="mt-6">
+                      <TabsList className="grid w-full grid-cols-5">
+                        <TabsTrigger value="categories"><DualText k="home.settings.tabs.categories" /></TabsTrigger>
+                        <TabsTrigger value="locations"><DualText k="home.settings.tabs.locations" /></TabsTrigger>
+                        <TabsTrigger value="branches"><DualText k="home.settings.tabs.branches" /></TabsTrigger>
+                        <TabsTrigger value="units"><DualText k="home.settings.tabs.units" /></TabsTrigger>
+                        <TabsTrigger value="invoice"><DualText k="home.settings.tabs.invoice" /></TabsTrigger>
+                      </TabsList>
+                      <TabsContent value="categories" className="mt-4">
+                        <CategoryManager />
+                      </TabsContent>
+                      <TabsContent value="locations" className="mt-4">
+                        <LocationManager />
+                      </TabsContent>
+                      <TabsContent value="branches" className="mt-4">
+                        <BranchManager />
+                      </TabsContent>
+                      <TabsContent value="units" className="mt-4">
+                        <UnitManager />
+                      </TabsContent>
+                      <TabsContent value="invoice" className="mt-4 space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="invoiceType"><DualText k="home.settings.invoice.type" /></Label>
+                          <select
+                            id="invoiceType"
+                            value={invoiceType}
+                            onChange={(e) => setInvoiceType(e.target.value)}
+                            className="w-full rounded-md border border-input bg-background px-3 py-2"
+                          >
+                            <option value="فاتورة صرف">{t("home.settings.invoice.types.issue")}</option>
+                            <option value="فاتورة تجميع">{t("home.settings.invoice.types.assembly")}</option>
+                            <option value="فاتورة مشتريات">{t("home.settings.invoice.types.purchase")}</option>
+                            <option value="طلبات فروع">{t("home.settings.invoice.types.branch")}</option>
+                            <option value="طلبات مشتريات جديدة">{t("home.settings.invoice.types.newPurchase")}</option>
+                            <option value="نوع آخر">{t("home.settings.invoice.types.other")}</option>
+                          </select>
+                          {invoiceType === "نوع آخر" && (
+                            <div className="mt-2">
+                              <Input
+                                placeholder={t("home.settings.invoice.typePlaceholder")}
+                                value={customInvoiceType}
+                                onChange={(e) => setCustomInvoiceType(e.target.value)}
+                              />
+                            </div>
+                          )}
                         </div>
-                        <p className="text-sm text-muted-foreground">
-                          <DualText k="home.settings.invoice.columnsDesc" />
-                        </p>
-                      </div>
 
-                      <div className="flex gap-3">
-                        <Button onClick={saveInvoiceSettings}><DualText k="home.settings.invoice.save" /></Button>
-                        <Button variant="outline" onClick={resetInvoiceSettings}><DualText k="home.settings.invoice.reset" /></Button>
-                      </div>
+                        <div className="space-y-2">
+                          <Label><DualText k="home.settings.invoice.columns" /></Label>
+                          <div className="grid grid-cols-2 gap-3">
+                            {availableColumns.map((key) => {
+                              const labels: Record<string, string> = {
+                                id: t("common.id"),
+                                productCode: t("common.code"),
+                                itemNumber: t("common.itemNumber"),
+                                productName: t("common.productName"),
+                                price: t("common.price"),
+                                averagePrice: t("common.avgPrice"),
+                                quantity: t("common.quantity"),
+                                unit: t("common.unit"),
+                                category: t("common.category"),
+                                location: t("common.location"),
+                              }
+                              const label = labels[key] || key
+                              const checked = invoiceColumns.includes(key)
+                              return (
+                                <label key={key} className="flex items-center gap-2">
+                                  <Checkbox
+                                    checked={checked}
+                                    onCheckedChange={(val) => {
+                                      const isOn = Boolean(val)
+                                      setInvoiceColumns((prev) =>
+                                        isOn ? Array.from(new Set([...prev, key])) : prev.filter((k) => k !== key),
+                                      )
+                                    }}
+                                  />
+                                  <span>{label}</span>
+                                </label>
+                              )
+                            })}
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            <DualText k="home.settings.invoice.columnsDesc" />
+                          </p>
+                        </div>
 
-                      <div className="border-t pt-4 mt-4 mb-4">
-                        <h3 className="font-bold mb-2 text-orange-600">إصلاح المشاكل (Maintenance)</h3>
-                        <p className="text-xs text-muted-foreground mb-2">أداة لإصلاح تكرار المنتجات ودمجها تلقائياً.</p>
-                        <Button variant="outline" className="w-full border-orange-200 hover:bg-orange-50 text-orange-700" onClick={async () => {
-                          if (confirm(t("home.maintenance.fixDuplicates.confirm"))) {
-                            const loadingToast = toast({
-                              title: getDualString("common.processing"),
-                              description: getDualString("common.pleaseWait")
-                            })
-                            try {
-                              const res = await fixDuplicates()
-                              toast({
-                                title: getDualString("toast.success"),
-                                description: getDualString("home.maintenance.fixDuplicates.finished")
-                                  .replace("{merged}", String(res.mergedCount))
-                                  .replace("{removed}", String(res.removedCount))
+                        <div className="flex gap-3">
+                          <Button onClick={saveInvoiceSettings}><DualText k="home.settings.invoice.save" /></Button>
+                          <Button variant="outline" onClick={resetInvoiceSettings}><DualText k="home.settings.invoice.reset" /></Button>
+                        </div>
+
+                        <div className="border-t pt-4 mt-4 mb-4">
+                          <h3 className="font-bold mb-2 text-orange-600">إصلاح المشاكل (Maintenance)</h3>
+                          <p className="text-xs text-muted-foreground mb-2">أداة لإصلاح تكرار المنتجات ودمجها تلقائياً.</p>
+                          <Button variant="outline" className="w-full border-orange-200 hover:bg-orange-50 text-orange-700" onClick={async () => {
+                            if (confirm(t("home.maintenance.fixDuplicates.confirm"))) {
+                              const loadingToast = toast({
+                                title: getDualString("common.processing"),
+                                description: getDualString("common.pleaseWait")
                               })
-                            } catch (e) {
-                              console.error(e)
-                              toast({
-                                title: getDualString("common.error"),
-                                description: getDualString("common.errorOccurred"),
-                                variant: "destructive"
-                              })
+                              try {
+                                const res = await fixDuplicates()
+                                toast({
+                                  title: getDualString("toast.success"),
+                                  description: getDualString("home.maintenance.fixDuplicates.finished")
+                                    .replace("{merged}", String(res.mergedCount))
+                                    .replace("{removed}", String(res.removedCount))
+                                })
+                              } catch (e) {
+                                console.error(e)
+                                toast({
+                                  title: getDualString("common.error"),
+                                  description: getDualString("common.errorOccurred"),
+                                  variant: "destructive"
+                                })
+                              }
                             }
-                          }
-                        }}>
-                          <Settings2 className="w-4 h-4 ml-2" />
-                          فحص وإصلاح التكرار
-                        </Button>
-                      </div>
+                          }}>
+                            <Settings2 className="w-4 h-4 ml-2" />
+                            فحص وإصلاح التكرار
+                          </Button>
+                        </div>
 
-                      <div className="border-t pt-4 mt-4">
-                        <h3 className="font-bold mb-2 text-destructive">منطقة الخطر</h3>
-                        <Button variant="destructive" onClick={async () => {
-                          if (confirm(t("home.maintenance.dbReset.confirm"))) {
-                            try {
-                              await db.delete()
-                              window.location.reload()
-                            } catch (e) {
-                              console.error(e)
-                              alert(t("home.maintenance.dbReset.error"))
+                        <div className="border-t pt-4 mt-4">
+                          <h3 className="font-bold mb-2 text-destructive">منطقة الخطر</h3>
+                          <Button variant="destructive" onClick={async () => {
+                            if (confirm(t("home.maintenance.dbReset.confirm"))) {
+                              try {
+                                await db.delete()
+                                window.location.reload()
+                              } catch (e) {
+                                console.error(e)
+                                alert(t("home.maintenance.dbReset.error"))
+                              }
                             }
-                          }
-                        }}>
-                          <DualText k="home.maintenance.dbReset.button" />
-                        </Button>
-                      </div>
-                    </TabsContent>
-                  </Tabs>
-                </SheetContent>
-              </Sheet>
+                          }}>
+                            <DualText k="home.maintenance.dbReset.button" />
+                          </Button>
+                        </div>
+                      </TabsContent>
+                    </Tabs>
+                  </SheetContent>
+                </Sheet>
               )}
 
               {/* Settings & Actions Dropdown */}
@@ -1435,25 +1473,72 @@ export default function Home() {
             </div>
           </div>
 
-          <ProductsTable
-            products={filteredProducts}
-            onEdit={handleEdit}
-            onDelete={handleDeleteProduct}
-            categories={categories}
-            selectedCategory={selectedCategory}
-            onCategoryChange={setSelectedCategory}
-            onLocationChange={setSelectedLocation}
-            searchTerm={searchTerm}
-            onSearchChange={setSearchTerm}
-            onReset={() => {
-              setSearchTerm("")
-              setSelectedCategory("all")
-              setSelectedLocation("all")
-              setSelectedStockStatus("all")
-              setMergeDuplicates(false)
-              setExcludeZeroStock(false)
-            }}
-          />
+
+          {/* Table View Mode Selector */}
+          <div className="mb-4 flex items-center gap-2">
+            <label className="text-sm font-medium">
+              <DualText k="tableView.selectView" fallback="نوع العرض" />:
+            </label>
+            <Select value={tableViewMode} onValueChange={handleViewModeChange}>
+              <SelectTrigger className="w-[220px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TABLE_VIEW_MODES.map(mode => (
+                  <SelectItem key={mode.id} value={mode.id}>
+                    <div className="flex items-center gap-2">
+                      <span><mode.icon className="h-4 w-4" /></span>
+                      <DualText k={`tableView.${mode.id}`} fallback={mode.labelAr} />
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {isMobile ? (
+            // Mobile: Card View
+            <div className="space-y-2 px-2">
+              {sortedFilteredProducts.length > 0 ? (
+                sortedFilteredProducts.map(product => (
+                  <MobileProductCard
+                    key={product.id}
+                    product={product}
+                    onEdit={handleEdit}
+                    onDelete={handleDeleteProduct}
+                  />
+                ))
+              ) : (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Package className="mx-auto h-12 w-12 mb-3 opacity-50" />
+                  <p><DualText k="products.noProducts" fallback="لا توجد منتجات" /></p>
+                </div>
+              )}
+            </div>
+          ) : (
+            // Desktop: Table View
+            <ProductsTable
+              products={sortedFilteredProducts}
+              viewMode={tableViewMode as TableViewMode}
+              onEdit={handleEdit}
+              onDelete={handleDeleteProduct}
+              categories={categories}
+              selectedCategory={selectedCategory}
+              onCategoryChange={setSelectedCategory}
+              locations={locations}
+              onLocationChange={setSelectedLocation}
+              searchTerm={searchTerm}
+              onSearchChange={setSearchTerm}
+              onReset={() => {
+                setSearchTerm("")
+                setSelectedCategory("all")
+                setSelectedLocation("all")
+                setSelectedStockStatus("all")
+                setMergeDuplicates(false)
+                setExcludeZeroStock(false)
+              }}
+            />
+          )}
           <Dialog open={filtersVisibilityOpen} onOpenChange={setFiltersVisibilityOpen}>
             <DialogContent>
               <DialogHeader>

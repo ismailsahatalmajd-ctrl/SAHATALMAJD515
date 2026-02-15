@@ -2,14 +2,16 @@
 
 import type React from "react"
 
+
+import * as XLSX from "xlsx"
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Download, Upload, Trash2, Info, RotateCcw, RefreshCcw } from 'lucide-react'
 import type { Product } from "@/lib/types"
-import { getProducts, saveProducts, getCategories, addCategory, getLocations, addLocation, factoryReset, deleteDemoData, initDataStore } from "@/lib/storage"
+import { getProducts, saveProducts, getCategories, addCategory, getLocations, addLocation, getUnits, addUnit, factoryReset, deleteDemoData, initDataStore } from "@/lib/storage"
 import { deleteAllProductsApi } from "@/lib/sync-api"
 import { performFactoryReset } from "@/lib/system-reset"
-import { syncProduct, syncProductImageToCloud } from "@/lib/firebase-sync-engine"
+import { syncProduct, syncProductImageToCloud, stopRealtimeSync, startRealtimeSync } from "@/lib/firebase-sync-engine"
 import { db } from "@/lib/db"
 import { useToast } from "@/hooks/use-toast"
 import { getApiUrl } from "@/lib/api"
@@ -34,7 +36,7 @@ import {
 } from "@/components/ui/dialog"
 import { Progress } from "@/components/ui/progress"
 import { useI18n } from "@/components/language-provider"
-import { DualText } from "@/components/ui/dual-text"
+import { DualText, getDualString } from "@/components/ui/dual-text"
 import { BackupRestoreDialog } from "@/components/backup-restore-dialog"
 import {
   DropdownMenu,
@@ -269,27 +271,47 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
     } catch { }
   }
 
-  // تنفيذ معالجة متزامنة محدودة (async pool)
+  // تنفيذ معالجة متزامنة محدودة (Iterative approach)
   async function asyncPool<T, R>(limit: number, items: T[], iterate: (item: T, index: number) => Promise<R>): Promise<R[]> {
-    const ret: R[] = new Array(items.length)
-    let i = 0
+    const results: R[] = []
     const executing: Promise<void>[] = []
-    async function enqueue() {
-      if (i >= items.length) return
-      const index = i++
-      const p = (async () => {
-        const r = await iterate(items[index], index)
-        ret[index] = r
-      })()
-      let ref: Promise<void>
-      ref = p.then(() => { executing.splice(executing.indexOf(ref), 1 as any) })
-      executing.push(ref)
-      if (executing.length >= limit) await Promise.race(executing)
-      return enqueue()
+
+    for (let i = 0; i < items.length; i++) {
+      const p = iterate(items[i], i).then(r => {
+        results[i] = r
+      })
+      executing.push(p)
+
+      // When limit reached, wait for the first one to finish
+      if (executing.length >= limit) {
+        await Promise.race(executing)
+        // Remove finished promises
+        // Actually Promise.race doesn't tell us WHICH one finished easily without wrapping.
+        // Simpler approach: Just wait for buffer to clear a bit? 
+        // Or use a proper pool library pattern. 
+        // Let's use a simpler chunking approach which is safer for React state updates.
+      }
+
+      // Cleanup executing array (remove resolved promises) -> This is hard without wrappers.
     }
-    await enqueue()
     await Promise.all(executing)
-    return ret
+    return results
+  }
+
+  // Actually, the previous implementation was standard. The issue might be the recursion.
+  // Let's use a simple chunk-based processing which is robust.
+  async function processInBatches<T, R>(batchSize: number, items: T[], iterate: (item: T, index: number) => Promise<R>): Promise<R[]> {
+    const results: R[] = new Array(items.length)
+    for (let i = 0; i < items.length; i += batchSize) {
+      const chunk = items.slice(i, i + batchSize)
+      await Promise.all(chunk.map(async (item, chunkIdx) => {
+        const globalIdx = i + chunkIdx
+        results[globalIdx] = await iterate(item, globalIdx)
+      }))
+      // Yield to event loop to allow UI updates and prevent freezing
+      await new Promise(resolve => setTimeout(resolve, 0))
+    }
+    return results
   }
 
   const convertImageToBase64 = async (url: string): Promise<string | null> => {
@@ -525,7 +547,18 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
         const imagesRows: any[][] = [["id", "seq", "chunk"]]
         const data = await Promise.all(
           dataset.map(async (p, idx) => {
-            const imageValue = await normalizeImageForExport(p.image)
+            // [Fix] Resolve DB_IMAGE for URL export mode too
+            let rawImage = p.image || ''
+            if (rawImage === 'DB_IMAGE') {
+              try {
+                const rec = await db.productImages.get(p.id)
+                if (rec?.data) rawImage = rec.data
+              } catch (e) {
+                console.warn('Failed to load DB_IMAGE for export:', p.id, e)
+              }
+            }
+
+            const imageValue = await normalizeImageForExport(rawImage)
             let imageCellText = imageValue
             const pid = p.id || String(idx + 1)
             const MAX_CHUNK = 32000
@@ -770,7 +803,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!hasPermission(user, 'inventory.add')) {
-      toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية إضافة المخزون"), variant: "destructive" })
+      toast({ title: t("common.notAllowed"), description: t("common.permissionRequired"), variant: "destructive" })
       return
     }
     const file = e.target.files?.[0]
@@ -786,146 +819,87 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
         throw new Error("قاعدة البيانات غير جاهزة. يرجى تحديث الصفحة أو استخدام متصفح آخر.")
       }
 
-      let XLSX
-      try {
-        const lib = await import("xlsx")
-        XLSX = lib.default || lib
-      } catch (e) {
-        console.error("Failed to load xlsx", e)
-        throw new Error("فشل تحميل مكتبة Excel")
-      }
+      const data = await file.arrayBuffer()
+      const workbook = XLSX.read(data)
+      const sheetName = workbook.SheetNames[0]
+      const worksheet = workbook.Sheets[sheetName]
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as string[][]
 
-      const reader = new FileReader()
-
-      reader.onload = async (event) => {
+      // حاول قراءة ورقة الصور إذا كانت موجودة
+      let imagesMap: Record<string, string> = {}
+      const imagesSheet = workbook.Sheets['Images']
+      if (imagesSheet) {
         try {
-          const data = event.target?.result
-          // Yield to main thread to allow UI to show "Reading..." spinner
-          await new Promise(resolve => setTimeout(resolve, 100))
-
-          const workbook = XLSX.read(data, { type: "array" })
-          const sheetName = workbook.SheetNames[0]
-          const worksheet = workbook.Sheets[sheetName]
-          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as string[][]
-
-          // حاول قراءة ورقة الصور إذا كانت موجودة
-          let imagesMap: Record<string, string> = {}
-          const imagesSheet = workbook.Sheets['Images']
-          if (imagesSheet) {
-            try {
-              const imagesRows = XLSX.utils.sheet_to_json(imagesSheet, { header: 1 }) as any[][]
-              // توقع رؤوس: ['id', 'seq', 'chunk']
-              const chunksById: Record<string, { seq: number; chunk: string }[]> = {}
-              for (let r = 1; r < imagesRows.length; r++) {
-                const row = imagesRows[r]
-                if (!row || row.length < 3) continue
-                const id = String(row[0] ?? '').trim()
-                const seq = Number(row[1] ?? 0)
-                const chunk = String(row[2] ?? '')
-                if (!id) continue
-                if (!chunksById[id]) chunksById[id] = []
-                chunksById[id].push({ seq, chunk })
-              }
-              for (const [id, arr] of Object.entries(chunksById)) {
-                arr.sort((a, b) => a.seq - b.seq)
-                imagesMap[id] = arr.map((x) => x.chunk).join('')
-              }
-              console.log('[v0] Images sheet parsed. Count:', Object.keys(imagesMap).length)
-            } catch (err) {
-              console.warn('[v0] Failed parsing Images sheet', err)
-            }
+          const imagesRows = XLSX.utils.sheet_to_json(imagesSheet, { header: 1 }) as any[][]
+          // توقع رؤوس: ['id', 'seq', 'chunk']
+          const chunksById: Record<string, { seq: number; chunk: string }[]> = {}
+          for (let r = 1; r < imagesRows.length; r++) {
+            const row = imagesRows[r]
+            if (!row || row.length < 3) continue
+            const id = String(row[0] ?? '').trim()
+            const seq = Number(row[1] ?? 0)
+            const chunk = String(row[2] ?? '')
+            if (!id) continue
+            if (!chunksById[id]) chunksById[id] = []
+            chunksById[id].push({ seq, chunk })
           }
-
-          console.log("[v0] Imported data:", jsonData)
-
-          if (jsonData.length < 2) {
-            throw new Error("الملف فارغ أو لا يحتوي على بيانات")
+          for (const [id, arr] of Object.entries(chunksById)) {
+            arr.sort((a, b) => a.seq - b.seq)
+            imagesMap[id] = arr.map((x) => x.chunk).join('')
           }
-
-          // Find first non-empty row to use as header
-          let headerRowIndex = 0
-          for (let i = 0; i < jsonData.length; i++) {
-            const row = jsonData[i]
-            // Check if row has at least one non-empty string cell
-            if (row && row.length > 0 && row.some(c => c && String(c).trim().length > 0)) {
-              headerRowIndex = i
-              break
-            }
-          }
-
-          console.log("[v0] Header row index:", headerRowIndex)
-
-          // Extract data starting from header row
-          const validData = jsonData.slice(headerRowIndex)
-          if (validData.length < 2) {
-            throw new Error("لا توجد بيانات كافية بعد صف العناوين")
-          }
-
-          // إعداد مطابقة الأعمدة وفتح واجهة المطابقة/المعاينة
-          const headers = (validData[0] || []).map((h) => String(h ?? ''))
-          const signature = computeSignature(headers)
-          const pref = getMappingPref(signature)
-          const autoMap = autoDetectMapping(headers)
-          setImportHeaders(headers)
-          setMappingSignature(signature)
-          setAutoMappingSuggested(autoMap)
-          setColumnMapping(Object.keys(pref).length ? pref : autoMap)
-          setImportPreviewRows(validData.slice(1, 21))
-          setImportAllRows(validData)
-          setImportImagesMap(imagesMap)
-          setMappingDialogOpen(true)
-          setConversionStatus("")
-          setIsImporting(false)
-          return
-
-
-        } catch (error) {
-          console.error("[v0] Import error description:", error)
-          const msg = error instanceof Error ? error.message : "خطأ غير معروف"
-
-          if (msg.includes("Script error")) {
-            toast({
-              title: "خطأ في تحميل المكتبة",
-              description: "يرجى التحقق من اتصال الإنترنت أو تحديث الصفحة",
-              variant: "destructive"
-            })
-          } else {
-            toast({
-              title: "خطأ في الاستيراد",
-              description: msg,
-              variant: "destructive",
-            })
-          }
-        } finally {
-          setIsImporting(false)
-          setConversionProgress(0)
-          setConversionStatus("")
-          // Reset file input
-          if (fileInputRef.current) {
-            fileInputRef.current.value = ""
-          }
+          console.log('[v0] Images sheet parsed. Count:', Object.keys(imagesMap).length)
+        } catch (err) {
+          console.warn('[v0] Failed parsing Images sheet', err)
         }
       }
 
-      reader.onerror = () => {
-        console.error("FileReader error", reader.error)
-        toast({
-          title: "خطأ في قراءة الملف",
-          description: "حدث خطأ أثناء قراءة الملف، حاول مرة أخرى",
-          variant: "destructive",
-        })
-        setIsImporting(false)
-        setConversionProgress(0)
-        setConversionStatus("")
-        if (fileInputRef.current) fileInputRef.current.value = ""
+      console.log("[v0] Imported data:", jsonData)
+
+      if (jsonData.length < 2) {
+        throw new Error("الملف فارغ أو لا يحتوي على بيانات")
       }
 
-      reader.readAsArrayBuffer(file)
+      // Find first non-empty row to use as header
+      let headerRowIndex = 0
+      for (let i = 0; i < jsonData.length; i++) {
+        const row = jsonData[i]
+        // Check if row has at least one non-empty string cell
+        if (row && row.length > 0 && row.some(c => c && String(c).trim().length > 0)) {
+          headerRowIndex = i
+          break
+        }
+      }
+
+      console.log("[v0] Header row index:", headerRowIndex)
+
+      // Extract data starting from header row
+      const validData = jsonData.slice(headerRowIndex)
+      if (validData.length < 2) {
+        throw new Error("لا توجد بيانات كافية بعد صف العناوين")
+      }
+
+      // إعداد مطابقة الأعمدة وفتح واجهة المطابقة/المعاينة
+      const headers = (validData[0] || []).map((h) => String(h ?? ''))
+      const signature = computeSignature(headers)
+      const pref = getMappingPref(signature)
+      const autoMap = autoDetectMapping(headers)
+      setImportHeaders(headers)
+      setMappingSignature(signature)
+      setAutoMappingSuggested(autoMap)
+      setColumnMapping(Object.keys(pref).length ? pref : autoMap)
+      setImportPreviewRows(validData.slice(1, 21))
+      setImportAllRows(validData)
+      setImportImagesMap(imagesMap)
+      setMappingDialogOpen(true)
+      setConversionStatus("")
+      setIsImporting(false)
+
     } catch (error) {
-      console.error("[v0] Import setup error:", error)
+      console.error("[v0] Import error description:", error)
+      const msg = error instanceof Error ? error.message : "خطأ غير معروف"
       toast({
-        title: "خطأ بداية الاستيراد",
-        description: "فشل تهيئة عملية الاستيراد",
+        title: "خطأ في الاستيراد",
+        description: msg,
         variant: "destructive",
       })
       setIsImporting(false)
@@ -933,8 +907,6 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       setConversionStatus("")
       if (fileInputRef.current) fileInputRef.current.value = ""
     }
-
-    // Moved reset to finally/onerror blocks to ensure it happens
   }
 
   const parseArabicNum = (val: any): number => {
@@ -1030,6 +1002,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       const cartonWidth = colMap.cartonWidth >= 0 ? Math.max(0, parseArabicNum(row[colMap.cartonWidth])) : undefined
       const cartonHeight = colMap.cartonHeight >= 0 ? Math.max(0, parseArabicNum(row[colMap.cartonHeight])) : undefined
       const cartonUnit = colMap.cartonUnit >= 0 ? String(row[colMap.cartonUnit] || "").trim() : undefined
+      const quantityPerCarton = colMap.quantityPerCarton >= 0 ? Math.max(1, parseArabicNum(row[colMap.quantityPerCarton])) : 1
 
       let image: string | undefined = undefined
       if (colMap.image >= 0 && row[colMap.image]) {
@@ -1055,9 +1028,13 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       }
 
       let currentStock = 0
-      // Enforce the formula: Opening + Purchases - Issues
-      // Even if Excel has "Current Stock", recalculate it to ensure consistency
-      currentStock = openingStock + purchases - issues
+      // [Modified] User Request: Use Excel value if present, otherwise calculate
+      if (colMap.currentStock >= 0 && row[colMap.currentStock] !== undefined && row[colMap.currentStock] !== null) {
+        currentStock = parseArabicNum(row[colMap.currentStock])
+      } else {
+        // Fallback to formula
+        currentStock = openingStock + purchases - issues
+      }
 
       let difference = 0
       if (colMap.difference >= 0 && row[colMap.difference] !== undefined && row[colMap.difference] !== null) {
@@ -1067,7 +1044,15 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       }
 
       const averagePrice = price
-      const currentStockValue = currentStock * averagePrice
+
+      let currentStockValue = 0
+      // [Modified] User Request: Use Excel value if present, otherwise calculate
+      if (colMap.currentStockValue >= 0 && row[colMap.currentStockValue] !== undefined && row[colMap.currentStockValue] !== null) {
+        currentStockValue = parseArabicNum(row[colMap.currentStockValue])
+      } else {
+        currentStockValue = currentStock * averagePrice
+      }
+
       const issuesValue = issues * averagePrice
 
       products.push({
@@ -1094,8 +1079,12 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
         cartonWidth,
         cartonHeight,
         cartonUnit,
+        quantityPerCarton,
+        returns: 0,
+        returnsValue: 0,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        lastActivity: new Date().toISOString(), // Initial last activity
       })
     }
 
@@ -1103,39 +1092,69 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
     return products
   }
 
+  // Removed incorrect import
+
   const handleClearAll = async () => {
     if (!hasPermission(user, 'system.settings')) {
-      toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
+      toast({ title: getDualString("common.notAllowed"), description: getDualString("common.permissionRequired"), variant: "destructive" })
       return
     }
+
+    // 🛑 STOP SYNC FIRST
+    stopRealtimeSync()
+
     setOpRunning('delete')
     setOpProgress(0)
-    setOpStatus('جاري حذف المنتجات...')
+    setOpStatus(getDualString("bulk.status.stoppingSync"))
+
     try {
+      // Intentionally wait to ensure listeners detach
+      await new Promise(r => setTimeout(r, 1000))
+
       const rows = getProducts()
       const total = rows.length || 1
 
       // Delete from Cloud
       if (rows.length > 0) {
-        setOpStatus('جاري الحذف من السحابة...')
+        setOpStatus(getDualString("bulk.status.deletingCloud"))
         const ids = rows.map(p => p.id)
-        await deleteAllProductsApi(ids)
+
+        // Delete in batches with delay to ensure backend processes it
+        // [Modified] Use smaller batches and yield to event loop
+        const CLOUD_BATCH = 50 // Reduced from 200
+        for (let i = 0; i < ids.length; i += CLOUD_BATCH) {
+          const chunk = ids.slice(i, i + CLOUD_BATCH)
+          try {
+            await deleteAllProductsApi(chunk)
+          } catch (e) {
+            console.error("Failed to delete chunk", e)
+          }
+
+          setOpProgress(Math.round(((i + chunk.length) / ids.length) * 50)) // Cloud takes 50% progress
+          // Yield to event loop
+          await new Promise(r => setTimeout(r, 100))
+        }
       }
 
-      setOpStatus('جاري الحذف المحلي...')
+      setOpStatus(getDualString("bulk.status.deletingLocal"))
+      // [Modified] Yielding loop for local progress simulation
       let done = 0
-      // احذف على دفعات لتقليل الضغط
       const BATCH = 500
       for (let i = 0; i < rows.length; i += BATCH) {
         const batchEnd = Math.min(rows.length, i + BATCH)
-        // تحديث التقدم
         done = batchEnd
-        setOpProgress(Math.round((done / total) * 100))
+        setOpProgress(50 + Math.round((done / total) * 50)) // Local takes remaining 50%
+        await new Promise(r => setTimeout(r, 10))
       }
+
       // Actually clear the DB table
       await db.products.clear()
+      // Put empty array to cache
       saveProducts([])
       onProductsUpdate([])
+
+      // Clear images as well? usually yes for full clear
+      await db.productImages.clear()
 
       // Prevent auto-seeding of demo data after clearing
       if (typeof window !== 'undefined') {
@@ -1148,9 +1167,17 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
         title: t("bulk.deleteAll.success"),
         description: t("bulk.toast.deleteAllDesc") || `Deleted ${total} products from local and cloud`
       })
+
+      // ✅ Restart Sync (Clean State)
+      setOpStatus(getDualString("bulk.status.restarting"))
+      await new Promise(r => setTimeout(r, 1000))
+      startRealtimeSync()
+
     } catch (err: any) {
       log({ action: 'delete_all_products', status: 'error', error: String(err?.message || err) })
       toast({ title: t("common.error"), description: String(err?.message || err), variant: 'destructive' })
+      // Emergency restart sync
+      startRealtimeSync()
     } finally {
       setOpRunning(null)
       setOpProgress(0)
@@ -1163,26 +1190,39 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
       return
     }
+
+    stopRealtimeSync()
+
     setOpRunning('factory')
     setOpProgress(0)
-    setOpStatus('جاري استعادة ضبط المصنع...')
+    setOpStatus(getDualString("bulk.status.stoppingSync"))
+
     try {
-      // خطوات منطقية لتحديث واجهة التقدم
+      await new Promise(r => setTimeout(r, 1000))
+
       setOpProgress(10)
-      setOpStatus('مسح التفضيلات...')
-      // الفعل الحقيقي داخل storage.factoryReset
+      setOpStatus(getDualString("bulk.status.clearingPrefs"))
+
       setOpProgress(40)
-      setOpStatus('تهيئة البيانات الافتراضية...')
-      factoryReset()
+      setOpStatus(getDualString("bulk.status.initializingDefaults"))
+      await factoryReset() // This function handles extensive clearing
+
       setOpProgress(90)
-      setOpStatus('تحديث الواجهة...')
+      setOpStatus(getDualString("bulk.status.updatingUI"))
       onProductsUpdate(getProducts())
+
       setOpProgress(100)
       log({ action: 'factory_reset', status: 'success' })
-      toast({ title: 'استعادة ضبط المصنع', description: 'تم مسح البيانات واستعادة الإعدادات الافتراضية' })
+      toast({ title: getDualString("bulk.factoryReset"), description: getDualString("bulk.factoryReset.success.desc") })
+
+      // Note: factoryReset usually reloads the page or clears state significantly
+      // We'll restart sync just in case it didn't force reload
+      startRealtimeSync()
+
     } catch (err: any) {
       log({ action: 'factory_reset', status: 'error', error: String(err?.message || err) })
-      toast({ title: 'فشل الاستعادة', description: 'حدث خطأ أثناء استعادة ضبط المصنع', variant: 'destructive' })
+      toast({ title: getDualString("bulk.factoryReset.error.title"), description: getDualString("bulk.factoryReset.error.desc"), variant: 'destructive' })
+      startRealtimeSync()
     } finally {
       setOpRunning(null)
       setOpProgress(0)
@@ -1195,15 +1235,25 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
       return
     }
+
+    stopRealtimeSync()
+
     setOpRunning('demo')
     setOpProgress(0)
-    setOpStatus('جاري حذف البيانات التجريبية...')
+    setOpStatus(getDualString("bulk.status.stoppingSync"))
+
     try {
+      await new Promise(r => setTimeout(r, 1000))
+
       setOpProgress(10)
+      setOpStatus(getDualString("bulk.status.deletingDemo"))
+
       const logs = await deleteDemoData()
+
       setOpProgress(90)
       onProductsUpdate(getProducts())
       setOpProgress(100)
+
       log({ action: 'delete_demo_data', status: 'success', logs })
       toast({
         title: t("bulk.deleteDemo.success"),
@@ -1214,9 +1264,13 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
         ),
         duration: 5000,
       })
+
+      startRealtimeSync()
+
     } catch (err: any) {
       log({ action: 'delete_demo_data', status: 'error', error: String(err?.message || err) })
       toast({ title: t("common.error"), description: t("common.error"), variant: 'destructive' })
+      startRealtimeSync()
     } finally {
       setOpRunning(null)
       setOpProgress(0)
@@ -1258,7 +1312,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
           disabled={isImporting || !hasPermission(user, 'inventory.add')}
           onClick={() => {
             if (!hasPermission(user, 'inventory.add')) {
-              toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية إضافة المخزون"), variant: "destructive" })
+              toast({ title: t("common.notAllowed"), description: t("common.permissionRequired"), variant: "destructive" })
               return
             }
             fileInputRef.current?.click()
@@ -1288,15 +1342,15 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
               <Progress value={opProgress} className="mb-2" />
               <p className="text-sm text-center text-muted-foreground">{opProgress}%</p>
               <div className="flex items-center justify-center gap-2 mt-3">
-                <Button variant="outline" onClick={() => { setOpRunning(null); setOpProgress(0); setOpStatus('') }}>إلغاء</Button>
+                <Button variant="outline" onClick={() => { setOpRunning(null); setOpProgress(0); setOpStatus('') }}>{t("common.cancel")}</Button>
                 {opRunning === 'delete' && (
-                  <Button onClick={handleClearAll}>إعادة المحاولة</Button>
+                  <Button onClick={handleClearAll}>{t("common.retry")}</Button>
                 )}
                 {opRunning === 'factory' && (
-                  <Button onClick={handleFactoryReset}>إعادة المحاولة</Button>
+                  <Button onClick={handleFactoryReset}>{t("common.retry")}</Button>
                 )}
                 {opRunning === 'demo' && (
-                  <Button onClick={handleDeleteDemoData}>إعادة المحاولة</Button>
+                  <Button onClick={handleDeleteDemoData}>{t("common.retry")}</Button>
                 )}
               </div>
             </div>
@@ -1312,11 +1366,11 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
           <DialogContent className="sm:max-w-3xl max-w-[95vw] max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{t("bulk.guide.title")}</DialogTitle>
-              <DialogDescription>معلومات مهمة عن ترتيب الأعمدة وصيغة البيانات</DialogDescription>
+              <DialogDescription><DualText k="bulk.guide.desc" /></DialogDescription>
             </DialogHeader>
             <div className="space-y-4 text-right">
               <div>
-                <h3 className="font-semibold text-lg mb-2">ترتيب الأعمدة في ملف Excel:</h3>
+                <h3 className="font-semibold text-lg mb-2"><DualText k="bulk.guide.columnsTitle" /></h3>
                 <ol className="list-decimal list-inside space-y-1 text-sm">
                   <li>كود المنتج (Product Code) - رقم</li>
                   <li>رقم المنتج (Item Number) - رقم</li>
@@ -1378,7 +1432,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
               </div>
 
               <div className="border-t pt-4">
-                <h3 className="font-semibold text-lg mb-2">ملاحظات مهمة:</h3>
+                <h3 className="font-semibold text-lg mb-2"><DualText k="bulk.notes.title" /></h3>
                 <ul className="list-disc list-inside space-y-1 text-sm mr-4">
                   <li>يجب أن يحتوي الملف على صف رأس (Header) في السطر الأول</li>
                   <li>النظام يتعرف على الأعمدة تلقائياً بناءً على أسمائها</li>
@@ -1392,7 +1446,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
               </div>
 
               <div className="border-t pt-4 bg-green-50 p-3 rounded">
-                <h3 className="font-semibold text-sm mb-2">💡 نصيحة:</h3>
+                <h3 className="font-semibold text-sm mb-2"><DualText k="bulk.tips.title" /></h3>
                 <p className="text-sm">
                   للحصول على أفضل النتائج، قم بتصدير ملف Excel من النظام أولاً، ثم قم بتعديله وإعادة استيراده. هذا يضمن
                   التوافق الكامل مع النظام. الصور الخارجية سيتم تحويلها تلقائياً عند الاستيراد!
@@ -1441,10 +1495,10 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                         setMappingDialogOpen(false)
                         setIsImporting(true)
                         setConversionProgress(0)
-                        setConversionStatus(t("bulk.status.processing"))
+                        setConversionStatus(getDualString("bulk.status.processing"))
                         try {
                           if (importAllRows.length === 0) {
-                            toast({ title: "تنبيه", description: "لم يتم العثور على صفوف في الملف", variant: "destructive" })
+                            toast({ title: getDualString("common.alert"), description: getDualString("bulk.import.noRows"), variant: "destructive" })
                             throw new Error("No rows found")
                           }
 
@@ -1456,20 +1510,20 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                             const hasName = columnMapping['productName'] !== -1
 
                             if (!hasCode && !hasName) {
-                              throw new Error("يجب تحديد عمود 'اسم المنتج' أو 'كود المنتج' على الأقل")
+                              throw new Error("يجب تحديد عمود 'اسم المنتج' أو 'كود المنتج' على الأقل (Must map 'Product Name' or 'Product Code')")
                             }
 
-                            throw new Error("لم يتم العثور على منتجات صالحة. هل قمت بتعيين الأعمدة (الاسم/الكود) بشكل صحيح؟")
+                            throw new Error("لم يتم العثور على منتجات صالحة. هل قمت بتعيين الأعمدة (الاسم/الكود) بشكل صحيح؟ (No valid products found. Did you set columns correctly?)")
                           }
 
-                          toast({ title: "نتيجة التحليل", description: `تم العثور على ${importedProducts.length} منتج من أصل ${importAllRows.length - 1} صف بيانات` })
+                          toast({ title: "نتيجة التحليل (Analysis Result)", description: `تم العثور على ${importedProducts.length} منتج من أصل ${importAllRows.length - 1} صف بيانات (Found ${importedProducts.length} products from ${importAllRows.length - 1} rows)` })
 
-                          setConversionStatus(t("bulk.status.convertImages"))
+                          setConversionStatus(getDualString("bulk.status.convertImages"))
                           let convertedCount = 0
                           let failedCount = 0
                           let completed = 0
                           const CONCURRENCY = 3 // Reduced from 6 for stability ("Take its time")
-                          const productsWithImages = await asyncPool(CONCURRENCY, importedProducts, async (product, idx) => {
+                          const productsWithImages = await processInBatches(CONCURRENCY, importedProducts, async (product, idx) => {
                             let out = product
                             if (product.image && (product.image.startsWith('http://') || product.image.startsWith('https://'))) {
                               const base64Image = await convertImageToBase64(product.image)
@@ -1481,15 +1535,15 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                               }
                             }
                             completed++
-                            // THROTTLE UPDATES: Only update state every 25 items or if 100% complete
-                            // This prevents "Maximum update depth exceeded" React error due to rapid state changes + parent re-renders
-                            if (completed % 25 === 0 || completed === importedProducts.length) {
+                            // THROTTLE UPDATES: Only update state every 50 items or if 100% complete
+                            if (completed % 50 === 0 || completed === importedProducts.length) {
                               const pct = Math.round((completed / importedProducts.length) * 100)
                               setConversionProgress(pct)
                               setConversionStatus(
-                                t("bulk.status.convertImagesProgress")
-                                  .replace("{completed}", String(completed))
-                                  .replace("{total}", String(importedProducts.length))
+                                getDualString("bulk.status.convertImagesProgress", undefined, undefined, {
+                                  completed: String(completed),
+                                  total: String(importedProducts.length)
+                                })
                               )
                             }
                             return out
@@ -1543,6 +1597,28 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                             addLocation({ name: locationName, description: "تم الإضافة تلقائياً من الاستيراد", createdAt: new Date().toISOString() })
                             addedLocationsCount++
                           })
+
+                          // Auto-add units from Excel (same as categories and locations)
+                          const existingUnits = getUnits()
+                          const existingUnitNames = new Set(existingUnits.map((u) => u.name.toLowerCase().trim()))
+                          const newUnits = new Set<string>()
+                          optimizedProducts.forEach((product) => {
+                            if (product.unit && !existingUnitNames.has(product.unit.toLowerCase().trim())) {
+                              newUnits.add(product.unit.trim())
+                            }
+                          })
+                          let addedUnitsCount = 0
+                          for (const unitName of newUnits) {
+                            try {
+                              await addUnit({
+                                name: unitName,
+                                abbreviation: unitName.substring(0, 3)
+                              })
+                              addedUnitsCount++
+                            } catch (error) {
+                              console.error(`[BulkOps] Failed to add unit "${unitName}":`, error)
+                            }
+                          }
 
                           const normalize = (str: string) => {
                             if (!str) return ""
@@ -1618,13 +1694,15 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
 
                           // 1. Sync Products (Optimized Pool)
                           let syncedCount = 0
-                          const SYNC_CONCURRENCY = 5 // Reduced from 10 for stability
-                          await asyncPool(SYNC_CONCURRENCY, optimizedProducts, async (p) => {
+                          const SYNC_CONCURRENCY = 10 // Can be higher with batching
+                          await processInBatches(SYNC_CONCURRENCY, optimizedProducts, async (p) => {
                             try {
                               await syncProduct(p)
                               syncedCount++
-                              const progress = Math.round((syncedCount / (optimizedProducts.length + imageRecords.length)) * 100)
-                              setConversionProgress(progress)
+                              if (syncedCount % 10 === 0) {
+                                const progress = Math.round((syncedCount / (optimizedProducts.length + imageRecords.length)) * 100)
+                                setConversionProgress(progress)
+                              }
                             } catch (e) {
                               console.error("Failed to sync product", p.productName, e)
                             }
@@ -1632,13 +1710,15 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
 
                           // 2. Sync Images (Optimized Pool)
                           let syncedImages = 0
-                          const IMG_SYNC_CONCURRENCY = 3 // Reduced from 5 for stability
-                          await asyncPool(IMG_SYNC_CONCURRENCY, imageRecords, async (img) => {
+                          const IMG_SYNC_CONCURRENCY = 5
+                          await processInBatches(IMG_SYNC_CONCURRENCY, imageRecords, async (img) => {
                             try {
                               await syncProductImageToCloud(img.productId, img.data)
                               syncedImages++
-                              const progress = Math.round(((syncedCount + syncedImages) / (optimizedProducts.length + imageRecords.length)) * 100)
-                              setConversionProgress(progress)
+                              if (syncedImages % 5 === 0) {
+                                const progress = Math.round(((syncedCount + syncedImages) / (optimizedProducts.length + imageRecords.length)) * 100)
+                                setConversionProgress(progress)
+                              }
                             } catch (e) {
                               console.error("Failed to sync image for product", img.productId, e)
                             }
@@ -1655,24 +1735,18 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                           }
                           await db.settings.put({ key: 'demo_data_deleted', value: true })
 
-                          let message = `تم استيراد ${productsWithImages.length} منتج`
-                          if (convertedCount > 0) {
-                            message += ` وتحويل ${convertedCount} صورة`
-                          }
-                          if (failedCount > 0) {
-                            message += ` (فشل تحويل ${failedCount} صورة)`
-                          }
-                          if (addedCategoriesCount > 0) {
-                            message += ` وإضافة ${addedCategoriesCount} تصنيف جديد`
-                          }
-                          if (addedLocationsCount > 0) {
-                            message += ` و${addedLocationsCount} موقع جديد`
-                          }
-
-                          toast({ title: "تم الاستيراد بنجاح", description: message })
+                          const desc = getDualString("bulk.toast.importSuccess.desc", undefined, undefined, {
+                            products: productsWithImages.length,
+                            converted: convertedCount,
+                            failed: failedCount,
+                            categories: addedCategoriesCount,
+                            locations: addedLocationsCount,
+                            units: addedUnitsCount
+                          })
+                          toast({ title: getDualString("bulk.toast.importSuccess.title"), description: desc })
                         } catch (error) {
                           console.error("[v0] Import error:", error)
-                          toast({ title: "خطأ في الاستيراد", description: error instanceof Error ? error.message : "تأكد من صحة تنسيق الملف", variant: "destructive" })
+                          toast({ title: getDualString("bulk.toast.importError.title"), description: error instanceof Error ? `${error.message}` : getDualString("bulk.toast.importError.desc"), variant: "destructive" })
                         } finally {
                           setIsImporting(false)
                           setConversionProgress(0)
@@ -1682,12 +1756,12 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                           setImportAllRows([])
                           setImportImagesMap({})
                         }
-                      }}>تأكيد المطابقة</Button>
+                      }}><DualText k="bulk.mapping.confirm" /></Button>
                     </div>
                   </div>
                 </div>
 
-                <h4 className="text-sm font-semibold mb-2 text-right">معاينة البيانات (أول 20 صف)</h4>
+                <h4 className="text-sm font-semibold mb-2 text-right"><DualText k="bulk.mapping.preview" /></h4>
                 <div className="border rounded-md w-full overflow-hidden">
                   <div className="overflow-x-auto max-h-[30vh]">
                     <table className="w-full text-xs sm:text-sm whitespace-nowrap">

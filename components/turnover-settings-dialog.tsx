@@ -76,7 +76,7 @@ export function TurnoverSettingsDialog({ open, onOpenChange, thresholds, onSave 
                 <div className="w-3 h-3 rounded-full bg-gray-500"></div>
                 <span className="font-medium"><DualText k="turnover.stagnant" /></span>
               </div>
-              <span className="text-sm text-muted-foreground">0% <DualText k="turnover.ofStock" className="inline" /></span>
+              <span className="text-sm text-muted-foreground">0 <DualText k="turnover.ofStock" className="inline" /></span>
             </div>
 
             <div className="space-y-2">
@@ -89,8 +89,8 @@ export function TurnoverSettingsDialog({ open, onOpenChange, thresholds, onSave 
               <div className="flex items-center gap-2">
                 <Input
                   type="number"
-                  min="1"
-                  max="99"
+                  min="0"
+                  step="0.01"
                   value={localThresholds.slow}
                   onChange={(e) => setLocalThresholds({ ...localThresholds, slow: Number(e.target.value) })}
                   className="w-24"
@@ -109,7 +109,8 @@ export function TurnoverSettingsDialog({ open, onOpenChange, thresholds, onSave 
               <div className="flex items-center gap-2">
                 <Input
                   type="number"
-                  min="1"
+                  min="0"
+                  step="0.01"
                   value={localThresholds.normal}
                   onChange={(e) => setLocalThresholds({ ...localThresholds, normal: Number(e.target.value) })}
                   className="w-24"
@@ -124,7 +125,7 @@ export function TurnoverSettingsDialog({ open, onOpenChange, thresholds, onSave 
                 <span className="font-medium"><DualText k="turnover.fast" /></span>
               </div>
               <span className="text-sm text-muted-foreground">
-                {">="} {localThresholds.normal}% <DualText k="turnover.ofStock" className="inline" />
+                {">"} {localThresholds.normal} <DualText k="turnover.ofStock" className="inline" />
               </span>
             </div>
           </div>

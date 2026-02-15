@@ -46,42 +46,57 @@ export function getInvoicesByBranch(branchId: string): BranchInvoice[] {
 
 function resolveItemPricing(it: Omit<BranchInvoiceItem, "totalPrice" | "unitPrice"> & Partial<BranchInvoiceItem>): BranchInvoiceItem {
   const products = getProducts()
-  const p = products.find((x) => x.id === it.productId || x.productCode === it.productCode)
+  // Prioritize ID match, fallback to productCode match only if ID not found
+  const byId = products.find((x) => x.id === it.productId)
+  const byCode = byId ? undefined : products.find((x) => x.productCode === it.productCode)
+  const p = byId || byCode
 
-  let basePrice = p?.averagePrice ?? p?.price ?? 0
-  // Fallback if price is zero, use what was passed (or 0)
+  // Determine base unit price
+  let basePrice = (p?.averagePrice ?? p?.price ?? it.unitPrice ?? 0)
+  // If basePrice is zero and non-carton unit, fallback to provided unitPrice
   if (basePrice === 0 && it.unitPrice && it.unitType !== 'carton') basePrice = it.unitPrice
 
+  // Quantity handling
+  const enteredQty = Math.max(0, Math.floor(it.quantity || it.quantityEntered || 0))
+  let qtyBase = Math.max(0, Math.floor(it.quantityBase ?? enteredQty))
+  let unitName = it.selectedUnitName || it.unit || p?.unit
   let finalUnitPrice = basePrice
-  let qtyBase = Math.max(0, Math.floor(it.quantity || 0))
-  let unitName = p?.unit || it.unit
 
+  // Carton unit handling
   if (it.unitType === 'carton') {
     const factor = p?.quantityPerCarton || it.quantityPerCarton || 1
     finalUnitPrice = basePrice * factor
-    qtyBase = qtyBase * factor
-    unitName = p?.cartonUnit || it.cartonUnit || 'Carton'
+    qtyBase = enteredQty * factor
+    unitName = it.selectedUnitName || p?.cartonUnit || it.cartonUnit || 'Carton'
   }
 
-  const quantity = Math.max(0, Math.floor(it.quantity || 0)) // This is the entered quantity (e.g. 5 Cartons)
+  // Preserve item-provided fields to avoid incorrect overriding
+  const productId = it.productId ?? p?.id!
+  const productCode = it.productCode ?? p?.productCode ?? ""
+  const productName = it.productName ?? p?.productName ?? ""
+  const image = it.image ?? p?.image ?? ""
+  const unit = it.unit ?? p?.unit
 
   return {
     id: it.id || generateId(),
-    productId: p?.id || it.productId!,
-    productCode: p?.productCode || it.productCode!,
-    productName: p?.productName || it.productName!,
-    unit: p?.unit || it.unit,
-    image: p?.image || "",
-    quantity,
+    productId,
+    productCode,
+    productName,
+    unit,
+    image,
+    quantity: enteredQty,
     unitPrice: finalUnitPrice,
-    totalPrice: finalUnitPrice * quantity,
+    totalPrice: finalUnitPrice * enteredQty,
     // Multi-Unit Persistence
     unitType: it.unitType || 'base',
-    quantityEntered: quantity,
+    quantityEntered: enteredQty,
     quantityBase: qtyBase,
-    selectedUnitName: it.selectedUnitName || unitName,
+    selectedUnitName: unitName,
     quantityPerCarton: p?.quantityPerCarton || it.quantityPerCarton,
-    cartonUnit: p?.cartonUnit || it.cartonUnit
+    cartonUnit: p?.cartonUnit || it.cartonUnit,
+    // Preserve optional fields
+    returnReason: it.returnReason,
+    notes: it.notes
   }
 }
 

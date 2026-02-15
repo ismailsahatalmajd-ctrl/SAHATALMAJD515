@@ -1,14 +1,14 @@
 
 export const getDeviceId = (): string => {
   if (typeof window === 'undefined') return 'server';
-  
+
   let deviceId = localStorage.getItem('device_id');
-  
+
   if (!deviceId) {
     deviceId = generateDeviceId();
     localStorage.setItem('device_id', deviceId);
   }
-  
+
   return deviceId;
 };
 
@@ -23,7 +23,7 @@ export const generateDeviceId = (): string => {
     screen.colorDepth,
     new Date().getTimezoneOffset()
   ].join('|');
-  
+
   // Simple hash function
   let hash = 0;
   for (let i = 0; i < fingerprint.length; i++) {
@@ -31,14 +31,14 @@ export const generateDeviceId = (): string => {
     hash = ((hash << 5) - hash) + char;
     hash = hash & hash; // Convert to 32bit integer
   }
-  
-  const randomPart = Math.random().toString(36).substring(2, 15);
-  return `dev_${Math.abs(hash).toString(36)}_${randomPart}`;
+
+  // استخدام hash فقط بدون جزء عشوائي لمنع التكرار
+  return `dev_${Math.abs(hash).toString(36)}`;
 };
 
 export const getDeviceInfo = () => {
   if (typeof window === 'undefined') return null;
-  
+
   return {
     userAgent: navigator.userAgent,
     platform: navigator.platform,

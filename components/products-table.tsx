@@ -39,7 +39,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { updateProduct } from "@/lib/storage"
-import { getSafeImageSrc, formatArabicGregorianDate, formatArabicGregorianDateTime, formatEnglishNumber, getApiUrl } from "@/lib/utils"
+import { getSafeImageSrc, formatArabicGregorianDate, formatArabicGregorianDateTime, formatEnglishNumber, formatCurrency, formatNumberWithSeparators, getApiUrl } from "@/lib/utils"
 import { useI18n } from "@/components/language-provider"
 import { toast } from "@/hooks/use-toast"
 import { db } from "@/lib/db"
@@ -48,6 +48,8 @@ import { ProductImage } from "@/components/product-image"
 import { TurnoverSettingsDialog } from "./turnover-settings-dialog"
 import { useAuth } from "@/components/auth-provider"
 import { hasPermission } from "@/lib/auth-utils"
+import { TABLE_VIEW_MODES, type TableViewMode, getColumnsForView, calculateTurnoverRate, getStockStatus as getTableStockStatus } from "@/lib/table-view-modes"
+import { LowStockSettingsDialog } from "./low-stock-settings-dialog"
 
 const THRESHOLDS_KEY = 'turnover-thresholds'
 
@@ -66,7 +68,8 @@ interface ProductsTableProps {
   products: Product[]
   onEdit: (product: Product) => void
   onDelete: (id: string) => void
-  // New Filter Props
+  viewMode?: TableViewMode  // New: Table view mode
+  // Filter Props
   categories?: string[]
   selectedCategory?: string
   onCategoryChange?: (val: string) => void
@@ -78,7 +81,7 @@ interface ProductsTableProps {
   onReset?: () => void
 }
 
-type DerivedColumn = "turnoverRate" | "status"
+type DerivedColumn = "turnoverRate" | "status" | "stockStatus"
 type SortColumn = keyof Product | DerivedColumn | null
 type SortDirection = "asc" | "desc"
 
@@ -86,6 +89,7 @@ export function ProductsTable({
   products,
   onEdit,
   onDelete,
+  viewMode = 'default',  // New: default to 'default' view
   categories = [],
   selectedCategory = "all",
   onCategoryChange,
@@ -129,7 +133,6 @@ export function ProductsTable({
 
   const [turnoverFilter, setTurnoverFilter] = useState<"all" | "fast" | "normal" | "slow" | "stagnant" | "new">("all")
   const [exportMode, setExportMode] = useState<"filtered" | "all">("filtered")
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewSrc, setPreviewSrc] = useState("")
   const [previewTitle, setPreviewTitle] = useState("")
@@ -157,19 +160,18 @@ export function ProductsTable({
 
   // Helper to calculate turnover
   const calculateTurnover = (p: Product) => {
-    const stock = Number(p.currentStock || 0)
     const opening = Number(p.openingStock || 0)
-    const purchases = Number(p.purchases || 0)
-    const soldQty = Number(p.issues || 0)
+    const current = Number(p.currentStock || 0)
+    const issues = Number(p.issues || 0)
 
-    // Formula: Turnover = Issues / (CurrentStock > 0 ? CurrentStock : Opening + Purchases)
-    const baseStock = stock > 0 ? stock : opening + purchases
+    // Formula: Average Inventory = (Opening Stock + Current Stock) / 2
+    // Formula: Turnover Rate = Total Issues / Average Inventory
+    const averageInventory = (opening + current) / 2
 
-    if (baseStock <= 0) return 0
-    if (soldQty === 0) return 0 // Return clean 0 for stagnant products
+    if (averageInventory <= 0) return 0
+    if (issues === 0) return 0
 
-    const ratio = soldQty / baseStock
-    // Round very small values to 0
+    const ratio = issues / averageInventory
     const result = (isFinite(ratio) && !isNaN(ratio)) ? ratio : 0
     return result < 0.0001 ? 0 : result
   }
@@ -177,10 +179,10 @@ export function ProductsTable({
   const getStatusKey = (p: Product): "fast" | "normal" | "slow" | "stagnant" | "new" => {
     const openingStock = Number(p.openingStock || 0)
     const purchases = Number(p.purchases || 0)
-    const currentStock = Number(p.currentStock || 0)
+    const issues = Number(p.issues || 0)
 
-    // New products: purchases === currentStock, both > 0, and openingStock = 0
-    if (openingStock === 0 && purchases > 0 && currentStock > 0 && purchases === currentStock) {
+    // New products: openingStock === 0, purchases > 0, issues === 0
+    if (openingStock === 0 && purchases > 0 && issues === 0) {
       return "new"
     }
 
@@ -216,11 +218,12 @@ export function ProductsTable({
           // Sum numeric fields
           existing.openingStock = (Number(existing.openingStock) || 0) + (Number(p.openingStock) || 0)
           existing.purchases = (Number(existing.purchases) || 0) + (Number(p.purchases) || 0)
+          existing.returns = (Number(existing.returns) || 0) + (Number(p.returns) || 0)
           existing.issues = (Number(existing.issues) || 0) + (Number(p.issues) || 0)
-
-          // Recalculate stock for merged item
-          // Since we forced the equation, we can just sum the components
-          // existing.currentStock will be calculated via equation in render/sort
+          existing.currentStock = (Number(existing.currentStock) || 0) + (Number(p.currentStock) || 0)
+          existing.currentStockValue = (Number(existing.currentStockValue) || 0) + (Number(p.currentStockValue) || 0)
+          existing.inventoryCount = (Number(existing.inventoryCount) || 0) + (Number(p.inventoryCount) || 0)
+          existing.issuesValue = (Number(existing.issuesValue) || 0) + (Number(p.issuesValue) || 0)
         }
       })
       result = Array.from(map.values())
@@ -232,8 +235,9 @@ export function ProductsTable({
       if (excludeZeroStock) {
         const op = Number(p.openingStock) || 0
         const pu = Number(p.purchases) || 0
+        const ret = Number(p.returns) || 0
         const iss = Number(p.issues) || 0
-        const stock = op + pu - iss
+        const stock = op + pu + ret - iss
         if (stock === 0) return false
       }
 
@@ -311,6 +315,7 @@ export function ProductsTable({
     cartonDimensions: false,
     openingStock: true,
     purchases: true,
+    returns: true,
     issues: true,
     inventoryCount: true,
     currentStock: true,
@@ -319,11 +324,19 @@ export function ProductsTable({
     averagePrice: true,
     currentStockValue: true,
     issuesValue: true,
+    feedIssuesValue: true, // If feed exists? No, keep standard
+    purchasesValue: true,
+    returnsValue: true,
     turnoverRate: true,
     status: true,
+    stockStatus: true,
+    minStockLimit: true, // Needed for 'All' view
     lastActivity: true,
   })
   const [columnsLoaded, setColumnsLoaded] = useState(false)
+  const [showLowStockSettings, setShowLowStockSettings] = useState(false)
+  const [showTurnoverSettings, setShowTurnoverSettings] = useState(false)
+
 
   const COLUMN_WIDTHS_KEY = 'products_column_widths_v1'
   const VISIBLE_COLUMNS_KEY = 'products_visible_columns_v1'
@@ -523,19 +536,21 @@ export function ProductsTable({
     }
 
     // Explicitly handle numeric columns for sorting
-    if (['openingStock', 'purchases', 'issues', 'inventoryCount', 'currentStock', 'difference', 'price', 'averagePrice', 'currentStockValue', 'issuesValue', 'quantityPerCarton'].includes(col)) {
+    if (['openingStock', 'purchases', 'returns', 'issues', 'inventoryCount', 'currentStock', 'difference', 'price', 'averagePrice', 'currentStockValue', 'issuesValue', 'quantityPerCarton'].includes(col)) {
       if (col === 'currentStock') {
         // Dynamic Calc for Sorting
         const op = Number(p.openingStock) || 0
         const pu = Number(p.purchases) || 0
+        const ret = Number(p.returns) || 0
         const iss = Number(p.issues) || 0
-        return op + pu - iss
+        return op + pu + ret - iss
       }
       if (col === 'difference') {
         const op = Number(p.openingStock) || 0
         const pu = Number(p.purchases) || 0
+        const ret = Number(p.returns) || 0
         const iss = Number(p.issues) || 0
-        const curr = op + pu - iss
+        const curr = op + pu + ret - iss
         const inv = Number(p.inventoryCount) || 0
         return curr - inv
       }
@@ -737,15 +752,17 @@ export function ProductsTable({
             case 'inventoryCount': {
               const op = Number(p.openingStock) || 0
               const pu = Number(p.purchases) || 0
+              const ret = Number(p.returns) || 0
               const iss = Number(p.issues) || 0
               // [User Request] ALWAYS use Equation (System Stock) regardless of manual entry
-              return op + pu - iss
+              return op + pu + ret - iss
             }
             case 'currentStock': {
               const op = Number(p.openingStock) || 0
               const pu = Number(p.purchases) || 0
+              const ret = Number(p.returns) || 0
               const iss = Number(p.issues) || 0
-              return op + pu - iss
+              return op + pu + ret - iss
             }
             case 'difference': {
               // [User Request] Since Inventory is forced to System Stock, Difference is always 0
@@ -1003,10 +1020,6 @@ export function ProductsTable({
 
             {/* Font Size Removed */}
 
-            <Button variant="secondary" size="sm" onClick={() => setSettingsOpen(true)}>
-              <DualText k="products.turnover.settings" />
-            </Button>
-
             <Select value={exportMode} onValueChange={(v: any) => setExportMode(v)}>
               <SelectTrigger className="w-[170px] h-8">
                 <SelectValue placeholder={t("products.export.modePlaceholder")} />
@@ -1017,12 +1030,22 @@ export function ProductsTable({
               </SelectContent>
             </Select>
 
-            <Button variant="outline" size="sm" onClick={() => generateProductsPDF({
-              products: exportMode === 'filtered' ? sortedProducts : products,
-              visibleColumns,
-              columnLabels,
-              title: t("products.list")
-            })}
+            <Button variant="outline" size="sm" onClick={() => {
+              const targetProducts = exportMode === 'filtered' ? sortedProducts : products
+              const stats = {
+                totalProducts: targetProducts.length,
+                totalQuantity: targetProducts.reduce((acc, p) => acc + (Number(p.currentStock) || 0), 0),
+                totalValue: targetProducts.reduce((acc, p) => acc + ((Number(p.currentStock) || 0) * (Number(p.averagePrice) || Number(p.price) || 0)), 0)
+              }
+              generateProductsPDF({
+                products: targetProducts,
+                visibleColumns,
+                columnLabels,
+                title: t("products.list"),
+                summaryStats: stats,
+                viewMode: viewMode // Pass current view mode
+              })
+            }}
               disabled={exportMode === 'filtered' ? sortedProducts.length === 0 : false}
             >
               <Printer className="ml-2 h-4 w-4" />
@@ -1036,6 +1059,18 @@ export function ProductsTable({
               <Download className="ml-2 h-4 w-4" />
               <DualText k="products.export.dimensionsCsv" />
             </Button>
+            <Button variant="outline" size="sm" className="h-8 gap-1" onClick={() => setShowLowStockSettings(true)} disabled={!hasPermission(user, 'system.settings')}>
+              <Settings2 className="h-3.5 w-3.5" />
+              <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
+                Low Stock / تنبيهات المخزون
+              </span>
+            </Button>
+            <Button variant="outline" size="sm" className="h-8 gap-1" onClick={() => setShowTurnoverSettings(true)} disabled={!hasPermission(user, 'system.settings')}>
+              <Settings2 className="h-3.5 w-3.5" />
+              <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
+                Turnover / معدل الدوران
+              </span>
+            </Button>
           </div>
         </div>
 
@@ -1046,31 +1081,38 @@ export function ProductsTable({
           >
             <thead className="sticky top-0 bg-card z-40 shadow-sm border-b">
               <tr className="text-xs">
-                {Object.keys(visibleColumns).map(key => {
-                  if (!(visibleColumns as any)[key]) return null
-                  const width = columnWidths[key]
-                  return (
-                    <th
-                      key={key}
-                      className="text-center p-2 border-b cursor-pointer hover:bg-muted/50 relative group select-none whitespace-nowrap"
-                      style={{ width: width ? `${width}px` : 'auto', minWidth: width ? `${width}px` : 'auto' }}
-                      onClick={() => handleSort(key as any)}
-                    >
-                      <div className="flex items-center justify-center gap-1 whitespace-nowrap">
-                        {getHeaderContent(key)}
-                        {sortColumn === key && (
-                          sortDirection === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
-                        )}
-                      </div>
-                      {/* Resize Handle */}
-                      <div
-                        className="absolute top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/50 active:bg-primary bg-transparent transition-colors z-50"
-                        style={{ [t("common.dir") === 'rtl' ? 'left' : 'right']: 0 }}
-                        onMouseDown={(e) => handleResizeStart(e, key)}
-                      />
-                    </th>
-                  )
-                })}
+                {(() => {
+                  const viewColumns = getColumnsForView(viewMode)
+                  return Object.keys(visibleColumns).map(key => {
+                    if (!(visibleColumns as any)[key]) return null
+                    if (viewMode !== 'default' && !viewColumns.includes(key)) return null
+                    // If default mode, respect visibleColumns toggle
+                    if (viewMode === 'default' && !(visibleColumns as any)[key]) return null
+
+                    const width = columnWidths[key]
+                    return (
+                      <th
+                        key={key}
+                        className="text-center p-2 border-b cursor-pointer hover:bg-muted/50 relative group select-none whitespace-nowrap"
+                        style={{ width: width ? `${width}px` : 'auto', minWidth: width ? `${width}px` : 'auto' }}
+                        onClick={() => handleSort(key as any)}
+                      >
+                        <div className="flex items-center justify-center gap-1 whitespace-nowrap">
+                          {getHeaderContent(key)}
+                          {sortColumn === key && (
+                            sortDirection === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                          )}
+                        </div>
+                        {/* Resize Handle */}
+                        <div
+                          className="absolute top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/50 active:bg-primary bg-transparent transition-colors z-50"
+                          style={{ [t("common.dir") === 'rtl' ? 'left' : 'right']: 0 }}
+                          onMouseDown={(e) => handleResizeStart(e, key)}
+                        />
+                      </th>
+                    )
+                  })
+                })()}
                 <th className="text-center p-2 border-b bg-card whitespace-nowrap">{t("products.columns.actions")}</th>
               </tr>
             </thead>
@@ -1085,15 +1127,38 @@ export function ProductsTable({
                 <>
                   {rowVirtualizer.getVirtualItems().length > 0 && (
                     <tr style={{ height: `${rowVirtualizer.getVirtualItems()[0].start}px` }}>
-                      <td colSpan={Object.keys(visibleColumns).length + 1} style={{ padding: 0, border: 0 }} />
+                      <td colSpan={100} style={{ padding: 0, border: 0 }} />
                     </tr>
                   )}
                   {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                     const product = sortedProducts[virtualRow.index]
+                    // Get columns for current view
+                    const viewColumns = getColumnsForView(viewMode)
+
                     return (
                       <tr key={product.id} data-index={virtualRow.index} ref={rowVirtualizer.measureElement} className="hover:bg-muted/30 transition-colors">
+                        {/* Only render columns that are in the current view AND visible in settings */}
                         {Object.keys(visibleColumns).map(key => {
-                          if (!(visibleColumns as any)[key]) return null
+                          // Logic: Column must be enabled in settings (visibleColumns) AND part of the current view (viewColumns)
+                          // If viewMode is 'default', we respect visibleColumns fully.
+                          // If viewMode is specific, we filter by viewColumns. 
+                          // But wait, the requirement is that viewMode overrides everything.
+                          // So if viewMode is 'financial', we ONLY show financial columns.
+                          // However, we still need to respect 'visibleColumns' if the user explicitly hid something?
+                          // Actually, let's make viewMode the primary source of truth for WHICH columns to show.
+                          // But products-table relies on 'visibleColumns' state which is passed from parent or internal?
+                          // Actually visibleColumns is internal state initialized from constants.
+
+                          // Let's check if this key is in the viewColumns
+                          // If viewMode is NOT default, strict filtering.
+                          if (viewMode !== 'default' && !viewColumns.includes(key)) return null
+
+                          // If viewMode is default, we use the visibleColumns toggles (which users might have tweaked)
+                          if (viewMode === 'default' && !(visibleColumns as any)[key]) return null
+
+                          // For non-default views, we might still want to respect if a column is technically "available"
+                          // But simplified: Just check if key is in viewColumns.
+
                           if (key === 'image') {
                             return (
                               <td
@@ -1150,11 +1215,12 @@ export function ProductsTable({
 
                           // Dynamic calculations for derived columns
                           if (key === 'currentStock') {
-                            // Calculate current stock: Opening + Purchases - Issues
+                            // Calculate current stock: Opening + Purchases + Returns - Issues
                             const opening = Number(product.openingStock) || 0
                             const purchases = Number(product.purchases) || 0
+                            const returns = Number(product.returns) || 0
                             const issues = Number(product.issues) || 0
-                            const calculatedStock = opening + purchases - issues
+                            const calculatedStock = opening + purchases + returns - issues
                             content = calculatedStock
                           }
 
@@ -1167,8 +1233,9 @@ export function ProductsTable({
                             // [User Request] Force Inventory to System Stock Equation
                             const opening = Number(product.openingStock) || 0
                             const purchases = Number(product.purchases) || 0
+                            const returns = Number(product.returns) || 0
                             const issues = Number(product.issues) || 0
-                            const calculatedStock = opening + purchases - issues
+                            const calculatedStock = opening + purchases + returns - issues
                             content = calculatedStock // FORCE EQUATION
                           }
 
@@ -1191,9 +1258,12 @@ export function ProductsTable({
                             const price = Number(product.price || 0)
                             const calculatedValue = issues * price
                             const val = parseFloat(calculatedValue.toFixed(5))
-                            content = formatEnglishNumber(val)
+                            content = formatCurrency(val)
                           }
-                          if (['price', 'averagePrice', 'currentStockValue'].includes(key)) content = formatEnglishNumber(Number(content).toFixed(2))
+                          if (['price', 'averagePrice', 'currentStockValue'].includes(key)) {
+                            const numericVal = Number(content)
+                            content = formatCurrency(isNaN(numericVal) ? 0 : numericVal)
+                          }
 
                           // Quantity Formatting with Carton Breakdown
                           if (['openingStock', 'purchases', 'issues', 'inventoryCount', 'currentStock', 'difference'].includes(key)) {
@@ -1229,20 +1299,20 @@ export function ProductsTable({
                               if (parts.length > 0) {
                                 content = (
                                   <div className="flex flex-col items-center justify-center leading-tight">
-                                    <span className="font-medium text-foreground">{formatEnglishNumber(numVal)}</span>
+                                    <span className="font-medium text-foreground">{formatNumberWithSeparators(numVal)}</span>
                                     <span className="text-[10px] whitespace-nowrap" dir="rtl">
                                       {sign}({parts.join(' + ')})
                                     </span>
                                   </div>
                                 )
                               } else {
-                                content = formatEnglishNumber(numVal)
+                                content = formatNumberWithSeparators(numVal)
                               }
                             } else {
-                              content = formatEnglishNumber(numVal)
+                              content = formatNumberWithSeparators(numVal)
                             }
                           } else if (key === 'quantityPerCarton') {
-                            content = formatEnglishNumber(Number(content || 0))
+                            content = formatNumberWithSeparators(Number(content || 0))
                           }
 
                           // Explicitly ensure productCode and itemNumber are NOT formatted (raw strings/numbers)
@@ -1267,6 +1337,44 @@ export function ProductsTable({
 
                           const finalWidth = cellWidth ? `${cellWidth}px` : defaultWidth
 
+                          // Stock status colors for currentStock column (Badge Style)
+                          let stockBadgeClass = ''
+                          if (key === 'currentStock') {
+                            const stockValue = Number(content) || 0
+
+                            // Calculate Low Stock Threshold based on Percentage ONLY
+                            const opening = Number(product.openingStock) || 0
+                            const purchases = Number(product.purchases) || 0
+                            const totalIn = opening + purchases
+                            const percentage = Number(product.lowStockThresholdPercentage) || 0
+
+                            let isLow = false
+                            if (percentage > 0) {
+                              const threshold = totalIn * (percentage / 100)
+                              isLow = stockValue <= threshold
+                            } else {
+                              // Fallback: if 0 percentage, only 0 is low (out).
+                              const threshold = 0
+                              isLow = stockValue <= threshold && stockValue > 0
+                            }
+
+                            if (stockValue <= 0) {
+                              stockBadgeClass = 'bg-red-100 text-red-800 border border-red-200'  // نفذ
+                            } else if (isLow) {
+                              // User requested Orange Frame. Making it very distinct.
+                              stockBadgeClass = 'bg-orange-50 text-orange-700 border-2 border-orange-500 font-bold'
+                            } else {
+                              stockBadgeClass = 'bg-blue-50 text-blue-800 border border-blue-200'  // متوفر
+                            }
+
+                            // Wrap content in a badge
+                            content = (
+                              <div className={`mx-auto type-badge w-fit px-2 py-0.5 rounded text-sm font-medium ${stockBadgeClass}`}>
+                                {content}
+                              </div>
+                            )
+                          }
+
                           return (
                             <td
                               key={key}
@@ -1280,9 +1388,10 @@ export function ProductsTable({
                                     if (['currentStock', 'inventoryCount'].includes(key)) {
                                       const op = Number(product.openingStock) || 0
                                       const pu = Number(product.purchases) || 0
+                                      const ret = Number(product.returns) || 0
                                       const iss = Number(product.issues) || 0
-                                      const calc = op + pu - iss
-                                      let tooltip = `المعادلة: افتتاحي (${op}) + مشتريات (${pu}) - مصروفات (${iss}) = ${calc}`
+                                      const calc = op + pu + ret - iss
+                                      let tooltip = `المعادلة: افتتاحي (${op}) + مشتريات (${pu}) + مرتجعات (${ret}) - مصروفات (${iss}) = ${calc}`
 
                                       if (key === 'inventoryCount' && product.inventoryCount !== undefined && product.inventoryCount !== null) {
                                         tooltip += `\n (قيمة يدوية: ${product.inventoryCount})`
@@ -1349,8 +1458,8 @@ export function ProductsTable({
                     <CardTitle className="text-sm"><DualText k={m.titleKey} /></CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{formatEnglishNumber(String(count))} <DualText k="common.product" /></div>
-                    <div className="text-sm">{formatEnglishNumber((value || 0).toFixed(2))} <DualText k="common.currency" /></div>
+                    <div className="text-2xl font-bold">{formatNumberWithSeparators(count)} <DualText k="common.product" /></div>
+                    <div className="text-sm">{formatCurrency(value)} <DualText k="common.currency" /></div>
                   </CardContent>
                 </Card>
               )
@@ -1359,11 +1468,28 @@ export function ProductsTable({
         )
       })()}
 
+      <LowStockSettingsDialog
+        open={showLowStockSettings}
+        onOpenChange={setShowLowStockSettings}
+        categories={categories}
+        locations={locations}
+        onSave={() => {
+          // Notify user and trigger update
+          toast({
+            title: getDualString("toast.success"),
+            description: "Settings saved successfully / تم حفظ الإعدادات بنجاح",
+          })
+          // Force refresh or rely on liveQuery
+        }}
+      />
       <TurnoverSettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        thresholds={thresholds}
-        onSave={saveThresholds}
+        open={showTurnoverSettings}
+        onOpenChange={setShowTurnoverSettings}
+        thresholds={thresholds} // Use 'thresholds' state
+        onSave={(newThresholds) => {
+          setThresholds(newThresholds) // Update 'thresholds' state
+          db.settings.put({ key: THRESHOLDS_KEY, value: newThresholds }).catch(() => { })
+        }}
       />
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>

@@ -1,120 +1,245 @@
 import type { Issue } from "./types"
-import { getNumericInvoiceNumber, formatArabicGregorianDate, formatArabicGregorianTime, formatEnglishNumber } from "./utils"
-
+import { getNumericInvoiceNumber, formatArabicGregorianDate, formatEnglishNumber } from "./utils"
 import { getInvoiceSettings } from "./invoice-settings-store"
-
-
 import { db } from "@/lib/db"
 import { getSafeImageSrc } from "@/lib/utils"
 
 // فاتورة تجميع للمستودع (قابلة للطباعة)
-// تعتمد على بيانات عملية الصرف كأمر التجميع (قائمة الالتقاط)
-export async function generateAssemblyPDF(issue: Issue) {
-  const settings = await getInvoiceSettings()
-  const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/sahat-almajd-logo.svg` : '/sahat-almajd-logo.svg'
-  const dateStr = formatArabicGregorianDate(new Date(issue.createdAt), { year: "numeric", month: "long", day: "numeric" })
-  const timeStr = formatArabicGregorianTime(new Date(issue.createdAt))
-  const invoiceNumber = getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))
-  const totalItems = issue.products.length
-  const totalRequestedQty = issue.products.reduce((sum, p) => sum + p.quantity, 0)
+// Warehouse Assembly Invoice (Printable)
+export async function generateAssemblyPDF(
+  input: Issue | Issue[],
+  settingsOverride?: { mode: 'merged' | 'detailed', showImages: boolean, showPrice: boolean, showTotal: boolean }
+) {
+  const w = window.open("", "_blank")
+  if (!w) return
 
-  // Resolve images
-  const productsWithImages = await Promise.all(issue.products.map(async (p) => {
-    let imgSrc = p.image || ""
+  // Loading State
+  w.document.write(`
+    <div style="font-family:sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; gap:20px;">
+      <div style="width:40px; height:40px; border:4px solid #f3f3f3; border-top:4px solid #2563eb; border-radius:50%; animation: spin 1s linear infinite;"></div>
+      <p style="color:#64748b;">جاري تجهيز قائمة التجميع... (Preparing Picking List...)</p>
+      <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+    </div>
+  `)
+
+  const issues = Array.isArray(input) ? input : [input]
+  const assemblySettings = settingsOverride || {
+    mode: 'detailed',
+    showImages: true,
+    showPrice: false,
+    showTotal: false
+  }
+
+  const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/sahat-almajd-logo.svg` : '/sahat-almajd-logo.svg'
+
+  // Pre-process Data
+  let groupedData: { branchName: string, products: any[] }[] = []
+  const isMerged = assemblySettings.mode === 'merged'
+
+  if (isMerged) {
+    const acc = new Map<string, any>()
+    for (const issue of issues) {
+      for (const p of issue.products) {
+        const existing = acc.get(p.productId)
+        if (existing) {
+          existing.quantity += p.quantity
+          existing.totalPrice += p.totalPrice
+          existing.notes = [existing.notes, (p as any).notes].filter(Boolean).join(' | ')
+        } else {
+          acc.set(p.productId, { ...p })
+        }
+      }
+    }
+    // For merged, we treat it as one single group
+    groupedData = [{ branchName: "All Branches / جميع الفروع", products: Array.from(acc.values()) }]
+  } else {
+    // Detailed Mode: Group by Branch
+    const branchMap = new Map<string, any[]>()
+
+    // Sort issues by branch name first to ensure order
+    const sortedIssues = [...issues].sort((a, b) => (a.branchName || "").localeCompare(b.branchName || ""))
+
+    for (const issue of sortedIssues) {
+      const bName = issue.branchName || "Unknown Branch"
+      const items = issue.products.map(p => ({
+        ...p,
+        branchName: bName,
+        invoiceNum: getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))
+      }))
+
+      if (branchMap.has(bName)) {
+        branchMap.get(bName)?.push(...items)
+      } else {
+        branchMap.set(bName, [...items])
+      }
+    }
+
+    groupedData = Array.from(branchMap.entries()).map(([k, v]) => ({ branchName: k, products: v }))
+  }
+
+  // Calculate Totals
+  const allProductsFlat = groupedData.flatMap(g => g.products)
+  const totalItemsCount = allProductsFlat.length
+  const totalQty = allProductsFlat.reduce((sum, p) => sum + p.quantity, 0)
+  const totalAmount = allProductsFlat.reduce((sum, p) => sum + (p.totalPrice || 0), 0)
+
+  // OPTIMIZED: Resolve images (Batch by Unique ID) with STRICT TIMEOUT
+  const productImagesMap = new Map<string, string>()
+  const uniqueIds = Array.from(new Set(allProductsFlat.map(p => p.productId)))
+
+  // Timeout wrapper
+  const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 2000)); // 2 Seconds max for images
+
+  const imageLoadPromise = Promise.all(uniqueIds.map(async (id) => {
+    // Find one instance to check if it has a direct image (base64) or needs DB fetch
+    const p = allProductsFlat.find(x => x.productId === id)
+    if (!p) return
+
+    let imgSrc = ""
     if (p.image === 'DB_IMAGE') {
       try {
-        const rec = await db.productImages.get(p.productId)
-        if (rec && rec.data) {
-          imgSrc = getSafeImageSrc(rec.data)
-        } else {
-          imgSrc = ""
-        }
-      } catch (e) {
-        imgSrc = ""
-      }
+        const rec = await db.productImages.get(id)
+        if (rec && rec.data) imgSrc = getSafeImageSrc(rec.data)
+      } catch (e) { }
     } else if (p.image) {
       imgSrc = getSafeImageSrc(p.image)
     }
-    // Fallback placeholder logic was in original code map
-    return { ...p, resolvedImage: imgSrc }
+
+    if (imgSrc) {
+      productImagesMap.set(id, imgSrc)
+    }
   }))
 
-  const rowsHtml = productsWithImages
-    .map((p, idx) => {
-      const imgSrc = p.resolvedImage ? p.resolvedImage : (typeof window !== 'undefined' ? `${window.location.origin}/placeholder-logo.png` : '/placeholder-logo.png')
-      return `
-      <tr>
-        <td class="row-index">${idx + 1}</td>
-        <td class="image-cell"><img src="${imgSrc}" alt="${p.productName}" onerror="this.style.display='none'"/></td>
-        <td>${p.productCode || '-'}</td>
-        <td class="name-cell">${p.productName}</td>
-        <td>${p.unit || '-'}</td>
-        <td class="qty-cell">${formatEnglishNumber(p.quantity)}</td>
-        <td class="actual-extract"></td>
-        <td class="check-cell"><span class="checkbox"></span></td>
-        <td class="inspect-mark"><span class="checkbox"></span></td>
-      </tr>`
+  // Race between image loading and timeout
+  await Promise.race([imageLoadPromise, timeoutPromise])
+
+  // Generate Table Rows
+  let tableRowsHtml = ""
+  let globalIndex = 1
+
+  groupedData.forEach(group => {
+    // Section Header (If Detailed and > 1 branch)
+    const showGroupHeader = !isMerged && groupedData.length > 1
+
+    if (showGroupHeader) {
+      tableRowsHtml += `
+        <tr class="group-header">
+          <td colspan="${assemblySettings.showImages ? 12 : 11}" style="background:#e0f2fe; color:#0369a1; font-weight:bold; text-align:right; font-size:14px; padding:6px 12px; border-top:2px solid #bae6fd;">
+            فرع: ${group.branchName}
+          </td>
+        </tr>
+      `
+    }
+
+    group.products.forEach(p => {
+      // Fallback logic: check map first, then check p.image (if not DB_IMAGE)
+      let imgSrc = productImagesMap.get(p.productId);
+      if (!imgSrc && p.image && p.image !== 'DB_IMAGE') {
+        imgSrc = getSafeImageSrc(p.image);
+      }
+      if (!imgSrc) {
+        imgSrc = (typeof window !== 'undefined' ? `${window.location.origin}/placeholder-logo.png` : '/placeholder-logo.png');
+      }
+
+      tableRowsHtml += `
+       <tr class="item-row">
+         <td class="row-index">${globalIndex++}</td>
+         ${assemblySettings.showImages ? `<td class="image-cell"><img src="${imgSrc}" alt="" onerror="this.style.display='none'"/></td>` : ''}
+         <td class="code-cell">${p.productCode || '-'}</td>
+         <td class="name-cell">
+           <div class="product-name">${p.productName}</div>
+           ${!isMerged && !showGroupHeader && groupedData.length > 1 ? `<div class="branch-tag">${group.branchName}</div>` : ''} 
+         </td>
+         <td>${p.unit || '-'}</td>
+         <td class="qty-cell">${formatEnglishNumber(p.quantity)}</td>
+         <td class="notes-cell">${(p as any).notes || ""}</td>
+         ${assemblySettings.showPrice ? `<td>${formatEnglishNumber((p.unitPrice || 0).toFixed(2))}</td>` : ''}
+         ${assemblySettings.showTotal ? `<td class="subtotal">${formatEnglishNumber((p.totalPrice || 0).toFixed(2))}</td>` : ''}
+         <td class="actual-extract"></td>
+         <td class="check-cell"></td>
+         <td class="inspect-mark"></td>
+       </tr>`
     })
-    .join("")
+  })
+
+
+  const titleStr = isMerged ? 'تجميع بضاعة (مدمج)' : 'قائمة تجميع (مفصلة)'
+  const dateStr = formatArabicGregorianDate(new Date(), { year: "numeric", month: "numeric", day: "numeric" })
+
+  // Single Branch Header Logic
+  const singleBranchName = (!isMerged && groupedData.length === 1) ? groupedData[0].branchName : null
 
   const html = `
 <!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
   <meta charset="UTF-8" />
-  <title>فاتورة تجميع للمستودع ${invoiceNumber}</title>
-  <base href="${window.location.origin}/">
-  <base href="${window.location.origin}/">
+  <title>${titleStr}</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #ffffff; color: #0f172a; padding: 28px; }
-    .header { border-bottom: 3px solid #2563eb; padding-bottom: 14px; margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between; }
+    @page { size: A4; margin: 8mm; } /* Minimal Margins */
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #fff; color: #000; padding: 0; margin: 0; }
+    
+    .header { border-bottom: 2px solid #2563eb; padding-bottom: 8px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
     .title-group { display: flex; align-items: center; gap: 10px; }
-    .title { color: #2563eb; font-size: 24px; font-weight: 700; }
-    .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; font-size: 13px; color: #334155; }
-    .info-section { background: #f8fafc; border-right: 4px solid #2563eb; border-radius: 8px; padding: 14px; margin-bottom: 16px; }
-    .info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .table { width: 100%; border-collapse: collapse; }
-    th, td { border: 1px solid #e2e8f0; padding: 8px; text-align: right; font-size: 13px; }
-    thead th { background: #f1f5f9; font-weight: 600; }
-    .row-index { width: 36px; text-align: center; color: #475569; }
-    .image-cell img { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; }
-    .name-cell { max-width: 260px; }
-    .checkbox { display: inline-block; width: 16px; height: 16px; border: 1px solid #94a3b8; border-radius: 3px; }
-    .qty-cell { color: #000 !important; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-    .footer { margin-top: 16px; page-break-inside: avoid; }
-    .footer-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-    .totals { background: #f8fafc; border-radius: 8px; padding: 12px; border-right: 4px solid #22c55e; }
-    .names { background: #f8fafc; border-radius: 8px; padding: 12px; border-right: 4px solid #2563eb; }
-    .names p { margin: 6px 0; }
-    .notes { margin-top: 10px; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 10px; min-height: 80px; }
-    .page-footer { margin-top: 14px; text-align: center; color: #94a3b8; font-size: 12px; }
-    @page { size: A4; margin: 18mm; }
+    .title { color: #2563eb; font-size: 20px; font-weight: 800; line-height: 1.1; }
+    .subtitle { font-size: 11px; color: #64748b; }
+    
+    .meta-box { font-size: 11px; border: 1px solid #cbd5e1; border-radius: 4px; padding: 3px 8px; background: #f8fafc; display:inline-block; margin-left:5px; }
+    
+    .table { width: 100%; border-collapse: collapse; font-size: 10px; } /* Compact Font */
+    th, td { border: 1px solid #94a3b8; padding: 3px 4px; vertical-align: middle; } /* Compact Padding */
+    thead th { background: #f1f5f9; font-weight: 700; color: #334155; text-align: center; white-space: nowrap; height: 25px; }
+    
+    .row-index { width: 25px; text-align: center; color: #64748b; font-size: 9px; }
+
+    .image-cell { width: 60px; text-align: center; padding: 1px; }
+    .image-cell img { width: 45px; height: 45px; object-fit: cover; border-radius: 4px; display: block; margin: auto; }
+    
+    .code-cell { font-family: monospace; font-weight: 600; width: 80px; text-align:center; }
+    
+    .name-cell { text-align: right; }
+    .product-name { 
+      font-weight: 600; font-size: 11px;
+      overflow: hidden; 
+      display: -webkit-box; 
+      -webkit-line-clamp: 2; /* STRICT 2-line limit */
+      -webkit-box-orient: vertical; 
+      line-height: 1.25;
+      max-height: 2.5em; /* Fallback height limit */
+    }
+    .branch-tag, .meta-tag { font-size: 8px; color: #64748b; display: inline-block; background: #f1f5f9; padding: 0 3px; border-radius: 2px; margin-top: 2px; border:1px solid #e2e8f0; }
+    
+    .qty-cell { font-size: 13px; font-weight: 900; background: #fefce8; text-align: center; width: 45px; }
+    .notes-cell { color: #64748b; max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    
+    .actual-extract { width: 40px; }
+    .check-cell, .inspect-mark { width: 25px; text-align: center; }
+    
+    .footer { margin-top: 8px; page-break-inside: avoid; border-top: 2px solid #2563eb; padding-top: 5px; }
+    .footer-flex { display: flex; justify-content: space-between; gap: 15px; font-size: 10px; align-items:flex-end; }
+    
+    .total-box { background:#f0fdf4; border:1px solid #22c55e; padding:5px 10px; border-radius:4px; font-weight:bold; color:#15803d; }
+    
     @media print {
-      body { padding: 0; }
-      .page-count::after { content: counter(page) " / " counter(pages); }
-      table { page-break-inside: auto; }
-      tr { page-break-inside: avoid; }
+      body { zoom: 95%; } 
+      tr { break-inside: avoid; }
+      .group-header { break-after: avoid; }
     }
   </style>
   </head>
   <body>
     <div class="header">
       <div class="title-group">
-        <img src="${logoUrl}" alt="ساحة المجد" style="width:48px;height:48px;border-radius:6px;object-fit:contain;" onerror="this.style.display='none'"/>
-        <div class="title">فاتورة تجميع للمستودع<br><span style="font-size:16px; font-weight:normal;">Warehouse Assembly Invoice</span></div>
+        <img src="${logoUrl}" alt="Logo" style="width:35px;height:35px;object-fit:contain;" onerror="this.style.display='none'"/>
+        <div>
+          <div class="title">${titleStr} ${singleBranchName ? `- <span style="color:#000;">${singleBranchName}</span>` : ''}</div>
+          <div class="subtitle">Picking List ${singleBranchName ? '' : ' - Multiple Branches'}</div>
+        </div>
       </div>
-      <div class="meta">
-        <div><strong>رقم الفاتورة / Invoice No:</strong> ${invoiceNumber}</div>
-        <div><strong>التاريخ / Date:</strong> ${dateStr} - ${timeStr}</div>
-        <div><strong>الفرع / Branch:</strong> ${issue.branchName}</div>
-      </div>
-    </div>
-
-    <div class="info-section">
-      <div class="info-grid">
-        <div><strong>عدد الأصناف / Items Count:</strong> ${formatEnglishNumber(totalItems)}</div>
-        <div><strong>إجمالي الكميات المطلوبة / Total Requested Qty:</strong> ${formatEnglishNumber(totalRequestedQty)}</div>
+      <div style="text-align:left;">
+        <span class="meta-box"><strong>التاريخ:</strong> ${dateStr}</span>
+        <span class="meta-box"><strong>الأصناف:</strong> ${totalItemsCount}</span>
       </div>
     </div>
 
@@ -122,49 +247,47 @@ export async function generateAssemblyPDF(issue: Issue) {
       <thead>
         <tr>
           <th>#</th>
-          <th>الصورة<br>Image</th>
-          <th>الكود<br>Code</th>
-          <th>اسم المنتج<br>Product Name</th>
-          <th>الوحدة<br>Unit</th>
-          <th>الكمية المطلوبة<br>Requested Qty</th>
-          <th>العدد الفعلي المستخرج<br>Actual Extracted Qty</th>
-          <th>علامة استخراج<br>Extraction Mark</th>
-          <th>علامة فحص<br>Check Mark</th>
+          ${assemblySettings.showImages ? '<th>صورة<br/><span style="font-weight:normal;font-size:9px">Image</span></th>' : ''}
+          <th>كود<br/><span style="font-weight:normal;font-size:9px">Code</span></th>
+          <th style="width:35%;">المنتج<br/><span style="font-weight:normal;font-size:9px">Product</span></th>
+          <th>وحدة<br/><span style="font-weight:normal;font-size:9px">Unit</span></th>
+          <th>الكمية<br/><span style="font-weight:normal;font-size:9px">Qty</span></th>
+          <th>ملاحظات<br/><span style="font-weight:normal;font-size:9px">Notes</span></th>
+          ${assemblySettings.showPrice ? '<th>سعر<br/><span style="font-weight:normal;font-size:9px">Price</span></th>' : ''}
+          ${assemblySettings.showTotal ? '<th>إجمالي<br/><span style="font-weight:normal;font-size:9px">Total</span></th>' : ''}
+          <th>فعلي<br/><span style="font-weight:normal;font-size:9px">Actual</span></th>
+          <th>✔<br/><span style="font-weight:normal;font-size:9px">Pick</span></th>
+          <th>🔍<br/><span style="font-weight:normal;font-size:9px">Check</span></th>
         </tr>
       </thead>
       <tbody>
-        ${rowsHtml}
+        ${tableRowsHtml}
       </tbody>
     </table>
 
     <div class="footer">
-      <div class="footer-grid">
-        <div class="totals">
-          <p><strong>إجمالي عدد الأصناف / Total Items:</strong> ${formatEnglishNumber(totalItems)}</p>
-          <p><strong>إجمالي الكميات المطلوبة / Total Requested Qty:</strong> ${formatEnglishNumber(totalRequestedQty)}</p>
+      <div class="footer-flex">
+        <div class="total-box">
+          المجموع: ${formatEnglishNumber(totalQty)} قطعة
         </div>
-        <div class="names">
-          <p><strong>اسم مستخرج المنتجات / Product Extractor Name:</strong> ${issue.extractorName || "______________________________"}</p>
-          <p><strong>اسم الفاحص / Inspector Name:</strong> ${issue.inspectorName || "______________________________"}</p>
+        <div style="flex-grow:1; text-align:center;">
+           المحضر: .................... &nbsp;&nbsp;|&nbsp;&nbsp; المراجع: ....................
         </div>
-      </div>
-      <div class="notes">
-        <strong>ملاحظات / Notes:</strong>
-        <div style="margin-top:8px; color:#64748b;">______________________________________________</div>
-      </div>
-      <div class="page-footer">
-        صفحة / Page <span class="page-count"></span>
+        <div>
+           صفحة <span class="page-count"></span>
+        </div>
       </div>
     </div>
-
+    
   </body>
   </html>
   `
 
-  const w = window.open("", "_blank")
-  if (!w) return
+  w.document.open()
   w.document.write(html)
   w.document.close()
+
+  // Wait for images to render (slightly longer than before to be safe, but data is ready)
   w.focus()
-  setTimeout(() => w.print(), 300)
+  setTimeout(() => w.print(), 500)
 }

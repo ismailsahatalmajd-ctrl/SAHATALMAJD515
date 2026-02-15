@@ -38,7 +38,7 @@ export function ReturnDialog({ open, onOpenChange, onSuccess }: ReturnDialogProp
     }
   }, [open])
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedIssueId) {
       toast({ title: getDualString("toast.error"), description: getDualString("returnDialog.selectIssue"), variant: "destructive" })
       return
@@ -52,18 +52,30 @@ export function ReturnDialog({ open, onOpenChange, onSuccess }: ReturnDialogProp
     const issue = issues.find((i) => i.id === selectedIssueId)
     if (!issue) return
 
-    addReturn({
-      issueId: selectedIssueId,
-      branchId: issue.branchId,
-      branchName: issue.branchName,
-      products: issue.products,
-      totalValue: issue.totalValue,
-      reason,
-    })
+    try {
+      // إضافة المرتجع
+      const newReturn = await addReturn({
+        issueId: selectedIssueId,
+        branchId: issue.branchId,
+        branchName: issue.branchName,
+        products: issue.products,
+        totalValue: issue.totalValue,
+        reason,
+        sourceType: 'issue',
+        status: 'pending', // سيتم تغييره للموافقة مباشرة
+      })
 
-    toast({ title: getDualString("toast.success"), description: getDualString("returnDialog.addedSuccess") })
-    resetForm()
-    onSuccess()
+      // الموافقة على المرتجع تلقائياً لتحديث المخزون
+      const { approveReturn } = await import('@/lib/storage')
+      await approveReturn(newReturn.id, 'admin')
+
+      toast({ title: getDualString("toast.success"), description: getDualString("returnDialog.addedSuccess") })
+      resetForm()
+      onSuccess()
+    } catch (error) {
+      console.error('Error creating return:', error)
+      toast({ title: getDualString("toast.error"), description: "فشل إنشاء المرتجع", variant: "destructive" })
+    }
   }
 
   const resetForm = () => {

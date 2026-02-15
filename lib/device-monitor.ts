@@ -25,39 +25,87 @@ export const initDeviceMonitor = () => {
 
             let username = "Unknown"
             let role = "Unknown"
+            let branchName = ""
 
             if (typeof window !== 'undefined') {
                 try {
-                    const userStr = localStorage.getItem('user')
+                    // استخدام المفتاح الصحيح 'sahat_user' بدلاً من 'user'
+                    const userStr = localStorage.getItem('sahat_user')
+                    console.log('[DeviceMonitor] Reading sahat_user:', userStr ? 'Found' : 'Not found')
                     if (userStr) {
                         const u = JSON.parse(userStr)
-                        username = u.username || u.name || "Unknown"
                         role = u.role || "Unknown"
+                        console.log('[DeviceMonitor] User role:', role, 'branchId:', u.branchId)
+
+                        // إذا كان المستخدم فرعاً، استخدم اسم الفرع
+                        if (role === 'branch' && u.branchId) {
+                            try {
+                                const branch = await db.branches.get(u.branchId)
+                                if (branch) {
+                                    username = branch.name || u.username || "Unknown"
+                                    branchName = branch.name || ""
+                                    console.log('[DeviceMonitor] Branch found:', username)
+                                } else {
+                                    username = u.username || u.name || "فرع"
+                                }
+                            } catch (e) {
+                                username = u.username || u.name || "فرع"
+                            }
+                        } else if (role === 'admin') {
+                            username = "المدير" // عرض "المدير" بدلاً من اسم المستخدم
+                            console.log('[DeviceMonitor] Admin user detected')
+                        } else {
+                            username = u.username || u.name || u.displayName || "Unknown"
+                        }
                     }
-                } catch (e) { }
+                } catch (e) {
+                    console.error('[DeviceMonitor] Failed to parse user from localStorage', e)
+                }
             }
 
             const payload = {
                 deviceId,
                 userAgent: info?.userAgent || 'Unknown',
+                browser: info?.browser || 'Unknown',
+                platform: info?.platform || 'Unknown',
                 lastActive: new Date().toISOString(),
                 syncStatus: stats,
                 appVersion: '1.0.0',
                 username,
-                role
+                role,
+                branchName
             }
 
+            console.log('[DeviceMonitor] Sending heartbeat:', { username, role, deviceId })
             await setDoc(docRef, payload, { merge: true })
+            console.log('[DeviceMonitor] Heartbeat sent successfully')
         } catch (e) {
             console.error("[DeviceMonitor] Heartbeat failed", e)
         }
     }
 
-    // Initial update
+    // Initial update - تحديث فوري عند التحميل
+    console.log('[DeviceMonitor] Starting initial heartbeat...')
     updateHeartbeat()
 
     // Interval update (every 60s)
     setInterval(updateHeartbeat, 60000)
+
+    // تحديث فوري عند تغيير بيانات المستخدم في localStorage
+    if (typeof window !== 'undefined') {
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'sahat_user') {
+                console.log('[DeviceMonitor] User data changed, updating heartbeat...')
+                updateHeartbeat()
+            }
+        })
+
+        // تحديث عند تغيير focus للنافذة
+        window.addEventListener('focus', () => {
+            console.log('[DeviceMonitor] Window focused, updating heartbeat...')
+            updateHeartbeat()
+        })
+    }
 
     // 2. Listen for Commands
     onSnapshot(docRef, async (snap) => {

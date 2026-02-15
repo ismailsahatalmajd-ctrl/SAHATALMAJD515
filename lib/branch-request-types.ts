@@ -1,4 +1,4 @@
-export type BranchRequestStatus = "draft" | "submitted" | "approved" | "cancelled"
+export type BranchRequestStatus = "draft" | "submitted" | "approved" | "cancelled" | "shipped" | "received"
 
 export interface BranchRequestItem {
   id?: string
@@ -18,6 +18,7 @@ export interface BranchRequestItem {
   selectedUnitName?: string
   quantityPerCarton?: number
   cartonUnit?: string
+  notes?: string
 }
 
 export interface BranchRequestHistoryEntry {

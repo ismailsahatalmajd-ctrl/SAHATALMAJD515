@@ -13,6 +13,7 @@ export interface Product {
   openingStock: number
   purchases: number
   issues: number
+  returns: number // New field: Total Returns from Branches (Inbound)
   inventoryCount: number
   currentStock: number
   difference: number
@@ -20,6 +21,7 @@ export interface Product {
   averagePrice: number
   currentStockValue: number
   issuesValue: number
+  returnsValue: number // New field: Value of Returns
   quantityPerCarton?: number // الكمية في الكرتون
   cartonBarcode?: string // باركود الكرتون
   category: string
@@ -40,6 +42,16 @@ export interface Category {
   id: string
   name: string
   color: string
+}
+
+export interface BranchRequestDraft {
+  id: string // usually branchId as we only need one draft per branch? Or a unique ID? IssueDraft uses unique ID but we might want one draft per branch per type? Let's stick to unique ID for flexibility but maybe limit it.
+  branchId: string
+  branchName: string
+  items: any[] // Using any[] to avoid circular dependency with BranchRequestItem if defined elsewhere, or use shared type
+  type: "supply" | "return"
+  notes?: string
+  updatedAt: string
 }
 
 export interface Transaction {
@@ -253,6 +265,8 @@ export interface Issue {
   // Branch receipt confirmation (independent of stock deduction)
   branchReceived?: boolean
   branchReceivedAt?: string
+  // Linked branch request ID
+  requestId?: string
   // حالة العملية (اختياري): مسودة/قيد التنفيذ/تم التسليم
   status?: "draft" | "pending" | "delivered"
   updatedAt?: string
@@ -270,6 +284,7 @@ export interface IssueProduct {
   unit?: string // Added unit to issue product
   currentStock?: number
   quantityBase?: number // For Multi-Unit Deduction
+  notes?: string
 }
 
 export interface Return {

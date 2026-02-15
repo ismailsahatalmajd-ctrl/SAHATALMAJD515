@@ -201,48 +201,82 @@ export default function ReturnsPage() {
       return
     }
 
-    // تجهيز البيانات
-    const payload: Omit<Return, "id" | "createdAt"> = {
-      sourceType,
-      issueId: sourceType === "issue" ? selectedIssueId : undefined,
-      sourceTransactionId: sourceType === "purchase" ? "multiple" : undefined,
-      branchId: selectedIssue?.branchId ?? "main",
-      branchName: selectedIssue?.branchName ?? "الرئيسي",
-      products: returnItems,
-      totalValue: totalValue,
-      reason: t(reasonKey, reasonKey),
-      refundMethod: sourceType === "purchase" ? (refundMethod as Return["refundMethod"]) : undefined,
-      status: "pending",
-      customerPhone: customerPhone || undefined,
-      originalInvoiceNumber: originalInvoiceNumber || undefined,
-      responsibleName: responsibleName || undefined,
+    try {
+      // تجهيز البيانات
+      const payload: Omit<Return, "id" | "createdAt"> = {
+        sourceType,
+        issueId: sourceType === "issue" ? selectedIssueId : undefined,
+        sourceTransactionId: sourceType === "purchase" ? "multiple" : undefined,
+        branchId: selectedIssue?.branchId ?? "main",
+        branchName: selectedIssue?.branchName ?? "الرئيسي",
+        products: returnItems,
+        totalValue: totalValue,
+        reason: t(reasonKey, reasonKey),
+        refundMethod: sourceType === "purchase" ? (refundMethod as Return["refundMethod"]) : undefined,
+        status: "pending", // سيتم تغييره للموافقة تلقائياً
+        customerPhone: customerPhone || undefined,
+        originalInvoiceNumber: originalInvoiceNumber || undefined,
+        responsibleName: responsibleName || undefined,
+      }
+
+      if (user) {
+        // Cloud
+        const returnId = Date.now().toString()
+        const newReturn = { ...payload, id: returnId, createdAt: new Date().toISOString(), status: 'approved', approvedBy: user.email }
+        await saveDocument("returns", newReturn)
+
+        // Update stock in cloud
+        const { doc, updateDoc, getDoc } = await import("firebase/firestore");
+        const { db: firestore } = await import("@/lib/firebase");
+
+        if (firestore) {
+          for (const p of returnItems) {
+            const pRef = doc(firestore, "products", p.productId);
+            const snap = await getDoc(pRef);
+            const data = snap?.data() as any || {};
+
+            const qty = Number((p as any).quantityBase || p.quantity || 0);
+            const oldReturns = Number(data.returns || 0);
+            const newReturns = oldReturns + qty;
+
+            // Update the product with new returns count
+            await updateDoc(pRef, {
+              returns: newReturns,
+              returnsValue: (Number(data.returnsValue || 0)) + (p.totalPrice || (p.unitPrice * qty)),
+              currentStock: (Number(data.openingStock || 0)) + (Number(data.purchases || 0)) + newReturns - (Number(data.issues || 0)),
+              updatedAt: new Date().toISOString()
+            });
+          }
+        }
+      } else {
+        // Local - إضافة المرتجع والموافقة عليه تلقائياً
+        const newReturn = await addReturn(payload)
+        await approveReturn(newReturn.id, 'admin')
+        setLocalReturns(getReturns())
+      }
+
+      toast({
+        title: getDualString("common.success"),
+        description: getDualString("returns.added"),
+        duration: 3000
+      })
+
+      // إعادة تعيين النموذج
+      setReturnItems([])
+      setSelectedIssueId("")
+      setReasonKey(REASON_KEYS[0])
+      setRefundMethod(REFUND_METHODS[0].value)
+      setCustomerPhone("")
+      setOriginalInvoiceNumber("")
+      setResponsibleName("")
+    } catch (error) {
+      console.error('Error creating return:', error)
+      toast({
+        title: getDualString("common.error"),
+        description: "فشل إنشاء المرتجع",
+        variant: "destructive"
+      })
     }
-
-    if (user) {
-      // Cloud
-      const returnId = Date.now().toString()
-      const newReturn = { ...payload, id: returnId, createdAt: new Date().toISOString() }
-      await saveDocument("returns", newReturn)
-    } else {
-      // Local
-      addReturn(payload)
-      setLocalReturns(getReturns())
-    }
-
-    toast({
-      title: getDualString("common.success"),
-      description: getDualString("returns.added"),
-      duration: 3000
-    })
-
-    // إعادة تعيين النموذج
-    setReturnItems([])
-    setSelectedIssueId("")
-    setReasonKey(REASON_KEYS[0])
-    setRefundMethod(REFUND_METHODS[0].value)
-    setCustomerPhone("")
-    setOriginalInvoiceNumber("")
-    setResponsibleName("")
   }
 
   const handleApproveRequest = async (req: BranchRequest) => {
@@ -320,6 +354,9 @@ export default function ReturnsPage() {
       }
 
       await batchSave(ops)
+
+      // Optimistic UI Update: إخفاء الطلب فوراً من القائمة
+      setLocalBranchRequests(prev => prev.filter(r => r.id !== req.id))
     } else {
       // Local
       const res = await approveBranchRequest(req.id, "admin")
@@ -338,6 +375,9 @@ export default function ReturnsPage() {
     if (user) {
       // Cloud
       await saveDocument("branchRequests", { ...req, status: "cancelled", rejectedBy: "admin", updatedAt: new Date().toISOString() })
+
+      // Optimistic UI Update: إخفاء الطلب فوراً من القائمة
+      setLocalBranchRequests(prev => prev.filter(r => r.id !== req.id))
     } else {
       // Local
       setRequestStatus(req.id, "cancelled", "admin")

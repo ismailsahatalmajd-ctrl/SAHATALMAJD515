@@ -14,25 +14,43 @@ function useCollection<T>(collectionName: string) {
     const [loading, setLoading] = useState(true)
 
     useEffect(() => {
+        // Don't try to listen if no user or no db
         if (!user || !db) {
             setLoading(false)
+            setData([]) // Clear data when user logs out
             return
         }
 
-        const q = query(collection(db, collectionName))
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const items: T[] = []
-            snapshot.forEach((doc) => {
-                items.push(doc.data() as T)
-            })
-            setData(items)
-            setLoading(false)
-        }, (error) => {
-            console.error(`Error syncing ${collectionName}:`, error)
-            setLoading(false)
-        })
+        try {
+            const q = query(collection(db, collectionName))
+            const unsubscribe = onSnapshot(
+                q,
+                (snapshot) => {
+                    const items: T[] = []
+                    snapshot.forEach((doc) => {
+                        items.push(doc.data() as T)
+                    })
+                    setData(items)
+                    setLoading(false)
+                },
+                (error) => {
+                    // Silently handle permission errors (expected when not logged in or insufficient permissions)
+                    if (error.code === 'permission-denied') {
+                        console.warn(`No permissions for ${collectionName}, using local data only`)
+                        setData([])
+                    } else {
+                        console.error(`Error syncing ${collectionName}:`, error)
+                    }
+                    setLoading(false)
+                }
+            )
 
-        return () => unsubscribe()
+            return () => unsubscribe()
+        } catch (error) {
+            console.error(`Failed to setup listener for ${collectionName}:`, error)
+            setLoading(false)
+            setData([])
+        }
     }, [user, collectionName])
 
     return { data, loading }
@@ -89,7 +107,7 @@ export async function deleteDocument(collectionName: string, id: string) {
 export async function batchSave(operations: { collection: string, data: any, type: 'set' | 'update' | 'delete' }[]) {
     if (!db) throw new Error("Firebase DB not initialized")
     const batch = writeBatch(db)
-    
+
     operations.forEach(op => {
         if (!db) return
         const ref = doc(db, op.collection, op.data.id)
@@ -99,6 +117,6 @@ export async function batchSave(operations: { collection: string, data: any, typ
             batch.set(ref, op.data, { merge: true })
         }
     })
-    
+
     await batch.commit()
 }

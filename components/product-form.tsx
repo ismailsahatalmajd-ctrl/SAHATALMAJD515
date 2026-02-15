@@ -15,19 +15,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import type { Product } from "@/lib/types"
-import { calculateProductValues, getProducts } from "@/lib/storage"
+import { calculateProductValues, getProducts, getUnits } from "@/lib/storage"
 import { toast } from "@/hooks/use-toast"
 import { DualText, getDualString } from "@/components/ui/dual-text"
 import { useI18n } from "@/components/language-provider"
 import { storage } from "@/lib/firebase"
 import { getSafeImageSrc, normalize, getApiUrl } from "@/lib/utils"
 import { Upload, X, Loader2 } from 'lucide-react'
+import { db } from "@/lib/db"
 // import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
 
 interface ProductFormProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSubmit: (product: Partial<Product>) => void
+  onSubmit: (product: Partial<Product>) => Promise<void> | void
   product?: Product
   categories: string[]
 }
@@ -60,17 +61,68 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
     },
   )
 
+  const unitsList = getUnits()
+
   const [imagePreview, setImagePreview] = useState<string | undefined>(product?.image)
   const [isUploading, setIsUploading] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const isMountedRef = useRef(true)
   const imageSectionRef = useRef<HTMLDivElement>(null)
   const autoCloseTimerRef = useRef<number | null>(null)
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     if (open) {
       if (product) {
         console.log("[v0] Loading product data for editing:", product.productName)
-        setFormData(product)
-        setImagePreview(product.image)
+
+        // حساب القيم المحدثة من المعاملات
+        const loadDynamicData = async () => {
+          try {
+            // جلب المعاملات من قاعدة البيانات
+            const transactions = await db.transactions.where('productId').equals(product.id).toArray()
+            const issues = await db.issues.where('productId').equals(product.id).toArray()
+            const returns = await db.returns.where('productId').equals(product.id).toArray()
+
+            // حساب المجاميع
+            const totalPurchases = transactions
+              .filter(t => t.type === 'purchase')
+              .reduce((sum, t) => sum + (Number(t.quantity) || 0), 0)
+
+            const totalIssues = issues.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0)
+
+            const totalReturns = returns.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0)
+
+            // حساب الرصيد الحالي
+            const currentStock = (Number(product.openingStock) || 0) + totalPurchases + totalReturns - totalIssues
+
+            // تحديث البيانات مع القيم المحسوبة
+            const updatedProduct = {
+              ...product,
+              purchases: totalPurchases,
+              issues: totalIssues,
+              returns: totalReturns,
+              currentStock: currentStock,
+              quantity: currentStock // Sync quantity with calculated stock for display/edit
+            }
+
+            setFormData(updatedProduct)
+            setImagePreview(product.image)
+          } catch (error) {
+            console.error("[v0] Error loading dynamic data:", error)
+            // في حالة الخطأ، استخدم البيانات الأصلية
+            setFormData(product)
+            setImagePreview(product.image)
+          }
+        }
+
+        loadDynamicData()
       } else {
         console.log("[v0] Resetting form for new product")
         setFormData({
@@ -118,10 +170,14 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
     }
   }, [open, product])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
+    if (isSaving) return // Prevent double submission
+
     try {
+      setIsSaving(true)
+
       const L = Number(formData.cartonLength || 0)
       const W = Number(formData.cartonWidth || 0)
       const H = Number(formData.cartonHeight || 0)
@@ -131,6 +187,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
           description: getDualString("productForm.error.dimensions.desc"),
           variant: "destructive",
         })
+        setIsSaving(false)
         return
       }
 
@@ -172,6 +229,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
             description: getDualString("productForm.error.duplicate.exists", undefined, undefined, { name: duplicate.productName, code: duplicate.productCode }),
             variant: "destructive"
           })
+          setIsSaving(false)
           return
         }
       } else {
@@ -218,19 +276,61 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
             description: getDualString(k, undefined, undefined, params),
             variant: "destructive"
           })
+          setIsSaving(false)
           return
         }
       }
 
       // Ensure quantityPerCarton is at least 1
+      // Ensure quantityPerCarton is at least 1
+      // Handle Stock Adjustment Logic for Existing Products
+      let openingStockFinal = Number(formData.openingStock || 0);
+
+      if (product) {
+        // If editing an existing product, check if user changed the "Quantity" (Current Stock)
+        // If so, adjust Opening Stock to match the target.
+        // Target = Opening + Purchases + Returns - Issues
+        // => NewOpening = Target - (Purchases + Returns - Issues)
+
+        const targetStock = Number(formData.quantity || 0);
+        const originalStock = Number(product.currentStock || 0); // Approx check, but better to recalc
+
+        // We use formData values for P, R, I as they might have been edited? (Actually they are disabled usually)
+        // But let's trust formData as source of truth for the equation.
+        const P = Number(formData.purchases || 0);
+        const R = Number(formData.returns || 0);
+        const I = Number(formData.issues || 0);
+
+        // Recalculate what opening stock SHOULD be to hit the target
+        const requiredOpening = targetStock - (P + R - I);
+
+        // Only update if the result is different from current opening stock
+        // and if it's a valid number.
+        if (!isNaN(requiredOpening)) {
+          openingStockFinal = requiredOpening;
+        }
+      } else {
+        // New Product Logic (unchanged)
+        const qty = typeof formData.quantity === "number" && formData.quantity >= 0 ? Number(formData.quantity) : 0;
+        openingStockFinal = qty;
+      }
+
       const dataToSubmit = {
         ...formData,
-        quantityPerCarton: (formData.quantityPerCarton || 0) === 0 ? 1 : formData.quantityPerCarton
+        quantityPerCarton: (formData.quantityPerCarton || 0) === 0 ? 1 : formData.quantityPerCarton,
+        openingStock: openingStockFinal
       }
       const calculatedData = calculateProductValues(dataToSubmit as Product)
-      onSubmit(calculatedData as Product)
-      onOpenChange(false)
-      setImagePreview(undefined)
+
+      // Wait for onSubmit to complete before closing
+      await onSubmit(calculatedData as Product)
+
+      // Only update state if still mounted
+      if (isMountedRef.current) {
+        onOpenChange(false)
+        setImagePreview(undefined)
+        setIsSaving(false)
+      }
     } catch (error: any) {
       console.error("Error submitting product form:", error)
       toast({
@@ -238,6 +338,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
         description: getDualString("productForm.error.unexpected.desc", undefined, undefined, { error: error.message }),
         variant: "destructive"
       })
+      setIsSaving(false)
     }
   }
 
@@ -351,15 +452,6 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="productCode"><DualText k="common.code" /></Label>
-                <Input
-                  id="productCode"
-                  value={formData.productCode}
-                  onChange={(e) => handleChange("productCode", e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
                 <Label htmlFor="cartonBarcode">Carton Barcode / باركود الكرتون</Label>
                 <Input
                   id="cartonBarcode"
@@ -368,20 +460,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                   placeholder="Scan Carton Code..."
                 />
               </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="itemNumber"><DualText k="common.itemNumber" /></Label>
-                <Input
-                  id="itemNumber"
-                  value={formData.itemNumber}
-                  onChange={(e) => handleChange("itemNumber", e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                {/* Spacer or Location moved here */}
                 <Label htmlFor="location"><DualText k="common.location" /></Label>
                 <Input
                   id="location"
@@ -403,15 +482,10 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="location"><DualText k="common.location" /></Label>
-                <Input
-                  id="location"
-                  value={formData.location}
-                  onChange={(e) => handleChange("location", e.target.value)}
-                  required
-                />
               </div>
             </div>
+
+
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -436,11 +510,21 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="قطعة"><DualText k="units.piece" /></SelectItem>
-                    <SelectItem value="كرتون"><DualText k="units.carton" /></SelectItem>
-                    <SelectItem value="كيلو"><DualText k="units.kg" /></SelectItem>
-                    <SelectItem value="متر"><DualText k="units.meter" /></SelectItem>
-                    <SelectItem value="لتر"><DualText k="units.liter" /></SelectItem>
+                    {unitsList && unitsList.length > 0 ? (
+                      unitsList.map((u: any) => (
+                        <SelectItem key={u.id} value={u.name}>
+                          {u.name}{u.abbreviation ? ` (${u.abbreviation})` : ""}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <>
+                        <SelectItem value="قطعة"><DualText k="units.piece" /></SelectItem>
+                        <SelectItem value="كرتون"><DualText k="units.carton" /></SelectItem>
+                        <SelectItem value="كيلو"><DualText k="units.kg" /></SelectItem>
+                        <SelectItem value="متر"><DualText k="units.meter" /></SelectItem>
+                        <SelectItem value="لتر"><DualText k="units.liter" /></SelectItem>
+                      </>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -565,7 +649,9 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="quantity"><DualText k="common.quantity" /></Label>
+                <Label htmlFor="quantity">
+                  {product ? <DualText k="products.form.currentStockAdjust" /> : <DualText k="common.quantity" />}
+                </Label>
                 <Input
                   id="quantity"
                   type="number"
@@ -604,8 +690,15 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               <DualText k="common.cancel" />
             </Button>
-            <Button type="submit" disabled={isUploading}>
-              {isUploading ? (
+            <Button type="submit" disabled={isUploading || isSaving}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <span className="ml-2">
+                    <DualText k="common.saving" />
+                  </span>
+                </>
+              ) : isUploading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   <span className="ml-2">

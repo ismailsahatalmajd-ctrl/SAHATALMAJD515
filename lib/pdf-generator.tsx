@@ -5,6 +5,16 @@ import { getInvoiceSettings } from "@/lib/invoice-settings-store"
 import { getProducts } from "@/lib/storage"
 
 export async function generateIssuePDF(issue: Issue) {
+  const w = window.open("", "_blank")
+  if (!w) return
+  w.document.write(`
+    <div style="font-family:sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; gap:20px;">
+      <div style="width:40px; height:40px; border:4px solid #f3f3f3; border-top:4px solid #2563eb; border-radius:50%; animation: spin 1s linear infinite;"></div>
+      <p style="color:#64748b;">جاري تجهيز الفاتورة... (Preparing Invoice...)</p>
+      <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+    </div>
+  `)
+
   const settings = await getInvoiceSettings()
   const allProducts = getProducts()
   const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/sahat-almajd-logo.svg` : '/sahat-almajd-logo.svg'
@@ -169,6 +179,7 @@ export async function generateIssuePDF(issue: Issue) {
         ${settings.showQuantity ? `<th>الكمية<br>Quantity</th>` : `<th>الكمية<br>Quantity</th>`}
         ${settings.showPrice ? `<th>سعر الوحدة<br>Unit Price</th>` : ''}
         ${settings.showTotal ? `<th>الإجمالي<br>Total</th>` : ''}
+        ${settings.showNotes ? `<th>الملاحظات<br>Notes</th>` : ''}
       </tr>
     </thead>
     <tbody>
@@ -177,7 +188,7 @@ export async function generateIssuePDF(issue: Issue) {
         (product, index) => {
           let unit = product.unit
           if (!unit) {
-            const currentProduct = allProducts.find(p => p.id === product.productId || p.productCode === product.productCode)
+            const currentProduct = allProducts.find(p => p.id === product.productId)
             if (currentProduct) {
               unit = currentProduct.unit
             }
@@ -198,6 +209,7 @@ export async function generateIssuePDF(issue: Issue) {
           ${settings.showQuantity ? `<td class="qty-cell">${formatEnglishNumber(product.quantity)}</td>` : `<td class="qty-cell">${formatEnglishNumber(product.quantity)}</td>`}
           ${settings.showPrice ? `<td>${formatEnglishNumber(product.unitPrice.toFixed(2))} ريال</td>` : ''}
           ${settings.showTotal ? `<td><strong>${formatEnglishNumber(product.totalPrice.toFixed(2))} ريال</strong></td>` : ''}
+          ${settings.showNotes ? `<td style="text-align:right; font-size:11px; color:#555;">${(product as any).notes || "—"}</td>` : ''}
         </tr>
       `
         },
@@ -263,10 +275,7 @@ export async function generateIssuePDF(issue: Issue) {
 </html>
   `
 
-  // Open in new window and print
-  const printWindow = window.open("", "_blank")
-  if (printWindow) {
-    printWindow.document.write(pdfContent)
-    printWindow.document.close()
-  }
+  w.document.open()
+  w.document.write(pdfContent)
+  w.document.close()
 }

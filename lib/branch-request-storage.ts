@@ -125,19 +125,20 @@ export async function approveBranchRequest(id: string, actor?: string): Promise<
 
   if (req.type === 'return') {
     const returnProducts: IssueProduct[] = req.items.map((it) => {
-      const p = products.find((x) => x.id === it.productId || x.productCode === it.productCode)
+      const p = products.find((x) => x.id === it.productId)
       const unitPrice = p?.averagePrice ?? p?.price ?? 0
       const quantity = Math.max(0, Math.floor(it.requestedQuantity || it.quantity || 0))
       return {
-        productId: p?.id || it.productId,
-        productCode: p?.productCode || it.productCode,
-        productName: p?.productName || it.productName,
+        productId: it.productId,  // Use saved ID
+        productCode: it.productCode,  // Use saved code
+        productName: it.productName,  // Use saved name (not from DB!)
         quantity,
         unitPrice,
         totalPrice: unitPrice * quantity,
-        image: p?.image || it.image || "",
-        currentStock: p?.currentStock ?? 0,
-        unit: p?.unit || it.unit || "",
+        image: it.image || "",  // Use saved image (not from DB!)
+        currentStock: p?.currentStock ?? 0,  // Only stock from DB
+        unit: it.unit || p?.unit || "",  // Use saved unit first
+        notes: it.notes || it.returnReason, // Map notes or reason
       }
     })
 
@@ -162,30 +163,24 @@ export async function approveBranchRequest(id: string, actor?: string): Promise<
 
   // تجهيز منتجات الصرف (Issue)
   const issueProducts: IssueProduct[] = req.items.map((it) => {
-    const p = products.find((x) => x.id === it.productId || x.productCode === it.productCode)
+    const p = products.find((x) => x.id === it.productId)
     const unitPrice = p?.averagePrice ?? p?.price ?? 0
     const quantity = Math.max(0, Math.floor(it.requestedQuantity || it.quantity || 0))
     // Multi-Unit Logic: Use quantityBase if available (for precise stock deduction), otherwise fallback
     const finalQuantity = it.quantityBase || quantity
 
     return {
-      productId: p?.id || it.productId,
-      productCode: p?.productCode || it.productCode,
-      productName: p?.productName || it.productName,
+      productId: it.productId,  // Use saved ID
+      productCode: it.productCode,  // Use saved code  
+      productName: it.productName,  // Use saved name (not from DB!)
       quantity: finalQuantity, // Store in Base Units for Issue
       unitPrice,
-      totalPrice: unitPrice * quantity, // Value based on Entered Quantity * Unit Price (Carton Price * Cartons) matches Base * BasePrice?
-      // Check: 5 * (24 * 1) = 120. 120 * 1 = 120. Yes.
-      // But we must preserve the original "unitPrice" relative to the Issue Items?
-      // IssueProduct expects unitPrice. If quantity is 120, unitPrice should be Piece Price.
-      // it.unitPrice might be Carton Price.
-      // So: totalPrice is correct. unitPrice needs adjustment if we change quantity basis.
-      // calculatedTotalPrice = it.totalPrice || (quantity * unitPrice)
-
-      image: p?.image || it.image || "",
-      currentStock: p?.currentStock ?? 0,
-      unit: p?.unit || it.unit || "",
+      totalPrice: unitPrice * quantity,
+      image: it.image || "",  // Use saved image (not from DB!)
+      currentStock: p?.currentStock ?? 0,  // Only stock from DB
+      unit: it.unit || p?.unit || "",  // Use saved unit first
       quantityBase: finalQuantity,
+      notes: it.notes, // Map notes from request item
     }
   })
 
@@ -198,6 +193,7 @@ export async function approveBranchRequest(id: string, actor?: string): Promise<
     products: issueProducts,
     totalValue,
     notes: req.notes || "صرف طلب فرع",
+    requestId: id, // Link back to the request
   })
 
   // تحديث حالة الطلب وإضافة سجل

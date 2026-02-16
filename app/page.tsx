@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useMemo } from "react"
-import { Plus, Search, Filter, Settings, FileText, Eye, EyeOff, LayoutGrid, AlertTriangle, Settings2, RotateCcw, Calendar } from 'lucide-react'
+import { Plus, Search, Filter, Settings, FileText, Eye, EyeOff, LayoutGrid, AlertTriangle, Settings2, RotateCcw, Calendar, Package, Package2 } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -1090,6 +1090,77 @@ export default function Home() {
     await deleteProduct(id)
   }
 
+  const handleDeleteProducts = async (ids: string[]) => {
+    if (!confirm(t("home.bulkDelete.confirm").replace("{count}", String(ids.length)))) return;
+    try {
+      for (const id of ids) {
+        await deleteProduct(id);
+      }
+      toast({
+        title: t("toast.success"),
+        description: t("home.bulkDelete.success"),
+      });
+    } catch (e) {
+      console.error(e);
+      toast({
+        title: t("common.error"),
+        description: t("common.errorOccurred"),
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleBulkUpdate = async (ids: string[], updates: Partial<Product>) => {
+    try {
+      // Remove empty updates (ones that weren't changed in the form)
+      const cleanUpdates = Object.fromEntries(
+        Object.entries(updates).filter(([_, v]) => v !== undefined && v !== "" && v !== 0)
+      );
+
+      if (Object.keys(cleanUpdates).length === 0) {
+        toast({ title: "لا يوجد تغييرات", description: "لم تقم بتغيير أي حقل لتحديثه" });
+        return;
+      }
+
+      const { syncProduct } = await import('@/lib/firebase-sync-engine');
+
+      for (const id of ids) {
+        const product = products.find(p => p.id === id);
+        if (product) {
+          const updatedProduct = { ...product, ...cleanUpdates, updatedAt: new Date().toISOString() };
+          // Local DB Update
+          await db.products.update(id, cleanUpdates as any);
+          // Cache update (if storage handles it via notify, but here we trigger manually if needed)
+          // Actually storage.ts's updateProduct is meant for single ones. 
+          // We can use saveProducts or similar if cache is shared.
+          // For now, most of our app relies on the 'products_change' notify
+        }
+      }
+
+      // Trigger refresh
+      const notify = (await import('@/lib/storage')).notify;
+      notify('products_change');
+
+      // Async cloud sync
+      ids.forEach(async (id) => {
+        const p = await db.products.get(id);
+        if (p) syncProduct(p).catch(console.error);
+      });
+
+      toast({
+        title: t("toast.success"),
+        description: `تم تحديث ${ids.length} منتجات بنجاح`,
+      });
+    } catch (e) {
+      console.error(e);
+      toast({
+        title: t("common.error"),
+        description: t("common.errorOccurred"),
+        variant: "destructive",
+      });
+    }
+  };
+
   // Handle bulk updates from child components
   const setProducts = (newProducts: Product[]) => {
     // In Realtime architecture, we shouldn't replace the whole list manually
@@ -1505,7 +1576,7 @@ export default function Home() {
                     key={product.id}
                     product={product}
                     onEdit={handleEdit}
-                    onDelete={handleDeleteProduct}
+                    onDelete={(p) => handleDeleteProduct(p.id)}
                   />
                 ))
               ) : (
@@ -1522,10 +1593,13 @@ export default function Home() {
               viewMode={tableViewMode as TableViewMode}
               onEdit={handleEdit}
               onDelete={handleDeleteProduct}
+              onBulkDelete={handleDeleteProducts}
+              onBulkUpdate={handleBulkUpdate}
               categories={categories}
               selectedCategory={selectedCategory}
               onCategoryChange={setSelectedCategory}
               locations={locations}
+              selectedLocation={selectedLocation}
               onLocationChange={setSelectedLocation}
               searchTerm={searchTerm}
               onSearchChange={setSearchTerm}

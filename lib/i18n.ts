@@ -1548,6 +1548,10 @@ export const dict: Dict = {
 
   "common.settingsAndActions": { ar: "الإعدادات والإجراءات", en: "Settings & Actions" },
   "issues.invoice.pdfTitle": { ar: "فاتورة إجمالية للمنتجات المصروفة", en: "Total Issued Products Invoice" },
+
+  // Bulk Delete
+  "home.bulkDelete.confirm": { ar: "هل أنت متأكد من حذف {count} منتجات؟ لا يمكن التراجع عن هذا الإجراء.", en: "Are you sure you want to delete {count} products? This action cannot be undone." },
+  "home.bulkDelete.success": { ar: "تم حذف المنتجات المختارة بنجاح", en: "Selected products deleted successfully" },
 }
 
 export function translate(key: string, lang: Lang, fallback?: string) {

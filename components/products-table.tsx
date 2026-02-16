@@ -6,10 +6,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Edit, Trash2, ImageIcon, Settings2, ArrowUp, ArrowDown, Filter, Loader2, Download, Printer, RotateCcw, Type, Minus, Plus } from 'lucide-react'
+import { Edit, Trash2, ImageIcon, Settings2, ArrowUp, ArrowDown, Filter, Loader2, Download, Printer, RotateCcw, Type, Minus, Plus, CheckSquare, Square } from 'lucide-react'
+import { Checkbox } from "@/components/ui/checkbox"
 import type { Product } from "@/lib/types"
 import { generateProductsPDF } from "@/lib/products-pdf-generator"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -79,6 +79,8 @@ interface ProductsTableProps {
   searchTerm?: string
   onSearchChange?: (val: string) => void
   onReset?: () => void
+  onBulkDelete?: (ids: string[]) => void
+  onBulkUpdate?: (ids: string[], updates: Partial<Product>) => void
 }
 
 type DerivedColumn = "turnoverRate" | "status" | "stockStatus"
@@ -98,11 +100,16 @@ export function ProductsTable({
   onLocationChange,
   searchTerm = "",
   onSearchChange,
-  onReset
+  onReset,
+  onBulkDelete,
+  onBulkUpdate
 }: ProductsTableProps) {
   const { t } = useI18n()
   const { user } = useAuth()
+  const isRTL = t("common.dir") === "rtl"
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null)
   const [sortColumn, setSortColumn] = useState<SortColumn>("turnoverRate")
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
   const [imageUploadId, setImageUploadId] = useState<string | null>(null)
@@ -110,10 +117,12 @@ export function ProductsTable({
   const [uploadProgress, setUploadProgress] = useState<number>(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dropActiveId, setDropActiveId] = useState<string | null>(null)
+  const [bulkUpdateOpen, setBulkUpdateOpen] = useState(false)
+  const [bulkUpdates, setBulkUpdates] = useState<Partial<Product>>({})
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({})
+  const [units, setUnits] = useState<any[]>([])
 
   // Bulk Selection
-  const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set())
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false)
 
@@ -157,7 +166,75 @@ export function ProductsTable({
   // Stock Level Filter (Available, Low, Out)
   const [stockLevelFilter, setStockLevelFilter] = useState<"all" | "available" | "low" | "out">("all")
 
+  useEffect(() => {
+    const loadThresholds = async () => {
+      try {
+        const s = await db.settings.get('turnover_thresholds')
+        if (s?.value) setThresholds(s.value)
+      } catch { }
+    }
+    loadThresholds()
 
+    const loadOptions = async () => {
+      try {
+        const uns = await db.units.toArray()
+        setUnits(uns)
+      } catch (e) {
+        console.error(e)
+      }
+    }
+    loadOptions()
+  }, [])
+
+
+  const toggleAll = () => {
+    if (selectedIds.size === sortedProducts.length && sortedProducts.length > 0) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(sortedProducts.map(p => p.id)))
+    }
+  }
+
+  const toggleOne = (id: string, index: number, isShift: boolean) => {
+    const next = new Set(selectedIds)
+
+    if (isShift && lastSelectedIndex !== null) {
+      const start = Math.min(lastSelectedIndex, index)
+      const end = Math.max(lastSelectedIndex, index)
+
+      const range = sortedProducts.slice(start, end + 1)
+      const isSelecting = !selectedIds.has(id) // If clicking a currently unselected item with shift, we select range
+
+      range.forEach(p => {
+        if (isSelecting) next.add(p.id)
+        else next.delete(p.id)
+      })
+    } else {
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+    }
+
+    setSelectedIds(next)
+    setLastSelectedIndex(index)
+  }
+
+  const handleBulkDeleteAction = () => {
+    if (selectedIds.size === 0) return
+    if (onBulkDelete) {
+      onBulkDelete(Array.from(selectedIds))
+      setSelectedIds(new Set())
+    }
+  }
+
+  const handleBulkUpdateAction = () => {
+    if (selectedIds.size === 0) return
+    if (onBulkUpdate) {
+      onBulkUpdate(Array.from(selectedIds), bulkUpdates)
+      setBulkUpdateOpen(false)
+      setBulkUpdates({})
+      setSelectedIds(new Set())
+    }
+  }
 
 
 
@@ -857,33 +934,22 @@ export function ProductsTable({
     }
   }
 
-  // Bulk Selection Logic
-  const toggleSelectAll = (checked: boolean) => {
-    if (checked) {
-      setSelectedProducts(new Set(sortedProducts.map(p => p.id)))
-    } else {
-      setSelectedProducts(new Set())
-    }
-  }
-
-  const toggleSelectProduct = (id: string, checked: boolean) => {
-    const next = new Set(selectedProducts)
-    if (checked) next.add(id)
-    else next.delete(id)
-    setSelectedProducts(next)
-  }
-
+  // Bulk Selection Logic (Already using toggleOne/toggleAll)
   const handleBulkDelete = async () => {
     setIsBulkDeleting(true)
     try {
-      const ids = Array.from(selectedProducts)
-      for (const id of ids) await onDelete(id)
+      const ids = Array.from(selectedIds)
+      if (onBulkDelete) {
+        onBulkDelete(ids)
+      } else {
+        for (const id of ids) await onDelete(id)
+      }
 
       toast({
         title: getDualString("common.success"),
         description: `تم حذف ${ids.length} منتج بنجاح`,
       })
-      setSelectedProducts(new Set())
+      setSelectedIds(new Set())
       setShowBulkDeleteConfirm(false)
     } catch (e) {
       toast({ title: "Error", description: "Failed to delete some products", variant: "destructive" })
@@ -891,6 +957,8 @@ export function ProductsTable({
       setIsBulkDeleting(false)
     }
   }
+
+  const visibleColumnCount = Object.values(visibleColumns).filter(Boolean).length + 2
 
   return (
     <>
@@ -1037,6 +1105,31 @@ export function ProductsTable({
             </DropdownMenu>
             <Button variant="outline" size="sm" onClick={showAllColumns}><DualText k="common.showAll" /></Button>
             <Button variant="ghost" size="sm" onClick={hideAllColumns}><DualText k="common.hideAll" /></Button>
+            {selectedIds.size > 0 && (
+              <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="gap-2 bg-blue-600 hover:bg-blue-700"
+                  onClick={() => setBulkUpdateOpen(true)}
+                >
+                  <Edit className="h-4 w-4" />
+                  <span>تحديث ({selectedIds.size})</span>
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="gap-2"
+                  onClick={handleBulkDeleteAction}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  <span>حذف ({selectedIds.size})</span>
+                </Button>
+              </div>
+            )}
+            <Button variant="ghost" size="sm" onClick={resetColumnWidths} title="إعادة تعيين أحجام الأعمدة">
+              <RotateCcw className="h-4 w-4" />
+            </Button>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1097,17 +1190,19 @@ export function ProductsTable({
 
 
             {/* Bulk Delete Button */}
-            {selectedProducts.size > 0 && (
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => setShowBulkDeleteConfirm(true)}
-                className="animate-in fade-in zoom-in duration-200"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                <DualText k="common.deleteSelected" fallback="حذف المحدد" /> ({selectedProducts.size})
-              </Button>
-            )}
+            {
+              selectedIds.size > 0 && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="gap-2 shadow-sm"
+                  onClick={() => setShowBulkDeleteConfirm(true)}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  <DualText k="common.deleteSelected" fallback="حذف المحدد" /> ({selectedIds.size})
+                </Button>
+              )
+            }
 
             <Button variant="outline" size="sm" onClick={exportExcel} disabled={exportMode === 'filtered' ? sortedProducts.length === 0 : false}>
               <Download className="ml-2 h-4 w-4" />
@@ -1129,8 +1224,8 @@ export function ProductsTable({
                 Turnover / معدل الدوران
               </span>
             </Button>
-          </div>
-        </div>
+          </div >
+        </div >
 
         <div ref={parentRef} className="rounded-b-lg border bg-card overflow-auto max-h-[70vh]">
           <table
@@ -1139,36 +1234,35 @@ export function ProductsTable({
           >
             <thead className="sticky top-0 bg-card z-40 shadow-sm border-b">
               <tr className="text-xs">
-                <th className="w-[40px] text-center p-2 border-b bg-card">
-                  <Checkbox
-                    checked={sortedProducts.length > 0 && selectedProducts.size === sortedProducts.length}
-                    onCheckedChange={(c) => toggleSelectAll(!!c)}
-                    aria-label="Select All"
-                  />
+                <th className={`p-2 border bg-card sticky z-50 ${isRTL ? "right-0" : "left-0"}`}>
+                  <div className="flex items-center justify-center">
+                    <Checkbox
+                      checked={sortedProducts.length > 0 && selectedIds.size === sortedProducts.length}
+                      onCheckedChange={toggleAll}
+                      aria-label="Select All"
+                    />
+                  </div>
                 </th>
                 {(() => {
                   const viewColumns = getColumnsForView(viewMode)
                   return Object.keys(visibleColumns).map(key => {
                     if (!(visibleColumns as any)[key]) return null
                     if (viewMode !== 'default' && !viewColumns.includes(key)) return null
-                    // If default mode, respect visibleColumns toggle
-                    if (viewMode === 'default' && !(visibleColumns as any)[key]) return null
 
                     const width = columnWidths[key]
                     return (
                       <th
                         key={key}
-                        className="text-center p-2 border-b cursor-pointer hover:bg-muted/50 relative group select-none whitespace-nowrap"
+                        className="text-center p-2 border cursor-pointer hover:bg-muted/50 relative group select-none whitespace-nowrap"
                         style={{ width: width ? `${width}px` : 'auto', minWidth: width ? `${width}px` : 'auto' }}
                         onClick={() => handleSort(key as any)}
                       >
-                        <div className="flex items-center justify-center gap-1 whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-1">
                           {getHeaderContent(key)}
                           {sortColumn === key && (
                             sortDirection === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
                           )}
                         </div>
-                        {/* Resize Handle */}
                         <div
                           className="absolute top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/50 active:bg-primary bg-transparent transition-colors z-50"
                           style={{ [t("common.dir") === 'rtl' ? 'left' : 'right']: 0 }}
@@ -1178,13 +1272,13 @@ export function ProductsTable({
                     )
                   })
                 })()}
-                <th className="text-center p-2 border-b bg-card whitespace-nowrap">{t("products.columns.actions")}</th>
-              </tr>
-            </thead>
+                <th className={`text-center p-2 border bg-card whitespace-nowrap sticky z-40 ${isRTL ? "left-0 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]" : "right-0 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]"}`}>{t("products.columns.actions")}</th>
+              </tr >
+            </thead >
             <tbody className="text-sm">
               {sortedProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={Object.keys(visibleColumns).length + 1} className="text-center py-8 text-muted-foreground border-b">
+                  <td colSpan={visibleColumnCount} className="text-center py-8 text-muted-foreground border">
                     {t("products.empty")}
                   </td>
                 </tr>
@@ -1192,318 +1286,326 @@ export function ProductsTable({
                 <>
                   {rowVirtualizer.getVirtualItems().length > 0 && (
                     <tr style={{ height: `${rowVirtualizer.getVirtualItems()[0].start}px` }}>
-                      <td colSpan={100} style={{ padding: 0, border: 0 }} />
-                    </tr>
-                  )}
-                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const product = sortedProducts[virtualRow.index]
-                    // Get columns for current view
-                    const viewColumns = getColumnsForView(viewMode)
+                      <td colSpan={visibleColumnCount} style={{ padding: 0, border: 0 }} />
+                    </tr >
+                  )
+                  }
+                  {
+                    rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                      const product = sortedProducts[virtualRow.index]
+                      // Get columns for current view
+                      const viewColumns = getColumnsForView(viewMode)
 
 
-                    return (
-                      <tr key={product.id} data-index={virtualRow.index} ref={rowVirtualizer.measureElement} className="hover:bg-muted/30 transition-colors">
-                        <td className="text-center p-2 border-b">
-                          <Checkbox
-                            checked={selectedProducts.has(product.id)}
-                            onCheckedChange={(c) => toggleSelectProduct(product.id, !!c)}
-                            onClick={(e) => e.stopPropagation()}
-                            aria-label="Select Row"
-                          />
-                        </td>
-                        {/* Only render columns that are in the current view AND visible in settings */}
-                        {Object.keys(visibleColumns).map(key => {
-                          // Logic: Column must be enabled in settings (visibleColumns) AND part of the current view (viewColumns)
-                          // If viewMode is 'default', we respect visibleColumns fully.
-                          // If viewMode is specific, we filter by viewColumns. 
-                          // But wait, the requirement is that viewMode overrides everything.
-                          // So if viewMode is 'financial', we ONLY show financial columns.
-                          // However, we still need to respect 'visibleColumns' if the user explicitly hid something?
-                          // Actually, let's make viewMode the primary source of truth for WHICH columns to show.
-                          // But products-table relies on 'visibleColumns' state which is passed from parent or internal?
-                          // Actually visibleColumns is internal state initialized from constants.
+                      return (
+                        <tr key={product.id} data-index={virtualRow.index} ref={rowVirtualizer.measureElement} className={`hover:bg-muted/30 transition-colors ${selectedIds.has(product.id) ? "bg-blue-50/50" : ""}`}>
+                          <td className={`p-2 text-center border align-middle sticky bg-inherit z-10 ${isRTL ? "right-0" : "left-0"}`}>
+                            <div
+                              className="flex items-center justify-center cursor-pointer h-full w-full"
+                              onClick={(e) => {
+                                toggleOne(product.id, virtualRow.index, e.shiftKey)
+                              }}
+                            >
+                              <Checkbox
+                                checked={selectedIds.has(product.id)}
+                                onCheckedChange={() => { }} // Handled by div onClick to capture shiftKey
+                              />
+                            </div>
+                          </td>
+                          {Object.keys(visibleColumns).map(key => {
+                            // Logic: Column must be enabled in settings (visibleColumns) AND part of the current view (viewColumns)
+                            // If viewMode is 'default', we respect visibleColumns fully.
+                            // If viewMode is specific, we filter by viewColumns. 
+                            // But wait, the requirement is that viewMode overrides everything.
+                            // So if viewMode is 'financial', we ONLY show financial columns.
+                            // However, we still need to respect 'visibleColumns' if the user explicitly hid something?
+                            // Actually, let's make viewMode the primary source of truth for WHICH columns to show.
+                            // But products-table relies on 'visibleColumns' state which is passed from parent or internal?
+                            // Actually visibleColumns is internal state initialized from constants.
 
-                          // Let's check if this key is in the viewColumns
-                          // If viewMode is NOT default, strict filtering.
-                          if (viewMode !== 'default' && !viewColumns.includes(key)) return null
+                            // Let's check if this key is in the viewColumns
+                            // If viewMode is NOT default, strict filtering.
+                            if (viewMode !== 'default' && !viewColumns.includes(key)) return null
 
-                          // If viewMode is default, we use the visibleColumns toggles (which users might have tweaked)
-                          if (viewMode === 'default' && !(visibleColumns as any)[key]) return null
+                            // If viewMode is default, we use the visibleColumns toggles (which users might have tweaked)
+                            if (viewMode === 'default' && !(visibleColumns as any)[key]) return null
 
-                          // For non-default views, we might still want to respect if a column is technically "available"
-                          // But simplified: Just check if key is in viewColumns.
+                            // For non-default views, we might still want to respect if a column is technically "available"
+                            // But simplified: Just check if key is in viewColumns.
 
-                          if (key === 'image') {
-                            return (
-                              <td
-                                key={key}
-                                className={`p-2 text-center border-b align-middle transition-colors ${dropActiveId === product.id ? "bg-blue-100 border-blue-500" : ""}`}
-                                onDragOver={(e) => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                  setDropActiveId(product.id)
-                                }}
-                                onDragLeave={(e) => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                  if (dropActiveId === product.id) {
+                            if (key === 'image') {
+                              return (
+                                <td
+                                  key={key}
+                                  className={`p-2 text-center border-b align-middle transition-colors ${dropActiveId === product.id ? "bg-blue-100 border-blue-500" : ""}`}
+                                  onDragOver={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    setDropActiveId(product.id)
+                                  }}
+                                  onDragLeave={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    if (dropActiveId === product.id) {
+                                      setDropActiveId(null)
+                                    }
+                                  }}
+                                  onDrop={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
                                     setDropActiveId(null)
-                                  }
-                                }}
-                                onDrop={(e) => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                  setDropActiveId(null)
 
-                                  const files = e.dataTransfer.files
-                                  if (files && files.length > 0) {
-                                    const file = files[0]
-                                    handleImageUpload(product, file)
-                                  }
-                                }}
-                              >
-                                <div className="flex items-center justify-center relative">
-                                  {dropActiveId === product.id && (
-                                    <div className="absolute inset-0 z-10 bg-blue-500/10 flex items-center justify-center rounded pointer-events-none">
-                                      <div className="bg-background text-primary px-2 py-1 rounded text-xs shadow-sm font-medium">
-                                        Drop to upload
+                                    const files = e.dataTransfer.files
+                                    if (files && files.length > 0) {
+                                      const file = files[0]
+                                      handleImageUpload(product, file)
+                                    }
+                                  }}
+                                >
+                                  <div className="flex items-center justify-center relative">
+                                    {dropActiveId === product.id && (
+                                      <div className="absolute inset-0 z-10 bg-blue-500/10 flex items-center justify-center rounded pointer-events-none">
+                                        <div className="bg-background text-primary px-2 py-1 rounded text-xs shadow-sm font-medium">
+                                          Drop to upload
+                                        </div>
                                       </div>
-                                    </div>
-                                  )}
-                                  {uploadingImageId === product.id && (
-                                    <div className="absolute inset-0 z-20 bg-background/50 flex items-center justify-center rounded">
-                                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                                    </div>
-                                  )}
-                                  <ProductImage
-                                    key={product.image || 'no-image'}
-                                    product={product}
-                                    className="h-10 w-10 cursor-pointer"
-                                    onClick={() => handlePreview(product)}
-                                  />
-                                </div>
-                              </td>
-                            )
-                          }
-                          let content: React.ReactNode = (product as any)[key]
-
-                          // Dynamic calculations for derived columns
-                          if (key === 'currentStock') {
-                            // Calculate current stock: Opening + Purchases + Returns - Issues
-                            const opening = Number(product.openingStock) || 0
-                            const purchases = Number(product.purchases) || 0
-                            const returns = Number(product.returns) || 0
-                            const issues = Number(product.issues) || 0
-                            const calculatedStock = opening + purchases + returns - issues
-                            content = calculatedStock
-                          }
-
-                          if (key === 'difference') {
-                            // [User Request] Force Difference to 0 as Manual Inventory is disabled
-                            content = 0
-                          }
-
-                          if (key === 'inventoryCount') {
-                            // [User Request] Force Inventory to System Stock Equation
-                            const opening = Number(product.openingStock) || 0
-                            const purchases = Number(product.purchases) || 0
-                            const returns = Number(product.returns) || 0
-                            const issues = Number(product.issues) || 0
-                            const calculatedStock = opening + purchases + returns - issues
-                            content = calculatedStock // FORCE EQUATION
-                          }
-
-                          if (key === 'cartonDimensions') {
-                            const L = product.cartonLength
-                            const W = product.cartonWidth
-                            const H = product.cartonHeight
-                            const parts = [L, W, H].filter(v => v !== undefined && v !== null && v !== 0)
-                            const base = parts.length ? parts.join(" × ") : ""
-                            content = base ? (product.cartonUnit ? `${base} ${product.cartonUnit}` : base) : ""
-                          }
-
-                          if (key === 'status') content = getStatusLabel(getStatusKey(product))
-                          if (key === 'turnoverRate') content = `${(calculateTurnover(product) * 100).toFixed(2)}%`
-
-                          // Formatting
-                          if (key === 'issuesValue') {
-                            // ✅ Calculate dynamically: issues × price
-                            const issues = Number(product.issues || 0)
-                            const price = Number(product.price || 0)
-                            const calculatedValue = issues * price
-                            const val = parseFloat(calculatedValue.toFixed(5))
-                            content = formatCurrency(val)
-                          }
-                          if (['price', 'averagePrice', 'currentStockValue'].includes(key)) {
-                            const numericVal = Number(content)
-                            content = formatCurrency(isNaN(numericVal) ? 0 : numericVal)
-                          }
-
-                          // Quantity Formatting with Carton Breakdown
-                          if (['openingStock', 'purchases', 'issues', 'inventoryCount', 'currentStock', 'difference'].includes(key)) {
-                            let numVal = Number(content || 0)
-
-                            // [User Request] For Inventory Count, default to System Stock if undefined
-                            if (key === 'inventoryCount' && (product.inventoryCount === undefined || product.inventoryCount === null)) {
-                              const op = Number(product.openingStock) || 0
-                              const pu = Number(product.purchases) || 0
-                              const iss = Number(product.issues) || 0
-                              numVal = op + pu - iss
-                              content = numVal // Update content for "difference" calculation logic below? No, difference logic is separate above.
-                            }
-                            const perCarton = Number(product.quantityPerCarton || 1)
-
-                            if (perCarton > 1 && numVal !== 0 && !isNaN(numVal)) {
-                              const absVal = Math.abs(numVal)
-                              const cartons = Math.floor(absVal / perCarton)
-                              const remainder = absVal % perCarton
-                              const sign = numVal < 0 ? "-" : ""
-
-                              const parts = []
-                              const cartonLabel = product.cartonUnit || 'كرتون'
-                              const unitLabel = product.unit || 'حبة'
-
-                              if (cartons > 0) parts.push(`${cartons} ${cartonLabel}`)
-                              // Helper logic: if remainder is 0, we can omit it usually, or for clarity "5 Box + 0 Piece".
-                              // Usually "5 Box" is cleaner.
-                              if (remainder > 0) parts.push(`${remainder} ${unitLabel}`)
-
-                              // If parts is empty (e.g. 0), generic format. But we checked numVal !== 0.
-
-                              if (parts.length > 0) {
-                                content = (
-                                  <div className="flex flex-col items-center justify-center leading-tight">
-                                    <span className="font-medium text-foreground">{formatNumberWithSeparators(numVal)}</span>
-                                    <span className="text-[10px] whitespace-nowrap" dir="rtl">
-                                      {sign}({parts.join(' + ')})
-                                    </span>
+                                    )}
+                                    {uploadingImageId === product.id && (
+                                      <div className="absolute inset-0 z-20 bg-background/50 flex items-center justify-center rounded">
+                                        <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                                      </div>
+                                    )}
+                                    <ProductImage
+                                      key={product.image || 'no-image'}
+                                      product={product}
+                                      className="h-10 w-10 cursor-pointer"
+                                      onClick={() => handlePreview(product)}
+                                    />
                                   </div>
-                                )
+                                </td>
+                              )
+                            }
+                            let content: React.ReactNode = (product as any)[key]
+
+                            // Dynamic calculations for derived columns
+                            if (key === 'currentStock') {
+                              // Calculate current stock: Opening + Purchases + Returns - Issues
+                              const opening = Number(product.openingStock) || 0
+                              const purchases = Number(product.purchases) || 0
+                              const returns = Number(product.returns) || 0
+                              const issues = Number(product.issues) || 0
+                              const calculatedStock = opening + purchases + returns - issues
+                              content = calculatedStock
+                            }
+
+                            if (key === 'difference') {
+                              // [User Request] Force Difference to 0 as Manual Inventory is disabled
+                              content = 0
+                            }
+
+                            if (key === 'inventoryCount') {
+                              // [User Request] Force Inventory to System Stock Equation
+                              const opening = Number(product.openingStock) || 0
+                              const purchases = Number(product.purchases) || 0
+                              const returns = Number(product.returns) || 0
+                              const issues = Number(product.issues) || 0
+                              const calculatedStock = opening + purchases + returns - issues
+                              content = calculatedStock // FORCE EQUATION
+                            }
+
+                            if (key === 'cartonDimensions') {
+                              const L = product.cartonLength
+                              const W = product.cartonWidth
+                              const H = product.cartonHeight
+                              const parts = [L, W, H].filter(v => v !== undefined && v !== null && v !== 0)
+                              const base = parts.length ? parts.join(" × ") : ""
+                              content = base ? (product.cartonUnit ? `${base} ${product.cartonUnit}` : base) : ""
+                            }
+
+                            if (key === 'status') content = getStatusLabel(getStatusKey(product))
+                            if (key === 'turnoverRate') content = `${(calculateTurnover(product) * 100).toFixed(2)}%`
+
+                            // Formatting
+                            if (key === 'issuesValue') {
+                              // ✅ Calculate dynamically: issues × price
+                              const issues = Number(product.issues || 0)
+                              const price = Number(product.price || 0)
+                              const calculatedValue = issues * price
+                              const val = parseFloat(calculatedValue.toFixed(5))
+                              content = formatCurrency(val)
+                            }
+                            if (['price', 'averagePrice', 'currentStockValue'].includes(key)) {
+                              const numericVal = Number(content)
+                              content = formatCurrency(isNaN(numericVal) ? 0 : numericVal)
+                            }
+
+                            // Quantity Formatting with Carton Breakdown
+                            if (['openingStock', 'purchases', 'issues', 'inventoryCount', 'currentStock', 'difference'].includes(key)) {
+                              let numVal = Number(content || 0)
+
+                              // [User Request] For Inventory Count, default to System Stock if undefined
+                              if (key === 'inventoryCount' && (product.inventoryCount === undefined || product.inventoryCount === null)) {
+                                const op = Number(product.openingStock) || 0
+                                const pu = Number(product.purchases) || 0
+                                const iss = Number(product.issues) || 0
+                                numVal = op + pu - iss
+                                content = numVal // Update content for "difference" calculation logic below? No, difference logic is separate above.
+                              }
+                              const perCarton = Number(product.quantityPerCarton || 1)
+
+                              if (perCarton > 1 && numVal !== 0 && !isNaN(numVal)) {
+                                const absVal = Math.abs(numVal)
+                                const cartons = Math.floor(absVal / perCarton)
+                                const remainder = absVal % perCarton
+                                const sign = numVal < 0 ? "-" : ""
+
+                                const parts = []
+                                const cartonLabel = product.cartonUnit || 'كرتون'
+                                const unitLabel = product.unit || 'حبة'
+
+                                if (cartons > 0) parts.push(`${cartons} ${cartonLabel}`)
+                                // Helper logic: if remainder is 0, we can omit it usually, or for clarity "5 Box + 0 Piece".
+                                // Usually "5 Box" is cleaner.
+                                if (remainder > 0) parts.push(`${remainder} ${unitLabel}`)
+
+                                // If parts is empty (e.g. 0), generic format. But we checked numVal !== 0.
+
+                                if (parts.length > 0) {
+                                  content = (
+                                    <div className="flex flex-col items-center justify-center leading-tight">
+                                      <span className="font-medium text-foreground">{formatNumberWithSeparators(numVal)}</span>
+                                      <span className="text-[10px] whitespace-nowrap" dir="rtl">
+                                        {sign}({parts.join(' + ')})
+                                      </span>
+                                    </div>
+                                  )
+                                } else {
+                                  content = formatNumberWithSeparators(numVal)
+                                }
                               } else {
                                 content = formatNumberWithSeparators(numVal)
                               }
-                            } else {
-                              content = formatNumberWithSeparators(numVal)
-                            }
-                          } else if (key === 'quantityPerCarton') {
-                            content = formatNumberWithSeparators(Number(content || 0))
-                          }
-
-                          // Explicitly ensure productCode and itemNumber are NOT formatted (raw strings/numbers)
-                          if (['productCode', 'itemNumber'].includes(key)) content = (product as any)[key]
-
-                          if (key === 'lastActivity' && content) {
-                            try {
-                              content = formatArabicGregorianDateTime(new Date(String(content)))
-                            } catch { }
-                          }
-
-                          const cellWidth = columnWidths[key]
-                          // Default widths if not set (auto)
-                          let defaultWidth = 'auto'
-                          if (!cellWidth) {
-                            if (key === 'productName') defaultWidth = '300px'
-                            if (key === 'productCode') defaultWidth = '140px'
-                            if (key === 'location') defaultWidth = '120px'
-                            if (key === 'category') defaultWidth = '120px'
-                            if (key === 'unit') defaultWidth = '80px'
-                          }
-
-                          const finalWidth = cellWidth ? `${cellWidth}px` : defaultWidth
-
-                          // Stock status colors for currentStock column (Badge Style)
-                          let stockBadgeClass = ''
-                          if (key === 'currentStock') {
-                            const stockValue = Number(content) || 0
-
-                            // Calculate Low Stock Threshold based on Percentage ONLY
-                            const opening = Number(product.openingStock) || 0
-                            const purchases = Number(product.purchases) || 0
-                            const totalIn = opening + purchases
-                            const percentage = Number(product.lowStockThresholdPercentage) || 0
-
-                            let isLow = false
-                            if (percentage > 0) {
-                              const threshold = totalIn * (percentage / 100)
-                              isLow = stockValue <= threshold
-                            } else {
-                              // Fallback: if 0 percentage, only 0 is low (out).
-                              const threshold = 0
-                              isLow = stockValue <= threshold && stockValue > 0
+                            } else if (key === 'quantityPerCarton') {
+                              content = formatNumberWithSeparators(Number(content || 0))
                             }
 
-                            if (stockValue <= 0) {
-                              stockBadgeClass = 'bg-red-100 text-red-800 border border-red-200'  // نفذ
-                            } else if (isLow) {
-                              // User requested Orange Frame. Making it very distinct.
-                              stockBadgeClass = 'bg-orange-50 text-orange-700 border-2 border-orange-500 font-bold'
-                            } else {
-                              stockBadgeClass = 'bg-blue-50 text-blue-800 border border-blue-200'  // متوفر
+                            // Explicitly ensure productCode and itemNumber are NOT formatted (raw strings/numbers)
+                            if (['productCode', 'itemNumber'].includes(key)) content = (product as any)[key]
+
+                            if (key === 'lastActivity' && content) {
+                              try {
+                                content = formatArabicGregorianDateTime(new Date(String(content)))
+                              } catch { }
                             }
 
-                            // Wrap content in a badge
-                            content = (
-                              <div className={`mx-auto type-badge w-fit px-2 py-0.5 rounded text-sm font-medium ${stockBadgeClass}`}>
-                                {content}
-                              </div>
-                            )
-                          }
+                            const cellWidth = columnWidths[key]
+                            // Default widths if not set (auto)
+                            let defaultWidth = 'auto'
+                            if (!cellWidth) {
+                              if (key === 'productName') defaultWidth = '300px'
+                              if (key === 'productCode') defaultWidth = '140px'
+                              if (key === 'location') defaultWidth = '120px'
+                              if (key === 'category') defaultWidth = '120px'
+                              if (key === 'unit') defaultWidth = '80px'
+                            }
 
-                          return (
-                            <td
-                              key={key}
-                              className="p-2 text-center border-b align-middle"
-                              style={{ width: finalWidth, minWidth: finalWidth }}
-                            >
-                              <div
-                                className="line-clamp-2 overflow-hidden text-ellipsis break-words"
-                                title={
-                                  (() => {
-                                    if (['currentStock', 'inventoryCount'].includes(key)) {
-                                      const op = Number(product.openingStock) || 0
-                                      const pu = Number(product.purchases) || 0
-                                      const ret = Number(product.returns) || 0
-                                      const iss = Number(product.issues) || 0
-                                      const calc = op + pu + ret - iss
-                                      let tooltip = `المعادلة: افتتاحي (${op}) + مشتريات (${pu}) + مرتجعات (${ret}) - مصروفات (${iss}) = ${calc}`
+                            const finalWidth = cellWidth ? `${cellWidth}px` : defaultWidth
 
-                                      if (key === 'inventoryCount' && product.inventoryCount !== undefined && product.inventoryCount !== null) {
-                                        tooltip += `\n (قيمة يدوية: ${product.inventoryCount})`
-                                      }
-                                      return tooltip
-                                    }
-                                    return typeof content === 'string' || typeof content === 'number' ? String(content) : undefined
-                                  })()
-                                }
+                            // Stock status colors for currentStock column (Badge Style)
+                            let stockBadgeClass = ''
+                            if (key === 'currentStock') {
+                              const stockValue = Number(content) || 0
+
+                              // Calculate Low Stock Threshold based on Percentage ONLY
+                              const opening = Number(product.openingStock) || 0
+                              const purchases = Number(product.purchases) || 0
+                              const totalIn = opening + purchases
+                              const percentage = Number(product.lowStockThresholdPercentage) || 0
+
+                              let isLow = false
+                              if (percentage > 0) {
+                                const threshold = totalIn * (percentage / 100)
+                                isLow = stockValue <= threshold
+                              } else {
+                                // Fallback: if 0 percentage, only 0 is low (out).
+                                const threshold = 0
+                                isLow = stockValue <= threshold && stockValue > 0
+                              }
+
+                              if (stockValue <= 0) {
+                                stockBadgeClass = 'bg-red-100 text-red-800 border border-red-200'  // نفذ
+                              } else if (isLow) {
+                                // User requested Orange Frame. Making it very distinct.
+                                stockBadgeClass = 'bg-orange-50 text-orange-700 border-2 border-orange-500 font-bold'
+                              } else {
+                                stockBadgeClass = 'bg-blue-50 text-blue-800 border border-blue-200'  // متوفر
+                              }
+
+                              // Wrap content in a badge
+                              content = (
+                                <div className={`mx-auto type-badge w-fit px-2 py-0.5 rounded text-sm font-medium ${stockBadgeClass}`}>
+                                  {content}
+                                </div>
+                              )
+                            }
+
+                            return (
+                              <td
+                                key={key}
+                                className="p-2 text-center border-b align-middle"
+                                style={{ width: finalWidth, minWidth: finalWidth }}
                               >
-                                {content}
-                              </div>
-                            </td>
-                          )
-                        })}
-                        <td className="p-2 text-center border-b align-middle">
-                          <div className="flex items-center gap-1 justify-center">
-                            <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-blue-50 hover:text-blue-600" onClick={() => onEdit(product)} disabled={!hasPermission(user, 'inventory.edit')}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-red-50 hover:text-red-600" onClick={() => setDeleteId(product.id)} disabled={!hasPermission(user, 'inventory.delete')}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </td>
+                                <div
+                                  className="line-clamp-2 overflow-hidden text-ellipsis break-words"
+                                  title={
+                                    (() => {
+                                      if (['currentStock', 'inventoryCount'].includes(key)) {
+                                        const op = Number(product.openingStock) || 0
+                                        const pu = Number(product.purchases) || 0
+                                        const ret = Number(product.returns) || 0
+                                        const iss = Number(product.issues) || 0
+                                        const calc = op + pu + ret - iss
+                                        let tooltip = `المعادلة: افتتاحي (${op}) + مشتريات (${pu}) + مرتجعات (${ret}) - مصروفات (${iss}) = ${calc}`
+
+                                        if (key === 'inventoryCount' && product.inventoryCount !== undefined && product.inventoryCount !== null) {
+                                          tooltip += `\n (قيمة يدوية: ${product.inventoryCount})`
+                                        }
+                                        return tooltip
+                                      }
+                                      return typeof content === 'string' || typeof content === 'number' ? String(content) : undefined
+                                    })()
+                                  }
+                                >
+                                  {content}
+                                </div>
+                              </td>
+                            )
+                          })}
+                          <td className={`p-2 text-center border align-middle sticky bg-inherit z-10 ${isRTL ? "left-0 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]" : "right-0 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]"}`}>
+                            <div className="flex items-center gap-1 justify-center">
+                              <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-blue-50 hover:text-blue-600" onClick={() => onEdit(product)} disabled={!hasPermission(user, 'inventory.edit')}>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-red-50 hover:text-red-600" onClick={() => setDeleteId(product.id)} disabled={!hasPermission(user, 'inventory.delete')}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  {
+                    rowVirtualizer.getVirtualItems().length > 0 && (
+                      <tr style={{ height: `${rowVirtualizer.getTotalSize() - rowVirtualizer.getVirtualItems()[rowVirtualizer.getVirtualItems().length - 1].end}px` }}>
+                        <td colSpan={visibleColumnCount} style={{ padding: 0, border: 0 }} />
                       </tr>
                     )
-                  })}
-                  {rowVirtualizer.getVirtualItems().length > 0 && (
-                    <tr style={{ height: `${rowVirtualizer.getTotalSize() - rowVirtualizer.getVirtualItems()[rowVirtualizer.getVirtualItems().length - 1].end}px` }}>
-                      <td colSpan={Object.keys(visibleColumns).length + 1} style={{ padding: 0, border: 0 }} />
-                    </tr>
-                  )}
+                  }
                 </>
               )}
-            </tbody>
-          </table>
-        </div>
+            </tbody >
+          </table >
+        </div >
       </div >
 
       {(() => {
@@ -1566,6 +1668,70 @@ export function ProductsTable({
           db.settings.put({ key: THRESHOLDS_KEY, value: newThresholds }).catch(() => { })
         }}
       />
+      <Dialog open={bulkUpdateOpen} onOpenChange={setBulkUpdateOpen}>
+        <DialogContent className="max-w-[95vw] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>تحديث ({selectedIds.size}) منتجات مختارة</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">التصنيف</label>
+              <Select value={bulkUpdates.category} onValueChange={(v) => setBulkUpdates({ ...bulkUpdates, category: v })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="اختر التصنيف..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">الموقع</label>
+              <Select value={bulkUpdates.location} onValueChange={(v) => setBulkUpdates({ ...bulkUpdates, location: v })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="اختر الموقع..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {locations.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">الوحدة</label>
+              <Select value={bulkUpdates.unit} onValueChange={(v) => setBulkUpdates({ ...bulkUpdates, unit: v })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="اختر الوحدة..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {units.map(u => <SelectItem key={u.id} value={u.name}>{u.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">السعر</label>
+                <Input
+                  type="number"
+                  placeholder="0.00"
+                  onChange={e => setBulkUpdates({ ...bulkUpdates, price: Number(e.target.value) })}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">الكمية/الكرتون</label>
+                <Input
+                  type="number"
+                  placeholder="1"
+                  onChange={e => setBulkUpdates({ ...bulkUpdates, quantityPerCarton: Number(e.target.value) })}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkUpdateOpen(false)}>إلغاء</Button>
+            <Button onClick={handleBulkUpdateAction}>تطبيق التحديثات</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-[90vw] max-h-[90vh] overflow-auto p-0">
@@ -1593,24 +1759,7 @@ export function ProductsTable({
           <AlertDialogHeader>
             <AlertDialogTitle><DualText k="common.confirmDelete" fallback="تأكيد الحذف" /></AlertDialogTitle>
             <AlertDialogDescription>
-              <DualText k="common.confirmBulkDeleteDesc" fallback={`هل أنت متأكد من حذف ${selectedProducts.size} منتج؟ لا يمكن التراجع عن هذا الإجراء.`} />
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isBulkDeleting}><DualText k="common.cancel" /></AlertDialogCancel>
-            <AlertDialogAction onClick={handleBulkDelete} disabled={isBulkDeleting} className="bg-destructive hover:bg-destructive/90">
-              {isBulkDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <DualText k="common.delete" />}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={showBulkDeleteConfirm} onOpenChange={setShowBulkDeleteConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle><DualText k="common.confirmDelete" fallback="تأكيد الحذف" /></AlertDialogTitle>
-            <AlertDialogDescription>
-              <DualText k="common.confirmBulkDeleteDesc" fallback={`هل أنت متأكد من حذف ${selectedProducts.size} منتج؟ لا يمكن التراجع عن هذا الإجراء.`} />
+              <DualText k="common.confirmBulkDeleteDesc" fallback={`هل أنت متأكد من حذف ${selectedIds.size} منتج؟ لا يمكن التراجع عن هذا الإجراء.`} />
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

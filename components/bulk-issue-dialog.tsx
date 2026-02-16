@@ -5,7 +5,9 @@ import { useVirtualizer } from "@tanstack/react-virtual"
 import { Plus, Trash2, Search, Loader2 } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
 import { DualText, getDualString } from "@/components/ui/dual-text"
 import {
   Dialog,
@@ -61,6 +63,32 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null)
   const [draftSaved, setDraftSaved] = useState<boolean>(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // Bulk Delete State
+  const [selectedRows, setSelectedRows] = useState<number[]>([])
+
+  const toggleSelectAll = () => {
+    if (selectedRows.length === issueProducts.length && issueProducts.length > 0) {
+      setSelectedRows([])
+    } else {
+      setSelectedRows(issueProducts.map((_, i) => i))
+    }
+  }
+
+  const toggleSelectRow = (index: number) => {
+    setSelectedRows(prev =>
+      prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index]
+    )
+  }
+
+  const deleteSelectedRows = () => {
+    if (selectedRows.length === 0) return
+
+    // Filter out selected indices
+    const newProducts = issueProducts.filter((_, i) => !selectedRows.includes(i))
+    setIssueProducts(newProducts)
+    setSelectedRows([])
+  }
 
   useEffect(() => {
     if (open) {
@@ -439,6 +467,12 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
                 <Plus className="h-4 w-4 ml-1" />
                 <DualText k="bulkIssue.addProducts" />
               </Button>
+              {selectedRows.length > 0 && (
+                <Button type="button" size="sm" variant="destructive" onClick={deleteSelectedRows} className="ml-2">
+                  <Trash2 className="h-4 w-4 ml-1" />
+                  <DualText k="common.deleteSelected" fallback="حذف المحدد" /> ({selectedRows.length})
+                </Button>
+              )}
             </div>
 
             {issueProducts.length > 0 && (
@@ -446,6 +480,13 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
                 <Table>
                   <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
                     <TableRow>
+                      <TableHead className="w-[40px] text-center">
+                        <Checkbox
+                          checked={issueProducts.length > 0 && selectedRows.length === issueProducts.length}
+                          onCheckedChange={toggleSelectAll}
+                          aria-label="Select all"
+                        />
+                      </TableHead>
                       <TableHead className="w-[50px]">#</TableHead>
                       <TableHead className="w-[60px]">
                         <DualText k="common.image" />
@@ -510,7 +551,14 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
                       const notesBorder = isNewRow ? "border-2 border-green-500" : (isNotesChanged ? "border-2 border-orange-500" : "")
 
                       return (
-                        <TableRow key={index}>
+                        <TableRow key={index} data-state={selectedRows.includes(index) && "selected"}>
+                          <TableCell className="text-center">
+                            <Checkbox
+                              checked={selectedRows.includes(index)}
+                              onCheckedChange={() => toggleSelectRow(index)}
+                              aria-label={`Select row ${index + 1}`}
+                            />
+                          </TableCell>
                           <TableCell className="text-center font-medium">{index + 1}</TableCell>
                           <TableCell>
                             {issueProduct.image ? (

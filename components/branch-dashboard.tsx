@@ -98,6 +98,12 @@ export function BranchDashboard() {
   const [zoomedProduct, setZoomedProduct] = useState<Product | null>(null)
   // const [branches, setBranches] = useState<any[]>([]) // Removed in favor of realtime hook
 
+
+  useEffect(() => {
+    if (activeTab === 'invoice') setRequestType('supply')
+    if (activeTab === 'request') setRequestType('return')
+  }, [activeTab])
+
   useEffect(() => {
     setMounted(true)
 
@@ -195,14 +201,9 @@ export function BranchDashboard() {
     }
   }
 
-  const handleFactoryResetBranchRequests = async () => {
-    if (confirm("Are you sure you want to delete all history permanently (Cloud & Local)? / هل أنت متأكد من حذف السجل نهائياً (سحابي ومحلي)؟")) {
-      const ids = requests.map(r => r.id)
-      await deleteAllBranchRequestsApi(ids)
-      await clearAllBranchRequests()
-      window.location.reload()
-    }
-  }
+
+
+
 
   const branch = branches.find((b) => b.id === branchId)
 
@@ -523,10 +524,45 @@ export function BranchDashboard() {
 
     setIsSubmitting(true)
     try {
+      // For "Order System", we treat it as a Supply Request if the user wants it in "My Requests"
+      // BUT the button says "Create Invoice". 
+      // User asked to revert. Originally submitInvoice created a BranchInvoice.
+      // Changing logic to maintain "Create Invoice" UI but essentially creating a "Supply Request" could be what's needed?
+      // NO, User said "Revert". I will restore original submitInvoice logic first.
+
       const created = await addBranchInvoice({ branchId: branch.id, branchName: branch.name, items: cart, notes: "فاتورة فرع" })
 
       // Sync Invoice
       syncBranchInvoice(created).catch(console.error)
+
+      // Auto-create Supply Request (as per user requirement to show in My Requests)
+      try {
+        const requestItems = cart.map(item => ({
+          productId: item.productId,
+          productCode: item.productCode,
+          productName: item.productName,
+          quantity: item.quantity,
+          requestedQuantity: item.quantity,
+          unit: item.unit,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+          image: item.image,
+          notes: item.notes,
+        }))
+
+        const newRequest = await addBranchRequest({
+          branchId: branch.id,
+          branchName: branch.name,
+          items: requestItems,
+          type: "supply",
+          notes: "",
+          status: "submitted",
+          createdBy: "branch",
+        })
+        syncBranchRequest(newRequest).catch(console.error)
+      } catch (e) {
+        console.error("Failed to auto-create supply request:", e)
+      }
 
       try {
         const issueProducts = created.items.map((it) => ({
@@ -566,6 +602,8 @@ export function BranchDashboard() {
       setIsSubmitting(false)
     }
   }
+
+
 
   async function submitRequest() {
     if (!branch || isSubmitting) return
@@ -945,9 +983,6 @@ export function BranchDashboard() {
       <Card>
         <CardHeader className="flex flex-row justify-between items-center">
           <CardTitle>Tracking & Logs / المتابعة والسجلات</CardTitle>
-          <Button variant="ghost" size="sm" onClick={handleFactoryResetBranchRequests} className="text-red-500 hover:text-red-700 hover:bg-red-50">
-            <LogOut className="w-4 h-4 ml-2" /> Clear History / حذف السجل
-          </Button>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="requests">
@@ -992,7 +1027,7 @@ export function BranchDashboard() {
                                     r.status === 'cancelled' ? 'Rejected / مرفوض' : r.status}
                           </Badge>
                         </TableCell>
-                        <TableCell>{new Date(r.createdAt).toLocaleDateString('ar-SA')}</TableCell>
+                        <TableCell>{new Date(r.createdAt).toLocaleDateString('en-GB')}</TableCell>
                         <TableCell>{r.notes}</TableCell>
                         <TableCell>
                           <Button size="icon" variant="ghost" onClick={() => generateBranchRequestPDF(r)}>
@@ -1057,7 +1092,7 @@ export function BranchDashboard() {
                                     </TooltipTrigger>
                                     <TooltipContent>
                                       <div className="text-xs">
-                                        <p>Last modified: {new Date(i.updatedAt || "").toLocaleString('ar-SA')}</p>
+                                        <p>Last modified: {new Date(i.updatedAt || "").toLocaleString('en-GB')}</p>
                                         {i.lastModifiedBy && <p>By: {i.lastModifiedBy}</p>}
                                       </div>
                                     </TooltipContent>
@@ -1072,18 +1107,18 @@ export function BranchDashboard() {
                               {i.branchReceivedAt && (
                                 <div className="flex items-center gap-1 text-green-700">
                                   <span className="font-semibold">Received:</span>
-                                  <span>{new Date(i.branchReceivedAt).toLocaleDateString('ar-SA')}</span>
+                                  <span>{new Date(i.branchReceivedAt).toLocaleDateString('en-GB')}</span>
                                 </div>
                               )}
                               {/* Delivered Date (Bottom) */}
                               {i.deliveredAt && (
                                 <div className="flex items-center gap-1 text-muted-foreground">
                                   <span className="font-semibold">Delivered:</span>
-                                  <span>{new Date(i.deliveredAt).toLocaleDateString('ar-SA')}</span>
+                                  <span>{new Date(i.deliveredAt).toLocaleDateString('en-GB')}</span>
                                 </div>
                               )}
                               {!i.branchReceivedAt && !i.deliveredAt && (
-                                <span>{new Date(i.createdAt).toLocaleDateString('ar-SA')}</span>
+                                <span>{new Date(i.createdAt).toLocaleDateString('en-GB')}</span>
                               )}
                             </div>
                           </TableCell>

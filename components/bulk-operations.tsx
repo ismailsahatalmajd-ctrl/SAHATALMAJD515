@@ -1,14 +1,20 @@
 "use client"
 
 import type React from "react"
-
-
 import * as XLSX from "xlsx"
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
-import { Download, Upload, Trash2, Info, RotateCcw, RefreshCcw } from 'lucide-react'
+import {
+  ArrowDownAZ, LayoutGrid, List, Plus, Search, Upload, Download,
+  Settings2, Trash2, AlertTriangle, Info, MoreHorizontal, RotateCcw,
+  ShieldCheck, Link as LinkIcon, Database, X, RefreshCcw
+} from "lucide-react"
+import { Input } from "@/components/ui/input"
 import type { Product } from "@/lib/types"
-import { getProducts, saveProducts, getCategories, addCategory, getLocations, addLocation, getUnits, addUnit, factoryReset, deleteDemoData, initDataStore } from "@/lib/storage"
+import {
+  getProducts, saveProducts, getCategories, addCategory,
+  getLocations, addLocation, getUnits, addUnit, factoryReset, deleteDemoData, initDataStore, hardReset
+} from "@/lib/storage"
 import { deleteAllProductsApi } from "@/lib/sync-api"
 import { performFactoryReset } from "@/lib/system-reset"
 import { syncProduct, syncProductImageToCloud, stopRealtimeSync, startRealtimeSync } from "@/lib/firebase-sync-engine"
@@ -46,9 +52,71 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { ShieldCheck, MoreHorizontal, AlertTriangle, Database } from "lucide-react"
 import { useAuth } from "@/components/auth-provider"
 import { hasPermission } from "@/lib/auth-utils"
+
+const asyncPool = async <T, R>(concurrency: number, iterable: T[], iteratorFn: (item: T, index: number) => Promise<R>): Promise<R[]> => {
+  const ret: Promise<R>[] = []
+  const executing: Promise<any>[] = []
+  for (let i = 0; i < iterable.length; i++) {
+    const item = iterable[i]
+    const p = Promise.resolve().then(() => iteratorFn(item, i))
+    ret.push(p)
+    if (concurrency <= iterable.length) {
+      const e: any = p.then(() => executing.splice(executing.indexOf(e), 1))
+      executing.push(e)
+      if (executing.length >= concurrency) {
+        await Promise.race(executing)
+      }
+    }
+  }
+  return Promise.all(ret)
+}
+
+export const parseExcelData = async (
+  data: string[][],
+  imagesMap: Record<string, string> = {},
+  mappingOverride?: Record<string, number>
+): Promise<Product[]> => {
+  const products: Product[] = []
+  const mapping = mappingOverride || {}
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i]
+    if (!row || row.length === 0) continue
+
+    const productName = String(row[mapping['productName'] ?? -1] || '').trim()
+    if (!productName) continue
+
+    products.push({
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      productName,
+      productCode: String(row[mapping['productCode'] ?? -1] || '').trim(),
+      itemNumber: String(row[mapping['itemNumber'] ?? -1] || '').trim(),
+      category: String(row[mapping['category'] ?? -1] || '').trim(),
+      location: String(row[mapping['location'] ?? -1] || '').trim(),
+      unit: String(row[mapping['unit'] ?? -1] || '').trim(),
+      price: Number(row[mapping['price'] ?? -1]) || 0,
+      averagePrice: Number(row[mapping['price'] ?? -1]) || 0,
+      quantity: Number(row[mapping['currentStock'] ?? -1]) || 0,
+      currentStock: Number(row[mapping['currentStock'] ?? -1]) || 0,
+      openingStock: Number(row[mapping['openingStock'] ?? -1]) || 0,
+      purchases: 0,
+      issues: 0,
+      returns: 0,
+      returnsValue: 0,
+      inventoryCount: 0,
+      difference: 0,
+      currentStockValue: 0,
+      quantityPerCarton: Number(row[mapping['quantityPerCarton'] ?? -1]) || 1,
+      image: imagesMap[i] || String(row[mapping['image'] ?? -1] || '').trim(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      lastActivity: new Date().toISOString()
+    } as any as Product)
+  }
+  return products
+}
 
 interface BulkOperationsProps {
   products: Product[]
@@ -60,6 +128,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
   const { t } = useI18n()
   const { toast } = useToast()
   const { user } = useAuth()
+  // States للعمليات الأساسية
   const [isImporting, setIsImporting] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [conversionProgress, setConversionProgress] = useState(0)
@@ -171,6 +240,11 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
     } catch { }
   }
 
+  // حالات وبيانات مطابقة الأعمدة
+  const [importMode, setImportMode] = useState<'append' | 'update'>('append')
+  const [matchField, setMatchField] = useState<string>('productCode')
+  const [updateFields, setUpdateFields] = useState<string[]>(['price', 'currentStock'])
+  const [analysisResults, setAnalysisResults] = useState<{ matches: number; newItems: number }>({ matches: 0, newItems: 0 })
 
   const [mappingDialogOpen, setMappingDialogOpen] = useState(false)
   const [importHeaders, setImportHeaders] = useState<string[]>([])
@@ -180,6 +254,43 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
   const [columnMapping, setColumnMapping] = useState<Record<string, number>>({})
   const [autoMappingSuggested, setAutoMappingSuggested] = useState<Record<string, number>>({})
   const [mappingSignature, setMappingSignature] = useState<string>("")
+  const [manualMappings, setManualMappings] = useState<Record<number, string>>({}) // rowIndex -> product.id
+  const [linkingRow, setLinkingRow] = useState<number | null>(null)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [showOnlyNew, setShowOnlyNew] = useState(false)
+  const [ignoredRows, setIgnoredRows] = useState<Set<number>>(new Set())
+
+  // تحديث تلقائي للإحصائيات عند تغيير أي خيار
+  useEffect(() => {
+    if (mappingDialogOpen && importAllRows.length > 1) {
+      const existingProds = getProducts();
+      let mCount = 0;
+      let nCount = 0;
+      const colIdx = columnMapping[matchField];
+
+      importAllRows.slice(1).forEach((row, idx) => {
+        const rowIndex = idx + 1;
+        if (ignoredRows.has(rowIndex)) return;
+
+        if (manualMappings[rowIndex]) {
+          mCount++;
+          return;
+        }
+
+        if (importMode === 'update' && colIdx !== undefined && colIdx >= 0) {
+          const val = String(row[colIdx] || '').trim().toLowerCase();
+          if (val && existingProds.some(p => String(p[matchField as keyof Product] || '').trim().toLowerCase() === val)) {
+            mCount++;
+          } else {
+            nCount++;
+          }
+        } else {
+          nCount++;
+        }
+      });
+      setAnalysisResults({ matches: mCount, newItems: nCount });
+    }
+  }, [mappingDialogOpen, importAllRows, columnMapping, matchField, importMode, manualMappings, ignoredRows]);
 
   const expectedFields: { key: keyof Product | 'image'; label: string; k: string; required?: boolean; type: 'text' | 'number' }[] = [
     { key: 'productCode', label: 'كود المنتج', k: 'common.code', required: false, type: 'text' },
@@ -269,49 +380,6 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
     try {
       await db.settings.put({ key: IMAGE_CACHE_KEY, value: obj })
     } catch { }
-  }
-
-  // تنفيذ معالجة متزامنة محدودة (Iterative approach)
-  async function asyncPool<T, R>(limit: number, items: T[], iterate: (item: T, index: number) => Promise<R>): Promise<R[]> {
-    const results: R[] = []
-    const executing: Promise<void>[] = []
-
-    for (let i = 0; i < items.length; i++) {
-      const p = iterate(items[i], i).then(r => {
-        results[i] = r
-      })
-      executing.push(p)
-
-      // When limit reached, wait for the first one to finish
-      if (executing.length >= limit) {
-        await Promise.race(executing)
-        // Remove finished promises
-        // Actually Promise.race doesn't tell us WHICH one finished easily without wrapping.
-        // Simpler approach: Just wait for buffer to clear a bit? 
-        // Or use a proper pool library pattern. 
-        // Let's use a simpler chunking approach which is safer for React state updates.
-      }
-
-      // Cleanup executing array (remove resolved promises) -> This is hard without wrappers.
-    }
-    await Promise.all(executing)
-    return results
-  }
-
-  // Actually, the previous implementation was standard. The issue might be the recursion.
-  // Let's use a simple chunk-based processing which is robust.
-  async function processInBatches<T, R>(batchSize: number, items: T[], iterate: (item: T, index: number) => Promise<R>): Promise<R[]> {
-    const results: R[] = new Array(items.length)
-    for (let i = 0; i < items.length; i += batchSize) {
-      const chunk = items.slice(i, i + batchSize)
-      await Promise.all(chunk.map(async (item, chunkIdx) => {
-        const globalIdx = i + chunkIdx
-        results[globalIdx] = await iterate(item, globalIdx)
-      }))
-      // Yield to event loop to allow UI updates and prevent freezing
-      await new Promise(resolve => setTimeout(resolve, 0))
-    }
-    return results
   }
 
   const convertImageToBase64 = async (url: string): Promise<string | null> => {
@@ -854,52 +922,47 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       }
 
       console.log("[v0] Imported data:", jsonData)
-
       if (jsonData.length < 2) {
         throw new Error("الملف فارغ أو لا يحتوي على بيانات")
       }
 
-      // Find first non-empty row to use as header
       let headerRowIndex = 0
       for (let i = 0; i < jsonData.length; i++) {
         const row = jsonData[i]
-        // Check if row has at least one non-empty string cell
         if (row && row.length > 0 && row.some(c => c && String(c).trim().length > 0)) {
           headerRowIndex = i
           break
         }
       }
 
-      console.log("[v0] Header row index:", headerRowIndex)
-
-      // Extract data starting from header row
       const validData = jsonData.slice(headerRowIndex)
       if (validData.length < 2) {
         throw new Error("لا توجد بيانات كافية بعد صف العناوين")
       }
 
-      // إعداد مطابقة الأعمدة وفتح واجهة المطابقة/المعاينة
       const headers = (validData[0] || []).map((h) => String(h ?? ''))
       const signature = computeSignature(headers)
       const pref = getMappingPref(signature)
       const autoMap = autoDetectMapping(headers)
+
       setImportHeaders(headers)
       setMappingSignature(signature)
       setAutoMappingSuggested(autoMap)
       setColumnMapping(Object.keys(pref).length ? pref : autoMap)
-      setImportPreviewRows(validData.slice(1, 21))
+      setImportPreviewRows(validData.slice(1, 101))
+      setImportAllRows(validData)
+      setImportImagesMap(imagesMap)
+      setImportPreviewRows(validData.slice(1, 101))
       setImportAllRows(validData)
       setImportImagesMap(imagesMap)
       setMappingDialogOpen(true)
       setConversionStatus("")
       setIsImporting(false)
-
     } catch (error) {
-      console.error("[v0] Import error description:", error)
-      const msg = error instanceof Error ? error.message : "خطأ غير معروف"
+      console.error("[v0] Import error:", error)
       toast({
         title: "خطأ في الاستيراد",
-        description: msg,
+        description: error instanceof Error ? error.message : "تأكد من صحة تنسيق الملف",
         variant: "destructive",
       })
       setIsImporting(false)
@@ -1322,10 +1385,10 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
           {isImporting ? t("bulk.importing") : t("bulk.importExcel")}
         </Button>
 
-        {isImporting && conversionProgress > 0 && (
+        {isImporting && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
             <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
-              <h3 className="text-lg font-semibold mb-4 text-center">{conversionStatus}</h3>
+              <h3 className="text-lg font-semibold mb-4 text-center">{conversionStatus || t("bulk.status.processing")}</h3>
               <Progress value={conversionProgress} className="mb-2" />
               <p className="text-sm text-center text-muted-foreground">{conversionProgress}%</p>
               <p className="text-xs text-center text-muted-foreground mt-2">
@@ -1464,6 +1527,58 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                 <h3 className="text-lg sm:text-xl font-bold mb-2 text-right"><DualText k="bulk.mapping.title" /></h3>
                 <p className="text-sm text-muted-foreground mb-6 text-right"><DualText k="bulk.mapping.desc" /></p>
 
+                <div className="bg-blue-50/50 p-4 rounded-lg border border-blue-100 mb-6 space-y-4">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <select
+                        className="border rounded px-2 h-9 text-sm bg-white"
+                        value={importMode}
+                        onChange={(e) => setImportMode(e.target.value as any)}
+                      >
+                        <option value="append">إضافة كمنتجات جديدة (Append)</option>
+                        <option value="update">تحديث المنتجات الحالية (Update Matches)</option>
+                      </select>
+                      <label className="text-sm font-bold">وضع الاستيراد:</label>
+                    </div>
+
+                    {importMode === 'update' && (
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <select
+                          className="border rounded px-2 h-9 text-sm bg-white"
+                          value={matchField}
+                          onChange={(e) => setMatchField(e.target.value)}
+                        >
+                          <option value="productCode">كود المنتج</option>
+                          <option value="itemNumber">رقم المنتج</option>
+                          <option value="productName">اسم المنتج</option>
+                        </select>
+                        <label className="text-sm font-bold text-blue-800">الربط بواسطة:</label>
+                      </div>
+                    )}
+                  </div>
+
+                  {importMode === 'update' && (
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-gray-600 block text-right">الأعمدة المراد تحديثها في المنتجات المتطابقة:</label>
+                      <div className="flex flex-wrap gap-2 justify-end">
+                        {expectedFields.map(f => (
+                          <label key={f.key} className="flex items-center gap-1.5 bg-white px-2 py-1 rounded border text-xs cursor-pointer hover:bg-gray-50">
+                            <input
+                              type="checkbox"
+                              checked={updateFields.includes(String(f.key))}
+                              onChange={(e) => {
+                                if (e.target.checked) setUpdateFields([...updateFields, String(f.key)])
+                                else setUpdateFields(updateFields.filter(x => x !== String(f.key)))
+                              }}
+                            />
+                            {f.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                   {expectedFields.map((f) => (
                     <div key={String(f.key)} className="flex flex-col items-end">
@@ -1496,34 +1611,43 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                         setIsImporting(true)
                         setConversionProgress(0)
                         setConversionStatus(getDualString("bulk.status.processing"))
+
+                        let convertedCount = 0
+                        let failedCount = 0
+                        let addedLocationsCount = 0
+                        let addedUnitsCount = 0
+                        let addedCategoriesCount = 0
+
                         try {
                           if (importAllRows.length === 0) {
                             toast({ title: getDualString("common.alert"), description: getDualString("bulk.import.noRows"), variant: "destructive" })
                             throw new Error("No rows found")
                           }
 
-                          const importedProducts = await parseExcelData(importAllRows, importImagesMap, columnMapping)
+                          const allImported = await parseExcelData(importAllRows, importImagesMap, columnMapping)
+                          // نرفق الفهرس الأصلي بكل صف قبل الفلترة لضمان صحة الربط اليدوي
+                          const productsWithMeta = allImported.map((p, i) => ({
+                            ...p,
+                            _originalRowIndex: i + 1
+                          }))
+
+                          const importedProducts = productsWithMeta.filter(p => !ignoredRows.has(p._originalRowIndex))
 
                           if (importedProducts.length === 0) {
-                            // Check if essential columns are mapped
                             const hasCode = columnMapping['productCode'] !== -1
                             const hasName = columnMapping['productName'] !== -1
-
                             if (!hasCode && !hasName) {
                               throw new Error("يجب تحديد عمود 'اسم المنتج' أو 'كود المنتج' على الأقل (Must map 'Product Name' or 'Product Code')")
                             }
-
                             throw new Error("لم يتم العثور على منتجات صالحة. هل قمت بتعيين الأعمدة (الاسم/الكود) بشكل صحيح؟ (No valid products found. Did you set columns correctly?)")
                           }
 
                           toast({ title: "نتيجة التحليل (Analysis Result)", description: `تم العثور على ${importedProducts.length} منتج من أصل ${importAllRows.length - 1} صف بيانات (Found ${importedProducts.length} products from ${importAllRows.length - 1} rows)` })
 
-                          setConversionStatus(getDualString("bulk.status.convertImages"))
-                          let convertedCount = 0
-                          let failedCount = 0
+                          setConversionStatus(t("bulk.status.convertImages"))
                           let completed = 0
-                          const CONCURRENCY = 3 // Reduced from 6 for stability ("Take its time")
-                          const productsWithImages = await processInBatches(CONCURRENCY, importedProducts, async (product, idx) => {
+                          const CONCURRENCY = 3
+                          const productsWithImages = await asyncPool(CONCURRENCY, importedProducts, async (product: any) => {
                             let out = product
                             if (product.image && (product.image.startsWith('http://') || product.image.startsWith('https://'))) {
                               const base64Image = await convertImageToBase64(product.image)
@@ -1535,9 +1659,8 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                               }
                             }
                             completed++
-                            // THROTTLE UPDATES: Only update state every 50 items or if 100% complete
-                            if (completed % 50 === 0 || completed === importedProducts.length) {
-                              const pct = Math.round((completed / importedProducts.length) * 100)
+                            if (completed % 10 === 0 || completed === importedProducts.length) {
+                              const pct = Math.round((completed / (importedProducts.length || 1)) * 100)
                               setConversionProgress(pct)
                               setConversionStatus(
                                 getDualString("bulk.status.convertImagesProgress", undefined, undefined, {
@@ -1549,70 +1672,102 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                             return out
                           })
 
-                          // ... existing code ...
+                          // --- المبدأ الجديد: التحديث الذكي مقابل الإضافة ---
+                          let finalProductsToSave: Product[] = []
+                          const existingProducts = getProducts()
+
+                          if (importMode === 'update') {
+                            setConversionStatus("جاري مطابقة وتحديث البيانات...")
+                            const updatedList = [...existingProducts]
+
+                            productsWithImages.forEach((newP: any) => {
+                              const rowIndex = newP._originalRowIndex
+                              let targetIndex = -1
+
+                              // 1. الربط اليدوي أولاً (له الأولوية)
+                              if (manualMappings[rowIndex]) {
+                                targetIndex = updatedList.findIndex(p => p.id === manualMappings[rowIndex])
+                              }
+
+                              // 2. الربط التلقائي بواسطة الحقل المحدد
+                              if (targetIndex === -1) {
+                                const matchValue = String(newP[matchField as keyof Product] || '').trim().toLowerCase()
+                                if (matchValue) {
+                                  targetIndex = updatedList.findIndex(p =>
+                                    String(p[matchField as keyof Product] || '').trim().toLowerCase() === matchValue
+                                  )
+                                }
+                              }
+
+                              if (targetIndex !== -1) {
+                                // تحديث المنتج الموجود
+                                const target = updatedList[targetIndex]
+                                const updates: any = { updatedAt: new Date().toISOString() }
+                                updateFields.forEach(field => {
+                                  if (newP[field] !== undefined) {
+                                    updates[field] = newP[field]
+                                  }
+                                })
+                                updatedList[targetIndex] = { ...target, ...updates }
+                              } else {
+                                // إضافة كمنتج جديد (مع تنظيف الميتا)
+                                const { _originalRowIndex, ...cleanP } = newP
+                                updatedList.push(cleanP as Product)
+                              }
+                            })
+                            finalProductsToSave = updatedList
+                          } else {
+                            // الوضع الافتراضي: إضافة الكل كجديد
+                            finalProductsToSave = [...existingProducts, ...productsWithImages]
+                          }
 
                           // Optimize Images: Split large images to side table
-                          const optimizedProducts: typeof productsWithImages = []
                           const imageRecords: { productId: string; data: string }[] = []
-
-                          for (const p of productsWithImages) {
+                          const finalOptimized = finalProductsToSave.map(p => {
                             if (p.image && p.image.length > 500 && !p.image.startsWith('http')) {
                               imageRecords.push({ productId: p.id, data: p.image })
-                              optimizedProducts.push({ ...p, image: 'DB_IMAGE' })
-                            } else {
-                              optimizedProducts.push(p)
+                              return { ...p, image: 'DB_IMAGE' }
                             }
-                          }
+                            return p
+                          })
 
                           if (imageRecords.length > 0) {
                             await db.productImages.bulkPut(imageRecords)
                           }
 
-                          const existingCategories = getCategories()
-                          const existingCategoryNames = new Set(existingCategories.map((c) => c.name.toLowerCase().trim()))
-                          const newCategories = new Set<string>()
-                          optimizedProducts.forEach((product) => {
-                            if (product.category && !existingCategoryNames.has(product.category.toLowerCase().trim())) {
-                              newCategories.add(product.category.trim())
-                            }
-                          })
-                          const colors = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#06b6d4", "#ec4899", "#14b8a6"]
-                          let addedCategoriesCount = 0
-                          newCategories.forEach((categoryName) => {
-                            const randomColor = colors[Math.floor(Math.random() * colors.length)]
-                            addCategory({ name: categoryName, color: randomColor })
-                            addedCategoriesCount++
-                          })
+                          saveProducts(finalOptimized)
 
                           const existingLocations = getLocations()
                           const existingLocationNames = new Set(existingLocations.map((l: any) => l.name.toLowerCase().trim()))
                           const newLocations = new Set<string>()
-                          optimizedProducts.forEach((product) => {
+                          finalOptimized.forEach((product) => {
                             if (product.location && !existingLocationNames.has(product.location.toLowerCase().trim())) {
                               newLocations.add(product.location.trim())
                             }
                           })
-                          let addedLocationsCount = 0
-                          newLocations.forEach((locationName) => {
-                            addLocation({ name: locationName, description: "تم الإضافة تلقائياً من الاستيراد", createdAt: new Date().toISOString() })
+                          for (const locationName of Array.from(newLocations)) {
+                            await addLocation({
+                              name: locationName,
+                              description: "تم الإضافة تلقائياً من الاستيراد",
+                              createdAt: new Date().toISOString()
+                            })
                             addedLocationsCount++
-                          })
+                          }
 
-                          // Auto-add units from Excel (same as categories and locations)
                           const existingUnits = getUnits()
                           const existingUnitNames = new Set(existingUnits.map((u) => u.name.toLowerCase().trim()))
                           const newUnits = new Set<string>()
-                          optimizedProducts.forEach((product) => {
+                          finalOptimized.forEach((product) => {
                             if (product.unit && !existingUnitNames.has(product.unit.toLowerCase().trim())) {
                               newUnits.add(product.unit.trim())
                             }
                           })
-                          let addedUnitsCount = 0
-                          for (const unitName of newUnits) {
+                          for (const unitName of Array.from(newUnits)) {
                             try {
                               await addUnit({
                                 name: unitName,
-                                abbreviation: unitName.substring(0, 3)
+                                abbreviation: unitName.substring(0, 3),
+                                createdAt: new Date().toISOString()
                               })
                               addedUnitsCount++
                             } catch (error) {
@@ -1620,89 +1775,34 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                             }
                           }
 
-                          const normalize = (str: string) => {
-                            if (!str) return ""
-                            return str.trim().toLowerCase()
-                              .replace(/[\u064B-\u065F\u0670]/g, "") // Remove Arabic diacritics
-                              .replace(/[^\w\s\u0600-\u06FF]/g, "") // Remove special chars
-                              .replace(/\s+/g, " ") // Normalize spaces
-                          }
-
-                          // Create a key based on characteristics: Name + Category + Price + Unit
-                          const getCharKey = (p: import("@/lib/types").Product) => {
-                            return `${normalize(p.productName)}|${normalize(p.category || '')}|${p.price || 0}|${normalize(p.unit || '')}`
-                          }
-
-                          // Deduplicate and merge logic - DISABLED as per user request to always import as new
-                          /*
-                          let existingProducts = getProducts()
-                          if (existingProducts.length === 0) {
-                            existingProducts = await db.products.toArray()
-                          }
-                          const codeMap = new Map<string, string>()
-                          const itemNumMap = new Map<string, string>()
-                          const nameMap = new Map<string, string>()
-                          const charMap = new Map<string, string>()
-                          const idMap = new Map<string, import("@/lib/types").Product>()
-                          
-                          // Build maps from EXISTING products only
-                          existingProducts.forEach(p => {
-                            idMap.set(p.id, p)
-                            if (p.productCode) codeMap.set(normalize(p.productCode), p.id)
-                            if (p.itemNumber) itemNumMap.set(normalize(p.itemNumber), p.id)
-                            if (p.productName) nameMap.set(normalize(p.productName), p.id)
-                            charMap.set(getCharKey(p), p.id)
+                          const existingCategories = getCategories()
+                          const existingCategoryNames = new Set(existingCategories.map((c: any) => c.name.toLowerCase().trim()))
+                          const newCategories = new Set<string>()
+                          finalOptimized.forEach((product) => {
+                            if (product.category && !existingCategoryNames.has(product.category.toLowerCase().trim())) {
+                              newCategories.add(product.category.trim())
+                            }
                           })
-                          */
-
-                          // We will just use a map for the NEW products to be added, to ensure we can bulkPut them.
-                          // Since we want to keep duplicates, we rely on the unique IDs generated during parseExcelData.
-                          const newProductsMap = new Map<string, import("@/lib/types").Product>()
-
-                          // Also need to keep existing products in the DB? 
-                          // db.products.bulkPut will overwrite if ID matches. 
-                          // Since we generate random IDs for new products, they won't overwrite existing ones by ID.
-                          // But we need to make sure we don't lose existing data if we are supposed to 'saveProducts(allProducts)'.
-                          // 'saveProducts' usually expects the FULL list of products (for localStorage sync/cache).
-
-                          // So we must load existing products to append to them, but NOT to merge with them.
-                          let currentAllProducts = getProducts()
-                          if (currentAllProducts.length === 0) {
-                            currentAllProducts = await db.products.toArray()
+                          for (const catName of Array.from(newCategories)) {
+                            await addCategory({ name: catName, color: "blue" })
+                            addedCategoriesCount++
                           }
 
-                          // Add existing products to the map so they are preserved
-                          const idMap = new Map<string, import("@/lib/types").Product>()
-                          currentAllProducts.forEach(p => idMap.set(p.id, p))
-
-                          optimizedProducts.forEach(newP => {
-                            // FORCE ADD NEW - No matching check
-                            // Ensure ID is truly unique (it should be from parseExcelData)
-                            // Just in case of collision (unlikely with Date.now + random), regenerate?
-                            // parseExcelData uses: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-                            // It is safe enough.
-
-                            idMap.set(newP.id, newP)
-                          })
-
-                          const allProducts = Array.from(idMap.values())
-                          // await db.products.bulkPut(allProducts) // Removed redundant double-write
-                          saveProducts(allProducts)
+                          // إحصائيات بسيطة للعرض
+                          const productsToSync = finalOptimized;
+                          const imageRecordsToSync = imageRecords;
 
                           // --- START CLOUD SYNC FIX ---
                           setConversionStatus("جاري المزامنة مع السحابة... (قد يستغرق وقتاً)")
 
-                          // 1. Sync Products (Optimized Pool)
                           let syncedCount = 0
-                          const SYNC_CONCURRENCY = 10 // Can be higher with batching
-                          await processInBatches(SYNC_CONCURRENCY, optimizedProducts, async (p) => {
+                          const SYNC_CONCURRENCY = 10
+                          await asyncPool(SYNC_CONCURRENCY, productsToSync, async (p: any) => {
                             try {
                               await syncProduct(p)
                               syncedCount++
-                              if (syncedCount % 10 === 0) {
-                                const progress = Math.round((syncedCount / (optimizedProducts.length + imageRecords.length)) * 100)
-                                setConversionProgress(progress)
-                              }
+                              const progress = Math.round((syncedCount / (productsToSync.length + imageRecordsToSync.length)) * 100)
+                              setConversionProgress(progress)
                             } catch (e) {
                               console.error("Failed to sync product", p.productName, e)
                             }
@@ -1711,14 +1811,12 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                           // 2. Sync Images (Optimized Pool)
                           let syncedImages = 0
                           const IMG_SYNC_CONCURRENCY = 5
-                          await processInBatches(IMG_SYNC_CONCURRENCY, imageRecords, async (img) => {
+                          await asyncPool(IMG_SYNC_CONCURRENCY, imageRecordsToSync, async (img: any) => {
                             try {
                               await syncProductImageToCloud(img.productId, img.data)
                               syncedImages++
-                              if (syncedImages % 5 === 0) {
-                                const progress = Math.round(((syncedCount + syncedImages) / (optimizedProducts.length + imageRecords.length)) * 100)
-                                setConversionProgress(progress)
-                              }
+                              const progress = Math.round(((syncedCount + syncedImages) / (productsToSync.length + imageRecordsToSync.length)) * 100)
+                              setConversionProgress(progress)
                             } catch (e) {
                               console.error("Failed to sync image for product", img.productId, e)
                             }
@@ -1761,29 +1859,206 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                   </div>
                 </div>
 
-                <h4 className="text-sm font-semibold mb-2 text-right"><DualText k="bulk.mapping.preview" /></h4>
+                <h4 className="text-sm font-semibold mb-2 text-right">معاينة البيانات (أول 200 صف)</h4>
+
+                {importMode === 'update' && (
+                  <div className="flex gap-4 mb-3 justify-end items-center">
+                    <span className="text-[10px] text-muted-foreground mr-auto text-left">
+                      💡 يمكنك الضغط على أيقونة 🔗 بجانب أي منتج جديد لربطه بمنتج موجود يدوياً
+                    </span>
+                    <div className="flex items-center gap-2 text-xs font-medium px-3 py-1 bg-green-100 text-green-700 rounded-full border border-green-200">
+                      <span>{analysisResults.matches} موجود</span>
+                      <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                    </div>
+                    <div
+                      className={`flex items-center gap-2 text-xs font-medium px-3 py-1 cursor-pointer transition-all ${showOnlyNew ? 'bg-blue-600 text-white border-blue-700 shadow-sm' : 'bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-200'}`}
+                      onClick={() => setShowOnlyNew(!showOnlyNew)}
+                      title={showOnlyNew ? "عرض الكل" : "عرض المنتجات الجديدة فقط"}
+                    >
+                      <span>{analysisResults.newItems} جديد</span>
+                      <div className={`w-2 h-2 rounded-full ${showOnlyNew ? 'bg-white animate-pulse' : 'bg-blue-500'}`}></div>
+                      {showOnlyNew && <X className="h-3 w-3 ml-1" />}
+                    </div>
+                  </div>
+                )}
                 <div className="border rounded-md w-full overflow-hidden">
-                  <div className="overflow-x-auto max-h-[30vh]">
-                    <table className="w-full text-xs sm:text-sm whitespace-nowrap">
+                  <div className="overflow-x-auto max-h-[45vh]">
+                    <table className="w-full text-xs sm:text-sm whitespace-nowrap border-collapse">
                       <thead>
-                        <tr className="bg-muted/50 sticky top-0">
+                        <tr className="bg-muted/50 sticky top-0 z-10">
+                          <th className="border px-3 py-2 text-center font-bold bg-gray-50 sticky right-0 w-24">الحالة</th>
                           {importHeaders.map((h, i) => (<th key={i} className="border px-3 py-2 text-right font-medium text-muted-foreground">{h || `عمود ${i + 1}`}</th>))}
                         </tr>
                       </thead>
                       <tbody>
-                        {importPreviewRows.map((r, ri) => (
-                          <tr key={ri} className="hover:bg-muted/10">
-                            {r.map((c, ci) => (<td key={ci} className="border px-3 py-1.5 text-right">{String(c ?? '')}</td>))}
-                          </tr>
-                        ))}
+                        {(() => {
+                          const rows = importAllRows.slice(1);
+                          const filtered = rows.filter((r, idx) => {
+                            const rowIndex = idx + 1;
+                            if (ignoredRows.has(rowIndex)) return false;
+
+                            if (showOnlyNew) {
+                              if (manualMappings[rowIndex]) return false;
+                              if (importMode === 'update') {
+                                const colIdx = columnMapping[matchField];
+                                if (colIdx >= 0) {
+                                  const excelVal = String(r[colIdx] || '').trim().toLowerCase();
+                                  const isMatch = getProducts().some(p => String(p[matchField as keyof Product] || '').trim().toLowerCase() === excelVal);
+                                  if (isMatch) return false;
+                                }
+                              }
+                            }
+                            return true;
+                          });
+
+                          const displayed = filtered.slice(0, 500);
+
+                          return displayed.map((r, ri) => {
+                            // للحصول على الفهرس الحقيقي في الصفوف الأصلية
+                            const actualRowIndex = importAllRows.indexOf(r);
+
+                            let isMatch = false;
+                            let isManualLink = !!manualMappings[actualRowIndex];
+
+                            if (manualMappings[actualRowIndex]) {
+                              isMatch = true;
+                            } else if (importMode === 'update') {
+                              const colIdx = columnMapping[matchField];
+                              if (colIdx >= 0) {
+                                const excelVal = String(r[colIdx] || '').trim().toLowerCase();
+                                isMatch = getProducts().some(p => String(p[matchField as keyof Product] || '').trim().toLowerCase() === excelVal);
+                              }
+                            }
+
+                            return (
+                              <tr key={actualRowIndex} className={`${isMatch ? (isManualLink ? "bg-amber-50" : "bg-green-50/50") : ""} group hover:bg-gray-50/50 transition-colors`}>
+                                <td className="border px-2 py-1 text-center sticky right-0 bg-inherit z-[5]">
+                                  <div className="flex items-center justify-center gap-1.5 min-w-[110px]">
+                                    {/* زر الحذف/التجاهل */}
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6 text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      onClick={() => {
+                                        const next = new Set(ignoredRows);
+                                        next.add(actualRowIndex);
+                                        setIgnoredRows(next);
+                                      }}
+                                      title="حذف من الاستيراد"
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+
+                                    {isMatch ? (
+                                      <div className="flex flex-col items-center gap-0.5">
+                                        <span className="text-green-600 font-bold text-[10px]">{isManualLink ? "📍 ربط يدوي" : "✅ موجود"}</span>
+                                        {isManualLink && (
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-4 w-4 text-red-400 hover:text-red-600"
+                                            onClick={() => {
+                                              const next = { ...manualMappings };
+                                              delete next[actualRowIndex];
+                                              setManualMappings(next);
+                                            }}
+                                          >
+                                            <X className="h-2 w-2" />
+                                          </Button>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center justify-center gap-2">
+                                        <span className="text-blue-600 font-bold text-[10px]">➕ جديد</span>
+                                        <Button
+                                          variant="outline"
+                                          size="icon"
+                                          className="h-6 w-6 rounded-full border-blue-200 hover:bg-blue-50 text-blue-600"
+                                          onClick={() => setLinkingRow(actualRowIndex)}
+                                          title="ربط بمنتج موجود"
+                                        >
+                                          <LinkIcon className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                                {r.map((c, ci) => (<td key={ci} className="border px-3 py-1.5 text-right">{String(c ?? '')}</td>))}
+                              </tr>
+                            );
+                          });
+                        })()}
                       </tbody>
                     </table>
                   </div>
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
+
+                {/* نافذة الربط اليدوي */}
+                <AlertDialog open={linkingRow !== null} onOpenChange={() => setLinkingRow(null)}>
+                  <AlertDialogContent className="max-w-2xl">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle className="text-right">ربط الصف بمنتج موجود</AlertDialogTitle>
+                      <AlertDialogDescription className="text-right">
+                        ابحث عن المنتج في النظام لربطه بهذا الصف من ملف Excel
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+
+                    <div className="py-4 space-y-4">
+                      <div className="relative">
+                        <Search className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="ابحث بالاسم أو الكود..."
+                          className="pr-10 text-right"
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          autoFocus
+                        />
+                      </div>
+
+                      <div className="max-h-[40vh] overflow-y-auto border rounded-md">
+                        {getProducts()
+                          .filter(p =>
+                            !searchTerm ||
+                            p.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            (p.productCode || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            (p.itemNumber || "").toLowerCase().includes(searchTerm.toLowerCase())
+                          )
+                          .slice(0, 50)
+                          .map(p => (
+                            <div
+                              key={p.id}
+                              className="p-3 border-b hover:bg-muted cursor-pointer flex items-center justify-between gap-4"
+                              onClick={() => {
+                                if (linkingRow !== null) {
+                                  setManualMappings({ ...manualMappings, [linkingRow]: p.id });
+                                  setLinkingRow(null);
+                                  setSearchTerm('');
+                                }
+                              }}
+                            >
+                              <div className="text-xs text-muted-foreground bg-gray-100 px-2 py-1 rounded">
+                                {p.productCode || p.itemNumber || 'بلا كود'}
+                              </div>
+                              <div className="font-medium text-right flex-1">{p.productName}</div>
+                            </div>
+                          ))
+                        }
+                        {searchTerm && getProducts().filter(p => p.productName.includes(searchTerm)).length === 0 && (
+                          <div className="p-8 text-center text-muted-foreground">لا توجد نتائج</div>
+                        )}
+                      </div>
+                    </div>
+
+                    <AlertDialogFooter className="flex-row-reverse gap-2">
+                      <AlertDialogCancel onClick={() => { setLinkingRow(null); setSearchTerm(''); }}>إلغاء</AlertDialogCancel>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div >
+            </div >
+          </div >
+        )
+        }
 
 
         {/* Maintenance Actions Group */}
@@ -1821,7 +2096,6 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                     return
                   }
                   if (confirm(t('sync.hardResetConfirm'))) {
-                    const { hardReset } = await import('@/lib/storage');
                     hardReset();
                   }
                 }}
@@ -1993,7 +2267,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
             <option value="filtered">{t("bulk.exportScope.filtered")}</option>
           </select>
         </div>
-      </div>
+      </div >
       <BackupRestoreDialog open={backupOpen} onOpenChange={setBackupOpen} />
     </>
   )

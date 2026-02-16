@@ -60,9 +60,9 @@ export async function generatePurchaseRequestPDF(req: PurchaseRequest, lang: Lan
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; background: white; }
-    .header { text-align: center; margin-bottom: 40px; border-bottom: 3px solid #2563eb; padding-bottom: 20px; }
+    .header { text-align: center; margin-bottom: 40px; border-bottom: 3px solid rgba(235, 100, 37, 1); padding-bottom: 20px; }
     .header h1 { color: #2563eb; font-size: 32px; margin-bottom: 10px; }
-    .header p { color: #64748b; font-size: 14px; }
+    .header p { color: #5f9cf3ff; font-size: 14px; }
     .info-section { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 30px; }
     .info-box { background: #f8fafc; padding: 20px; border-radius: 8px; border-right: 4px solid #2563eb; }
     .info-box h3 { color: #1e293b; font-size: 14px; margin-bottom: 10px; font-weight: 600; }
@@ -70,9 +70,9 @@ export async function generatePurchaseRequestPDF(req: PurchaseRequest, lang: Lan
     table { width: 100%; border-collapse: collapse; margin: 30px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
     thead { background: #2563eb; color: white; }
     th { padding: 15px; text-align: right; font-weight: 600; font-size: 14px; }
-    td { padding: 12px 15px; border-bottom: 1px solid #e2e8f0; color: #334155; }
-    tbody tr:hover { background: #f8fafc; }
-    .total-section { margin-top: 30px; text-align: left; background: #f8fafc; padding: 20px; border-radius: 8px; }
+    td { padding: 12px 15px; border-bottom: 1px solid #e2e8f0ff; color: #334155; }
+    tbody tr:hover { background: #f8fafcff; }
+    .total-section { margin-top: 30px; text-align: left; background: #f8fafcff; padding: 20px; border-radius: 8px; }
     .total-row { display: flex; justify-content: space-between; margin: 10px 0; font-size: 18px; }
     .status { margin-top: 10px; font-weight: 600; color: #2563eb; }
     @media print { body { padding: 20px; } }

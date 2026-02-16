@@ -111,7 +111,15 @@ export function ProductsTable({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dropActiveId, setDropActiveId] = useState<string | null>(null)
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({})
+
+  // Bulk Selection
+  const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set())
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false)
+
   const resizingRef = useRef<{ key: string; startWidth: number; startX: number } | null>(null)
+
+
 
   // Search Logic: Prop or Local
   const [localSearchTerm, setLocalSearchTerm] = useState("")
@@ -849,6 +857,41 @@ export function ProductsTable({
     }
   }
 
+  // Bulk Selection Logic
+  const toggleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedProducts(new Set(sortedProducts.map(p => p.id)))
+    } else {
+      setSelectedProducts(new Set())
+    }
+  }
+
+  const toggleSelectProduct = (id: string, checked: boolean) => {
+    const next = new Set(selectedProducts)
+    if (checked) next.add(id)
+    else next.delete(id)
+    setSelectedProducts(next)
+  }
+
+  const handleBulkDelete = async () => {
+    setIsBulkDeleting(true)
+    try {
+      const ids = Array.from(selectedProducts)
+      for (const id of ids) await onDelete(id)
+
+      toast({
+        title: getDualString("common.success"),
+        description: `تم حذف ${ids.length} منتج بنجاح`,
+      })
+      setSelectedProducts(new Set())
+      setShowBulkDeleteConfirm(false)
+    } catch (e) {
+      toast({ title: "Error", description: "Failed to delete some products", variant: "destructive" })
+    } finally {
+      setIsBulkDeleting(false)
+    }
+  }
+
   return (
     <>
       <input
@@ -1051,6 +1094,21 @@ export function ProductsTable({
               <Printer className="ml-2 h-4 w-4" />
               <DualText k="products.export.printPdf" />
             </Button>
+
+
+            {/* Bulk Delete Button */}
+            {selectedProducts.size > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setShowBulkDeleteConfirm(true)}
+                className="animate-in fade-in zoom-in duration-200"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                <DualText k="common.deleteSelected" fallback="حذف المحدد" /> ({selectedProducts.size})
+              </Button>
+            )}
+
             <Button variant="outline" size="sm" onClick={exportExcel} disabled={exportMode === 'filtered' ? sortedProducts.length === 0 : false}>
               <Download className="ml-2 h-4 w-4" />
               <DualText k="products.export.excel" />
@@ -1081,6 +1139,13 @@ export function ProductsTable({
           >
             <thead className="sticky top-0 bg-card z-40 shadow-sm border-b">
               <tr className="text-xs">
+                <th className="w-[40px] text-center p-2 border-b bg-card">
+                  <Checkbox
+                    checked={sortedProducts.length > 0 && selectedProducts.size === sortedProducts.length}
+                    onCheckedChange={(c) => toggleSelectAll(!!c)}
+                    aria-label="Select All"
+                  />
+                </th>
                 {(() => {
                   const viewColumns = getColumnsForView(viewMode)
                   return Object.keys(visibleColumns).map(key => {
@@ -1135,8 +1200,17 @@ export function ProductsTable({
                     // Get columns for current view
                     const viewColumns = getColumnsForView(viewMode)
 
+
                     return (
                       <tr key={product.id} data-index={virtualRow.index} ref={rowVirtualizer.measureElement} className="hover:bg-muted/30 transition-colors">
+                        <td className="text-center p-2 border-b">
+                          <Checkbox
+                            checked={selectedProducts.has(product.id)}
+                            onCheckedChange={(c) => toggleSelectProduct(product.id, !!c)}
+                            onClick={(e) => e.stopPropagation()}
+                            aria-label="Select Row"
+                          />
+                        </td>
                         {/* Only render columns that are in the current view AND visible in settings */}
                         {Object.keys(visibleColumns).map(key => {
                           // Logic: Column must be enabled in settings (visibleColumns) AND part of the current view (viewColumns)
@@ -1430,7 +1504,7 @@ export function ProductsTable({
             </tbody>
           </table>
         </div>
-      </div>
+      </div >
 
       {(() => {
         const totalFiltered = filteredProducts.length
@@ -1466,7 +1540,8 @@ export function ProductsTable({
             })}
           </div>
         )
-      })()}
+      })()
+      }
 
       <LowStockSettingsDialog
         open={showLowStockSettings}
@@ -1508,6 +1583,40 @@ export function ProductsTable({
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
               {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showBulkDeleteConfirm} onOpenChange={setShowBulkDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle><DualText k="common.confirmDelete" fallback="تأكيد الحذف" /></AlertDialogTitle>
+            <AlertDialogDescription>
+              <DualText k="common.confirmBulkDeleteDesc" fallback={`هل أنت متأكد من حذف ${selectedProducts.size} منتج؟ لا يمكن التراجع عن هذا الإجراء.`} />
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBulkDeleting}><DualText k="common.cancel" /></AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkDelete} disabled={isBulkDeleting} className="bg-destructive hover:bg-destructive/90">
+              {isBulkDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <DualText k="common.delete" />}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showBulkDeleteConfirm} onOpenChange={setShowBulkDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle><DualText k="common.confirmDelete" fallback="تأكيد الحذف" /></AlertDialogTitle>
+            <AlertDialogDescription>
+              <DualText k="common.confirmBulkDeleteDesc" fallback={`هل أنت متأكد من حذف ${selectedProducts.size} منتج؟ لا يمكن التراجع عن هذا الإجراء.`} />
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBulkDeleting}><DualText k="common.cancel" /></AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkDelete} disabled={isBulkDeleting} className="bg-destructive hover:bg-destructive/90">
+              {isBulkDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <DualText k="common.delete" />}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

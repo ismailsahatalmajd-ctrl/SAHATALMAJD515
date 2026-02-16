@@ -130,53 +130,89 @@ export async function generateBranchInvoicePDF(inv: BranchInvoice): Promise<stri
             th, td { padding: 6px; }
           }
           
-          h1 { font-size: 20px; margin: 0 0 8px; text-align: center; }
-          .header-text { text-align: center; margin-bottom: 20px; color: #555; }
-          .meta { margin: 6px 0 16px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+          h1, h2, h3 { text-align: center; margin: 0; }
+          .header-container { text-align: center; margin-bottom: 30px; }
+          .logo { width: 50px; height: 50px; object-fit: contain; margin-bottom: 10px; }
+          
+          .meta-container { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: flex-end; 
+            margin-bottom: 20px; 
+            border-bottom: 1px solid #ddd; 
+            padding-bottom: 15px;
+            font-size: 14px;
+          }
+          
+          .meta-right { text-align: right; } /* RTL Start */
+          .meta-left { text-align: left; }   /* RTL End */
+          
           table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-          th, td { border: 1px solid #e5e7eb; padding: 10px; font-size: 13px; text-align: center; vertical-align: middle; }
-          th { background: #2563eb; color: white; font-weight: bold; padding: 8px; }
-          .totals { margin-top: 20px; font-weight: 600; text-align: left; padding: 10px; background: #f9f9f9; border-radius: 4px; page-break-inside: avoid; }
+          th, td { border: 1px solid #e5e7eb; padding: 8px; font-size: 12px; text-align: center; vertical-align: middle; }
+          th { background: #2563eb; color: white; font-weight: bold; }
+          
+          /* Custom Column Widths matching screenshot roughly */
+          .col-id { width: 40px; }
+          .col-img { width: 60px; }
+          .col-code { width: 100px; }
+          .col-name { }
+          .col-unit { width: 80px; }
+          .col-qty { width: 80px; }
+          .col-notes { width: 150px; }
+          
           .footer-text { margin-top: 30px; text-align: center; font-size: 12px; color: #777; border-top: 1px solid #eee; padding-top: 10px; page-break-inside: avoid; }
         </style>
       </head>
       <body>
-        ${settings.headerText ? `<div class="header-text">${settings.headerText}</div>` : ""}
-        <div style="text-align:center; margin-bottom:10px;">
-          <img src="${logoUrl}" alt="مستودع ساحة المجد" style="width:48px;height:48px;border-radius:6px;display:inline-block;" onerror="this.style.display='none'"/>
-          <div style="font-weight:bold; margin-top:4px;">مستودع ساحة المجد / Sahat Almajd Warehouse</div>
+        <div class="header-container">
+          <img src="${logoUrl}" class="logo" alt="Logo" onerror="this.style.display='none'"/>
+          <h2 style="font-size: 18px; margin-bottom: 5px;">مستودع ساحة المجد / Sahat Almajd Warehouse</h2>
+          <h1 style="font-size: 22px;">Branch Invoice - ${inv.branchName} / فاتورة فرع</h1>
         </div>
-        <h1>${title}</h1>
-        <div class="meta">
-          <div style="display:flex; justify-content:space-between;">
-             <span><strong>Invoice No / رقم الفاتورة:</strong> ${inv.invoiceNumber || "—"}</span>
-             <div>
-                <span><strong>Branch / اسم الفرع:</strong> ${inv.branchName}</span>
-                ${branchPhone ? `<br/><span style="font-size:12px;color:#555;"><strong>Tel:</strong> ${branchPhone}</span>` : ''}
-             </div>
+
+        <div class="meta-container">
+          <div class="meta-right">
+             <div style="margin-bottom: 5px;"><strong>Invoice No / رقم الفاتورة:</strong> <span style="font-size: 16px;">${inv.invoiceNumber || "OP----"}</span></div>
+             <div><strong>Date / التاريخ:</strong> ${dateStr}</div>
           </div>
-          <div style="margin-top:4px;"><strong>Date / التاريخ:</strong> ${dateStr}</div>
+          <div class="meta-left">
+             <div style="margin-bottom: 5px;"><strong>Branch / اسم الفرع:</strong> ${inv.branchName}</div>
+             <div><strong>Tel:</strong> ${branchPhone || "—"}</div>
+          </div>
         </div>
+
         <table>
           <thead>
             <tr>
-              ${headers}
+              <th class="col-id">#</th>
+              <th class="col-img">الصورة<br/>Image</th>
+              <th class="col-code">كود المنتج<br/>Product Code</th>
+              <th class="col-name">اسم المنتج<br/>Product Name</th>
+              <th class="col-unit">الوحدة<br/>Unit</th>
+              <th class="col-qty">الكمية<br/>Quantity</th>
+              <th class="col-notes">ملاحظات<br/>Notes</th>
             </tr>
           </thead>
           <tbody>
-            ${rows}
+            ${itemsWithImages.map((it, idx) => {
+    const imageSrc = getSafeImageSrc(it.resolvedImage)
+    return `
+              <tr>
+                <td>${idx + 1}</td>
+                <td>${imageSrc ? `<img src="${imageSrc}" style="width:40px;height:40px;object-fit:cover">` : ''}</td>
+                <td>${it.productCode || "-"}</td>
+                <td>${it.productName}</td>
+                <td>${(it as any).selectedUnitName || it.unit || "-"}</td>
+                <td>${it.quantity}</td>
+                <td style="color:#555;">${it.notes || "—"}</td>
+              </tr>
+              `
+  }).join("")}
           </tbody>
         </table>
         
-        ${settings.showTotal ? `
-        <div class="totals">
-           Initial Total / الإجمالي الأولي: ${inv.totalValue?.toFixed(2) || "0.00"} SAR
-        </div>` : ''}
-        
-        ${settings.footerText ? `<div class="footer-text">${settings.footerText}</div>` : ""}
-        
         <script>
-          window.print && setTimeout(() => window.print(), 200)
+          window.print && setTimeout(() => window.print(), 500)
         </script>
       </body>
     </html>

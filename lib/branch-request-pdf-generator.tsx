@@ -1,6 +1,7 @@
 import type { BranchRequest } from "./branch-request-types"
 import { getInvoiceSettings } from "./invoice-settings-store"
 import { db } from "@/lib/db"
+import { getSafeImageSrc } from "@/lib/utils"
 
 export async function generateBranchRequestPDF(request: BranchRequest): Promise<void> {
   const settings = await getInvoiceSettings()
@@ -17,9 +18,11 @@ export async function generateBranchRequestPDF(request: BranchRequest): Promise<
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-    hour12: false
+    hour12: true
   })
-  const title = isReturn ? `Return Invoice - ${request.branchName} / فاتورة مرتجع` : `Branch Request - ${request.branchName} / طلب فرع`
+
+  // Use more formal English/Arabic titles similar to Invoice
+  const title = isReturn ? `Branch Return - ${request.branchName} / مرتجع فرع` : `Branch Request - ${request.branchName} / طلب فرع`
 
   const hasExceeded = !isReturn && request.items.some(
     (it) => typeof it.availableQuantity === "number" && it.requestedQuantity > (it.availableQuantity ?? 0),
@@ -31,7 +34,6 @@ export async function generateBranchRequestPDF(request: BranchRequest): Promise<
 
   let imageMap = new Map<string, string>();
   if (uniqueProductIds.length > 0) {
-    // Process in chunks of 20 to avoid memory issues
     const chunkSize = 20;
     for (let i = 0; i < uniqueProductIds.length; i += chunkSize) {
       const chunk = uniqueProductIds.slice(i, i + chunkSize);
@@ -48,147 +50,126 @@ export async function generateBranchRequestPDF(request: BranchRequest): Promise<
     }
   }
 
-  const rows = request.items.map((it: any, idx) => {
-    const exceeded = !isReturn && typeof it.availableQuantity === "number" && it.requestedQuantity > (it.availableQuantity ?? 0)
-    const noteCell = hasExceeded
-      ? `<td>${exceeded ? '<span class="note-warning">يتجاوز الكمية</span>' : ''}</td>`
-      : ""
+  // Helper to resolve info
+  // Fetch branch details if needed (phone) - request object usually has basic branchName
+  // We can try to fetch more info if we want to be exact, but the request might not have it.
 
+  const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/sahat-almajd-logo.svg` : '/sahat-almajd-logo.svg'
+
+  const rows = request.items.map((it: any, idx) => {
     let imageSrc = it.image
     if (imageSrc === 'DB_IMAGE' && it.productId && imageMap.has(it.productId)) {
       imageSrc = imageMap.get(it.productId)
     }
-
-    const imageCell = isReturn
-      ? `<td>${imageSrc ? `<img src="${imageSrc}" style="width:40px;height:40px;object-fit:cover;">` : ''}</td>`
-      : ''
-
-    const reasonCell = isReturn
-      ? `<td>${it.returnReason || ''}</td>`
-      : ''
+    const safeImg = getSafeImageSrc(imageSrc)
 
     const qty = it.requestedQuantity || it.quantity || 0
 
     return `
       <tr>
         <td>${idx + 1}</td>
-        ${imageCell}
-        <td>${it.productCode}</td>
+        <td>${safeImg ? `<img src="${safeImg}" style="width:40px;height:40px;object-fit:cover">` : ''}</td>
+        <td>${it.productCode || "-"}</td>
         <td>${it.productName}</td>
-        ${settings.showUnit ? `<td>${it.unit || ""}</td>` : ''}
-        ${settings.showQuantity ? `<td>${qty}</td>` : ''}
-        ${!isReturn ? `<td>${it.availableQuantity ?? "-"}</td>` : ''}
-        ${reasonCell}
-        ${noteCell}
+        <td>${it.unit || (it as any).selectedUnitName || "-"}</td>
+        <td>${qty}</td>
+        <td style="color:#555;">${it.notes || (isReturn ? it.returnReason : "") || "—"}</td>
       </tr>
     `
-  })
-    .join("")
+  }).join("")
 
   const html = `
-  <html lang="ar" dir="rtl">
-    <head>
-      <meta charset="utf-8" />
-      <title>${title}</title>
-      <base href="${typeof window !== 'undefined' ? window.location.origin : ''}/">
-      <style>
-        :root {
-          /* Classic uses standard vars or hardcoded values. */
-          --primary: ${settings.template === 'modern' ? '#3b82f6' : '#000'};
-          --bg-header: ${settings.template === 'modern' ? '#eff6ff' : '#f9fafb'};
-        }
-
-        body { 
-          font-family: system-ui, -apple-system, "Segoe UI", Tahoma, Arial; 
-          margin: ${settings.template === 'thermal' ? '0' : '0 auto'}; 
-          padding: ${settings.template === 'thermal' ? '10px' : '20px'};
-          max-width: ${settings.template === 'thermal' ? '80mm' : '210mm'};
-        }
-        
-        @page { size: ${settings.template === 'thermal' ? 'auto' : 'A4'}; margin: ${settings.template === 'thermal' ? '0' : '10mm'}; }
-        
-        @media print {
-            body { 
-                width: 100%; 
-                max-width: none; 
-                padding: 0;
-            }
+    <html lang="ar" dir="rtl">
+      <head>
+        <meta charset="utf-8" />
+        <title>${title}</title>
+        <style>
+          /* A4 Print Settings */
+          @page { size: A4; margin: 10mm; }
+          
+          body { font-family: system-ui, -apple-system, Segoe UI, Tahoma, sans-serif; padding: 20px; max-width: 210mm; margin: 0 auto; }
+          
+          @media print {
+            body { padding: 0; width: 100%; max-width: none; }
             table { font-size: 12px; }
-            th, td { padding: 4px 6px; }
-        }
-        
-        .header { display:flex; align-items:center; justify-content:space-between; margin-bottom: 16px; flex-direction: ${settings.template === 'thermal' ? 'column' : 'row'}; text-align: ${settings.template === 'thermal' ? 'center' : 'left'}; }
-        .brand { font-weight:700; font-size: ${settings.template === 'thermal' ? '16px' : '18px'}; margin-bottom: ${settings.template === 'thermal' ? '10px' : '0'}; }
-        .meta { color:#4b5563; font-size: ${settings.template === 'thermal' ? '12px' : '14px'}; }
-        
-        table { width: 100%; border-collapse: collapse; margin-top: ${settings.template === 'thermal' ? '10px' : '0'}; }
-        th, td { border: 1px solid #e5e7eb; padding: ${settings.template === 'thermal' ? '4px 2px' : '8px'}; font-size: ${settings.template === 'thermal' ? '11px' : '13px'}; vertical-align: middle; }
-        
-        /* Modern Template */
-        ${settings.template === 'modern' ? `
-          th { background: var(--bg-header); color: #1e40af; border-color: #dbeafe; }
-          .header { background: var(--bg-header); padding: 20px; border-radius: 12px; }
-          table { border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0; }
-        ` : 'th { background: #f9fafb; text-align: center; }'}
-
-        /* Thermal Template */
-        ${settings.template === 'thermal' ? `
-          th, td { border: none; border-bottom: 1px dashed #000; text-align: center; }
-          .header { border-bottom: 1px dashed #000; padding-bottom: 10px; }
-          img { display: none; } /* Hide images */
-        ` : 'td { text-align: center; }'}
-
-        .footer { margin-top: 24px; font-size: 10px; color:#6b7280; text-align: center; }
-        .note-warning { color: #dc2626; font-weight: 600; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-      </style>
-    </head>
-    <body>
-      <div class="header">
-        <div class="brand">
-          <div>مستودع ساحة المجد / Sahat Almajd Warehouse</div>
-          ${settings.headerText ? `<div style="font-size: 14px; font-weight: normal; margin-top: 4px; white-space: pre-line;">${settings.headerText}</div>` : ''}
+            th, td { padding: 6px; }
+          }
+          
+          h1, h2, h3 { text-align: center; margin: 0; }
+          .header-container { text-align: center; margin-bottom: 30px; }
+          .logo { width: 50px; height: 50px; object-fit: contain; margin-bottom: 10px; }
+          
+          .meta-container { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: flex-end; 
+            margin-bottom: 20px; 
+            border-bottom: 1px solid #ddd; 
+            padding-bottom: 15px;
+            font-size: 14px;
+          }
+          
+          .meta-right { text-align: right; } /* RTL Start */
+          .meta-left { text-align: left; }   /* RTL End */
+          
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+          th, td { border: 1px solid #e5e7eb; padding: 8px; font-size: 12px; text-align: center; vertical-align: middle; }
+          th { background: #2563eb; color: white; font-weight: bold; }
+          
+          /* Column sizing */
+          .col-id { width: 40px; }
+          .col-img { width: 60px; }
+          .col-code { width: 100px; }
+          .col-name { }
+          .col-unit { width: 80px; }
+          .col-qty { width: 80px; }
+          .col-notes { width: 150px; }
+          
+          .footer-text { margin-top: 30px; text-align: center; font-size: 12px; color: #777; border-top: 1px solid #eee; padding-top: 10px; page-break-inside: avoid; }
+        </style>
+      </head>
+      <body>
+        <div class="header-container">
+          <img src="${logoUrl}" class="logo" alt="Logo" onerror="this.style.display='none'"/>
+          <h2 style="font-size: 18px; margin-bottom: 5px;">مستودع ساحة المجد / Sahat Almajd Warehouse</h2>
+          <h1 style="font-size: 22px;">${title}</h1>
         </div>
-        <div class="meta">
-          <div>Request No / رقم الطلب: ${request.requestNumber || (request.id.startsWith('branch-') ? request.id : request.id.slice(0, 8))}</div>
-          <div>Branch / الفرع: ${request.branchName}</div>
-          <div>Date / التاريخ: ${dateStr}</div>
-          <div>Type / النوع: ${isReturn ? 'Return / مرتجع' : 'Supply / توريد'}</div>
+
+        <div class="meta-container">
+          <div class="meta-right">
+             <div style="margin-bottom: 5px;"><strong>Request No / رقم الطلب:</strong> <span style="font-size: 16px;">${request.requestNumber || (request.id.startsWith('branch-') ? request.id : request.id.slice(0, 8))}</span></div>
+             <div><strong>Date / التاريخ:</strong> ${dateStr}</div>
+          </div>
+          <div class="meta-left">
+             <div style="margin-bottom: 5px;"><strong>Branch / اسم الفرع:</strong> ${request.branchName}</div>
+             <div><strong>Type / النوع:</strong> ${isReturn ? 'Return / مرتجع' : 'Supply / توريد'}</div>
+          </div>
         </div>
-      </div>
 
-      <h2 style="margin-bottom: 8px;">${title}</h2>
-      ${request.notes ? `<div style="margin-bottom: 12px;">Notes / ملاحظات: ${request.notes}</div>` : ""}
-
-      <table>
-        <thead>
-          <tr>
-            <th>#</th>
-            ${isReturn ? '<th>Image / الصورة</th>' : ''}
-            <th>Code / الكود</th>
-            <th>Product Name / اسم المنتج</th>
-            ${settings.showUnit ? `<th>Unit / الوحدة</th>` : ''}
-            ${settings.showQuantity ? `<th>Qty / الكمية</th>` : ''}
-            ${!isReturn ? '<th>Available / المتوفر</th>' : ''}
-            ${isReturn ? '<th>Return Reason / سبب الارجاع</th>' : ''}
-            ${hasExceeded ? '<th>Note / ملاحظة</th>' : ''}
-          </tr>
-        </thead>
-        <tbody>
-          ${rows}
-        </tbody>
-      </table>
-
-      ${settings.footerText ? `
-      <div class="footer" style="text-align: center; margin-top: 30px; border-top: 1px solid #e5e7eb; padding-top: 15px;">
-        <p style="white-space: pre-line; margin: 0;">${settings.footerText}</p>
-      </div>
-      ` : ''}
-
-      <script>
-        window.onload = function() { window.print(); }
-      </script>
-    </body>
-  </html>
+        <table>
+          <thead>
+            <tr>
+              <th class="col-id">#</th>
+              <th class="col-img">الصورة<br/>Image</th>
+              <th class="col-code">كود المنتج<br/>Product Code</th>
+              <th class="col-name">اسم المنتج<br/>Product Name</th>
+              <th class="col-unit">الوحدة<br/>Unit</th>
+              <th class="col-qty">الكمية<br/>Quantity</th>
+              <th class="col-notes">ملاحظات<br/>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+        
+        ${settings.footerText ? `<div class="footer-text">${settings.footerText}</div>` : ""}
+        
+        <script>
+          window.onload = function() { window.print(); }
+        </script>
+      </body>
+    </html>
   `
 
   w.document.write(html)

@@ -70,6 +70,9 @@ export const dict: Dict = {
   "common.add": { ar: "إضافة", en: "Add" },
   "common.update": { ar: "تحديث", en: "Update" },
   "common.delete": { ar: "حذف", en: "Delete" },
+  "common.deleteSelected": { ar: "حذف المحدد", en: "Delete Selected" },
+  "common.confirmDelete": { ar: "تأكيد الحذف", en: "Confirm Delete" },
+  "common.confirmBulkDeleteDesc": { ar: "هل أنت متأكد من حذف المنتجات المحددة؟ لا يمكن التراجع عن هذا الإجراء.", en: "Are you sure you want to delete selected products? This action cannot be undone." },
   "common.error": { ar: "خطأ", en: "Error" },
   "common.success": { ar: "نجح", en: "Success" },
   "common.refresh": { ar: "تحديث الصفحة", en: "Refresh Page" },
@@ -798,6 +801,7 @@ export const dict: Dict = {
   // Toast
   "toast.error": { ar: "خطأ", en: "Error" },
   "toast.success": { ar: "نجاح", en: "Success" },
+  "home.toast.bulkDeleteSuccess": { ar: "تم حذف {count} منتج بنجاح", en: "{count} products deleted successfully" },
 
   // Return Dialog
   "returnDialog.title": { ar: "إضافة مرتجع", en: "Add Return" },

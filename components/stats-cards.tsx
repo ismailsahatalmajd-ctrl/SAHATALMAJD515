@@ -39,7 +39,7 @@ export function StatsCards({ products = [], visible }: StatsCardsProps) {
 
     const outOfStockCount = safeProducts.filter((p) => Number(p.currentStock || 0) <= 0).length
 
-    const totalValue = safeProducts.reduce((sum, p) => sum + Number(p.currentStockValue || 0), 0)
+    const totalValue = safeProducts.reduce((sum, p) => sum + (Number(p.currentStock || 0) * Number(p.averagePrice || p.price || 0)), 0)
     const totalItems = safeProducts.reduce((sum, p) => sum + Number(p.currentStock || 0), 0)
 
     return { totalProducts, totalItems, totalValue, lowStockCount, lowStockValue, outOfStockCount }

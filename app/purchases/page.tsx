@@ -124,7 +124,7 @@ export default function PurchasesPage() {
   const filteredPurchases = useMemo(() => {
     if (!searchTerm) return purchases
     const q = searchTerm.toLowerCase()
-    return purchases.filter((tr) => {
+    return (purchases as Transaction[]).filter((tr: Transaction) => {
       const prod = products.find((prod) => prod.id === tr.productId)
       return (
         tr.productName.toLowerCase().includes(q) ||
@@ -391,11 +391,12 @@ export default function PurchasesPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-[100px] border-x text-center"><DualText k="purchases.table.operation" /></TableHead>
+                      <TableHead className="w-[120px] border-x text-center"><DualText k="common.code" /></TableHead>
                       <TableHead className="w-[200px] border-x text-center"><DualText k="purchases.table.product" /></TableHead>
                       {settings.showUnit && <TableHead className="w-[100px] border-x text-center"><DualText k="common.unit" /></TableHead>}
                       {settings.showQuantity && <TableHead className="w-[100px] border-x text-center"><DualText k="purchases.table.quantity" /></TableHead>}
                       {settings.showPrice && <TableHead className="w-[120px] border-x text-center"><DualText k="purchases.table.unitPrice" /></TableHead>}
-                      {settings.showTotal && <TableHead className="w-[120px] border-x text-center"><DualText k="purchases.table.total" /></TableHead>}
+                      <TableHead className="w-[120px] border-x text-center"><DualText k="purchases.table.total" /></TableHead>
                       <TableHead className="w-[160px] border-x text-center"><DualText k="purchases.table.date" /></TableHead>
                       <TableHead className="w-[150px] border-x text-center"><DualText k="purchases.table.notes" /></TableHead>
                     </TableRow>
@@ -408,9 +409,10 @@ export default function PurchasesPage() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      filteredPurchases.map((purchase) => (
+                      (filteredPurchases as Transaction[]).map((purchase: Transaction) => (
                         <TableRow key={purchase.id}>
                           <TableCell className="font-medium border-x text-center">#{purchase.operationNumber || purchase.id.slice(-6)}</TableCell>
+                          <TableCell className="border-x text-center">{products.find(p => p.id === purchase.productId)?.productCode || "-"}</TableCell>
                           <TableCell
                             className={`border-x text-center ${lowStockIds.has(purchase.productId) ? "text-[#FF0000] font-semibold" : ""}`}
                             aria-label={lowStockIds.has(purchase.productId) ? t("common.lowStockProduct") : undefined}
@@ -421,7 +423,7 @@ export default function PurchasesPage() {
                           {settings.showUnit && <TableCell className="border-x text-center">{products.find(p => p.id === purchase.productId)?.unit || '-'}</TableCell>}
                           {settings.showQuantity && <TableCell className="border-x text-center">{purchase.quantity}</TableCell>}
                           {settings.showPrice && <TableCell className="border-x text-center">{purchase.unitPrice.toFixed(2)} <DualText k="common.currency" /></TableCell>}
-                          {settings.showTotal && <TableCell className="font-semibold border-x text-center">{purchase.totalAmount.toFixed(2)} <DualText k="common.currency" /></TableCell>}
+                          <TableCell className="font-semibold border-x text-center">{purchase.totalAmount.toFixed(2)} <DualText k="common.currency" /></TableCell>
                           <TableCell className="border-x text-center">{formatArabicGregorianDateTime(new Date(purchase.createdAt))}</TableCell>
                           <TableCell className="text-muted-foreground border-x text-center">{purchase.notes || "-"}</TableCell>
                         </TableRow>

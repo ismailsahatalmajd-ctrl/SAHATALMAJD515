@@ -33,6 +33,9 @@ export async function generateAssemblyPDF(
   const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/sahat-almajd-logo.svg` : '/sahat-almajd-logo.svg'
 
   // Pre-process Data
+  const allDbProducts = await db.products.toArray();
+  const dbProductsMap = new Map(allDbProducts.map(p => [p.id, p]));
+
   let groupedData: { branchName: string, products: any[] }[] = []
   const isMerged = assemblySettings.mode === 'merged'
 
@@ -50,8 +53,16 @@ export async function generateAssemblyPDF(
         }
       }
     }
-    // For merged, we treat it as one single group
-    groupedData = [{ branchName: "All Branches / جميع الفروع", products: Array.from(acc.values()) }]
+
+    const mergedList = Array.from(acc.values()).map(p => ({
+      ...p,
+      itemNumber: dbProductsMap.get(p.productId)?.itemNumber || ""
+    }));
+
+    // Sort by Item Number
+    mergedList.sort((a, b) => (a.itemNumber || "").localeCompare(b.itemNumber || "", undefined, { numeric: true, sensitivity: 'base' }));
+
+    groupedData = [{ branchName: "All Branches / جميع الفروع", products: mergedList }]
   } else {
     // Detailed Mode: Group by Branch
     const branchMap = new Map<string, any[]>()
@@ -63,6 +74,7 @@ export async function generateAssemblyPDF(
       const bName = issue.branchName || "Unknown Branch"
       const items = issue.products.map(p => ({
         ...p,
+        itemNumber: dbProductsMap.get(p.productId)?.itemNumber || "",
         branchName: bName,
         invoiceNum: getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))
       }))
@@ -74,7 +86,11 @@ export async function generateAssemblyPDF(
       }
     }
 
-    groupedData = Array.from(branchMap.entries()).map(([k, v]) => ({ branchName: k, products: v }))
+    groupedData = Array.from(branchMap.entries()).map(([k, v]) => {
+      // Sort within each branch
+      const sortedInBranch = [...v].sort((a, b) => (a.itemNumber || "").localeCompare(b.itemNumber || "", undefined, { numeric: true, sensitivity: 'base' }));
+      return { branchName: k, products: sortedInBranch };
+    });
   }
 
   // Calculate Totals

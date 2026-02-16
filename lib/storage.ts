@@ -66,7 +66,8 @@ import {
 export { subscribe, notify } from "./events"
 import { notify } from "./events"
 import type { StoreEvent } from "./events"
-import { store, initDataStore, reloadFromDb } from './data-store'
+import { store, initDataStore, reloadFromDb, updateStoreCache, removeFromStoreCache, initDataStoreWithProgress } from './data-store'
+import { addAuditLog } from "@/lib/audit-log"
 export { store, initDataStore, reloadFromDb, updateStoreCache, removeFromStoreCache, initDataStoreWithProgress } from './data-store'
 export {
   deleteAllTransactionsApi, deleteAllIssuesApi, deleteAllReturnsApi,
@@ -292,6 +293,19 @@ if (typeof window !== 'undefined') {
   store.init()
 }
 
+// Helper to get current user from local storage
+function getUserInfo() {
+  if (typeof window === 'undefined') return { uid: 'system', name: 'System' }
+  try {
+    const json = localStorage.getItem('sahat_user')
+    if (json) {
+      const user = JSON.parse(json)
+      return { uid: user.uid || 'unknown', name: user.displayName || user.username || 'Unknown User' }
+    }
+  } catch { }
+  return { uid: 'guest', name: 'Guest' }
+}
+
 // Products
 export function getProducts(): Product[] {
   return store.cache.products
@@ -303,8 +317,18 @@ export async function saveProducts(products: Product[]): Promise<void> {
   notify('products_change')
 }
 
+export async function getAuditLogs(): Promise<AuditLogEntry[]> {
+  try {
+    return await db.auditLogs.toArray()
+  } catch (e) {
+    console.error("DB Fetch Error (AuditLogs):", e);
+    return [];
+  }
+}
+
 export async function addProduct(product: Omit<Product, "id" | "createdAt" | "updatedAt"> | Product): Promise<Product> {
   try {
+    const { uid, name } = getUserInfo()
     // Check if ID exists (full product passed) or generate new
     const id = (product as Product).id || generateId()
 
@@ -371,6 +395,10 @@ export async function addProduct(product: Omit<Product, "id" | "createdAt" | "up
     }
 
     notify("products_change")
+
+    // Audit Log
+    addAuditLog(uid, name, 'create', 'product', id, newProduct.productName, undefined, { code: newProduct.productCode }).catch(console.error)
+
     return newProduct
   } catch (err) {
     console.error("Add Product Failed", err);
@@ -399,7 +427,11 @@ export async function updateProduct(id: string, updates: Partial<Product>): Prom
     const index = products.findIndex((p) => p.id === id)
 
     // Optimistic update in cache
+    // Optimistic update in cache
     if (index !== -1) {
+      // Capture original for Audit Log
+      const originalProduct = { ...products[index] }
+
       // Apply updates
       const updated = {
         ...products[index],
@@ -424,6 +456,23 @@ export async function updateProduct(id: string, updates: Partial<Product>): Prom
         console.error("Sync Error updateProduct:", e)
       }
 
+      // Audit Log
+      const { uid, name } = getUserInfo()
+      const changes = Object.keys(updates).map(key => {
+        const k = key as keyof Product
+        const oldVal = (originalProduct as any)[k]
+        const newVal = (updates as any)[k]
+        // loose comparison for numbers/strings?
+        if (oldVal != newVal) {
+          return { field: key, oldValue: oldVal, newValue: newVal }
+        }
+        return null
+      }).filter(Boolean) as any[]
+
+      if (changes.length > 0) {
+        addAuditLog(uid, name, 'update', 'product', id, originalProduct.productName, changes).catch(console.error)
+      }
+
       notify("products_change")
       return updated;
     }
@@ -431,6 +480,22 @@ export async function updateProduct(id: string, updates: Partial<Product>): Prom
     // Fallback if not in cache (should be rare)
     const fromDb = await db.products.get(id);
     if (fromDb) {
+      // Audit Log for Fallback path
+      const { uid, name } = getUserInfo()
+      const changes = Object.keys(updates).map(key => {
+        const k = key as keyof Product
+        const oldVal = (fromDb as any)[k]
+        const newVal = (updates as any)[k]
+        if (oldVal !== newVal) {
+          return { field: key, oldValue: oldVal, newValue: newVal }
+        }
+        return null
+      }).filter(Boolean) as any[]
+
+      if (changes.length > 0) {
+        addAuditLog(uid, name, 'update', 'product', id, fromDb.productName, changes).catch(console.error)
+      }
+
       const updated = { ...fromDb, ...updates, updatedAt: new Date().toISOString() };
       await db.products.put(updated);
 
@@ -464,7 +529,20 @@ export async function deleteProduct(id: string): Promise<boolean> {
     markAsDeleting(id); // Prevent sync resurrection
 
     const products = store.cache.products
+    const productToDelete = products.find(p => p.id === id)
+    const { uid, name } = getUserInfo()
+
     store.cache.products = products.filter(p => p.id !== id)
+
+    // Audit Log
+    if (productToDelete) {
+      addAuditLog(uid, name, 'delete', 'product', id, productToDelete.productName).catch(console.error)
+    } else {
+      // Try to get name from DB if not in cache
+      db.products.get(id).then(p => {
+        if (p) addAuditLog(uid, name, 'delete', 'product', id, p.productName).catch(console.error)
+      })
+    }
 
     await db.products.delete(id);
     // Ensure we delete the local image cache for this product

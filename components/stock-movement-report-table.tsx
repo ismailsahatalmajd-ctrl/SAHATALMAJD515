@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { format } from "date-fns"
 import { arSA } from "date-fns/locale"
-import { ArrowUpDown, ArrowUp, ArrowDown, FileText, ShoppingCart, RotateCcw, Activity, Filter, Check, MoreHorizontal } from "lucide-react"
+import { ArrowUpDown, ArrowUp, ArrowDown, FileText, ShoppingCart, RotateCcw, Activity, Filter, Check, MoreHorizontal, ChevronDown, ChevronUp, PackageOpen, Plus, Edit, Trash2 } from "lucide-react"
 import { DualText } from "@/components/ui/dual-text"
 import {
     DropdownMenu,
@@ -32,7 +32,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-export type MovementType = "issue" | "return" | "purchase" | "adjustment"
+export type MovementType = "issue" | "return" | "purchase" | "adjustment" | "add" | "edit" | "delete"
 
 export interface StockMovement {
     id: string
@@ -46,6 +46,12 @@ export interface StockMovement {
     inventoryValueBefore?: number
     inventoryValueAfter?: number
     status?: string
+    details?: {
+        name: string
+        quantity: number
+        price: number
+        total: number
+    }[]
 }
 
 interface StockMovementReportTableProps {
@@ -53,24 +59,24 @@ interface StockMovementReportTableProps {
     limit?: number
 }
 
-export function StockMovementReportTable({ movements, limit = 10 }: StockMovementReportTableProps) {
+export function StockMovementReportTable({ movements, limit = 50 }: StockMovementReportTableProps) {
     const [sortConfig, setSortConfig] = useState<{ key: keyof StockMovement; direction: "asc" | "desc" } | null>({ key: 'date', direction: 'desc' })
     const [page, setPage] = useState(1)
-    const [statusFilters, setStatusFilters] = useState<string[]>(['Pending', 'Received', 'Delivered'])
     const itemsPerPage = limit
 
-    const filteredMovements = movements.filter(m => {
-        if (!m.status) return true // Show items with no status (like purchases?) or maybe only filter issues/returns?
-        // User specifically asked to filter by these statuses.
-        // Purchases/Adjustments might not have these statuses.
-        // If type is issue, apply filter.
-        if (m.type === 'issue') {
-            return statusFilters.includes(m.status)
-        }
-        return true
-    })
+    const [expandedRows, setExpandedRows] = useState<string[]>([])
 
-    const sortedMovements = [...filteredMovements].sort((a, b) => {
+    const toggleRow = (id: string) => {
+        setExpandedRows(prev =>
+            prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id]
+        )
+    }
+
+    const formatCurrency = (val: number) => {
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'SAR' }).format(val)
+    }
+
+    const sortedMovements = [...movements].sort((a, b) => {
         if (!sortConfig) return 0
         const { key, direction } = sortConfig
         if (a[key]! < b[key]!) return direction === "asc" ? -1 : 1
@@ -78,9 +84,6 @@ export function StockMovementReportTable({ movements, limit = 10 }: StockMovemen
         return 0
     })
 
-    // Pagination if listing all? Component limit prop suggests we might show top N
-    // But user said "mini table", so maybe just a scrollable list or top 5?
-    // Let's implement pagination/limit.
     const displayMovements = sortedMovements.slice(0, itemsPerPage)
 
     const getTypeBadge = (type: MovementType) => {
@@ -93,6 +96,12 @@ export function StockMovementReportTable({ movements, limit = 10 }: StockMovemen
                 return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 flex items-center gap-1"><RotateCcw className="w-3 h-3" /> <DualText k="reports.movements.return" fallback="مرتجع" /></Badge>
             case "adjustment":
                 return <Badge variant="outline" className="flex items-center gap-1"><Activity className="w-3 h-3" /> <DualText k="reports.movements.adjustment" fallback="تسوية" /></Badge>
+            case "add":
+                return <Badge className="bg-blue-600 hover:bg-blue-700 flex items-center gap-1"><Plus className="w-3 h-3" /> <DualText k="common.add" fallback="إضافة" /></Badge>
+            case "edit":
+                return <Badge variant="secondary" className="flex items-center gap-1"><Edit className="w-3 h-3" /> <DualText k="common.edit" fallback="تعديل" /></Badge>
+            case "delete":
+                return <Badge variant="destructive" className="bg-red-800 hover:bg-red-900 flex items-center gap-1"><Trash2 className="w-3 h-3" /> <DualText k="common.delete" fallback="حذف" /></Badge>
         }
     }
 
@@ -102,11 +111,14 @@ export function StockMovementReportTable({ movements, limit = 10 }: StockMovemen
             case "purchase": return <ShoppingCart className="w-4 h-4 text-green-500" />
             case "return": return <RotateCcw className="w-4 h-4 text-yellow-500" />
             case "adjustment": return <Activity className="w-4 h-4 text-gray-500" />
+            case "add": return <Plus className="w-4 h-4 text-blue-500" />
+            case "edit": return <Edit className="w-4 h-4 text-orange-500" />
+            case "delete": return <Trash2 className="w-4 h-4 text-red-700" />
         }
     }
 
     return (
-        <Card>
+        <div className="w-full overflow-auto">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <div className="space-y-1">
                     <CardTitle className="flex items-center gap-2">
@@ -118,129 +130,146 @@ export function StockMovementReportTable({ movements, limit = 10 }: StockMovemen
                     </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="outline" size="sm" className="h-8 border-dashed">
-                                <Filter className="mr-2 h-4 w-4" />
-                                <span>Filter Status / تصفية الحالة</span>
-                                {statusFilters.length > 0 && (
-                                    <>
-                                        <Separator orientation="vertical" className="mx-2 h-4" />
-                                        <Badge variant="secondary" className="rounded-sm px-1 font-normal lg:hidden">
-                                            {statusFilters.length}
-                                        </Badge>
-                                        <div className="hidden space-x-1 lg:flex">
-                                            {statusFilters.length > 2 ? (
-                                                <Badge variant="secondary" className="rounded-sm px-1 font-normal">
-                                                    {statusFilters.length} selected
-                                                </Badge>
-                                            ) : (
-                                                statusFilters.map((option) => (
-                                                    <Badge variant="secondary" key={option} className="rounded-sm px-1 font-normal">
-                                                        {option === 'Pending' ? 'Pending / معلق' : option === 'Received' ? 'Received / استلام فرع' : 'Delivered / تم التسليم'}
-                                                    </Badge>
-                                                ))
-                                            )}
-                                        </div>
-                                    </>
-                                )}
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-[200px]">
-                            <DropdownMenuLabel>Filter by Status</DropdownMenuLabel>
-                            <DropdownMenuSeparator />
-                            {['Pending', 'Received', 'Delivered'].map((status) => (
-                                <DropdownMenuCheckboxItem
-                                    key={status}
-                                    checked={statusFilters.includes(status)}
-                                    onCheckedChange={(checked) => {
-                                        if (checked) {
-                                            setStatusFilters([...statusFilters, status])
-                                        } else {
-                                            setStatusFilters(statusFilters.filter((s) => s !== status))
-                                        }
-                                    }}
-                                >
-                                    {status === 'Pending' ? 'Pending / معلق' : status === 'Received' ? 'Received / استلام فرع' : 'Delivered / تم التسليم'}
-                                </DropdownMenuCheckboxItem>
-                            ))}
-                            <DropdownMenuSeparator />
-                            <DropdownMenuCheckboxItem
-                                onCheckedChange={() => setStatusFilters(['Pending', 'Received', 'Delivered'])}
-                                className="justify-center text-center"
-                            >
-                                Reset / إعادة تعيين
-                            </DropdownMenuCheckboxItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                    <Badge variant="outline" className="ml-auto">
+                        Total: {displayMovements.length}
+                    </Badge>
                 </div>
             </CardHeader>
             <CardContent>
                 <div className="rounded-md border">
                     <Table>
                         <TableHeader>
-                            <TableRow>
-                                <TableHead className="text-center w-[120px]"><DualText k="common.date" fallback="التاريخ" /></TableHead>
-                                <TableHead className="text-center w-[100px]"><DualText k="common.type" fallback="النوع" /></TableHead>
-                                <TableHead className="text-center"><DualText k="common.reference" fallback="المرجع" /></TableHead>
-                                <TableHead className="text-center"><DualText k="common.details" fallback="التفاصيل" /></TableHead>
-                                <TableHead className="text-center"><DualText k="common.quantity" fallback="الكمية" /></TableHead>
-                                <TableHead className="text-center"><DualText k="reports.valBefore" fallback="القيمة قبل" /></TableHead>
-                                <TableHead className="text-center"><DualText k="common.amount" fallback="مبلغ الحركة" /></TableHead>
-                                <TableHead className="text-center"><DualText k="reports.valAfter" fallback="القيمة بعد" /></TableHead>
+                            <TableRow className="bg-muted/50">
+                                <TableHead className="w-[50px]"></TableHead>
+                                <TableHead className="text-right"><DualText k="common.date" fallback="Date / التاريخ" /></TableHead>
+                                <TableHead className="text-center"><DualText k="common.type" fallback="Type / النوع" /></TableHead>
+                                <TableHead className="text-right"><DualText k="common.reference" fallback="Ref / المرجع" /></TableHead>
+                                <TableHead className="text-right"><DualText k="common.description" fallback="Description / الوصف" /></TableHead>
+                                <TableHead className="text-center"><DualText k="common.quantity" fallback="Qty / الكمية" /></TableHead>
+                                <TableHead className="text-right font-bold text-muted-foreground"><DualText k="reports.col.before" fallback="Before / قبل" /> <span className="text-xs font-normal opacity-70">(<DualText k="reports.col.value" fallback="Value / القيمة" />)</span></TableHead>
+                                <TableHead className="text-center font-bold"><DualText k="reports.col.change" fallback="Change / التغيير" /> <span className="text-xs font-normal opacity-70">(<DualText k="reports.col.value" fallback="Value / القيمة" />)</span></TableHead>
+                                <TableHead className="text-right font-bold text-primary"><DualText k="reports.col.after" fallback="After / بعد" /> <span className="text-xs font-normal opacity-70">(<DualText k="reports.col.value" fallback="Value / القيمة" />)</span></TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {displayMovements.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={8} className="h-24 text-center">
-                                        <DualText k="common.noData" fallback="لا توجد حركات" />
+                                    <TableCell colSpan={9} className="h-24 text-center">
+                                        <DualText k="common.noData" fallback="No movements found" />
                                     </TableCell>
                                 </TableRow>
                             ) : (
-                                displayMovements.map((movement) => (
-                                    <TableRow key={movement.id}>
-                                        <TableCell className="text-center font-medium">
-                                            {new Date(movement.date).toLocaleDateString('ar-EG')}
-                                            <br />
-                                            <span className="text-xs text-muted-foreground">{new Date(movement.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</span>
-                                        </TableCell>
-                                        <TableCell className="text-center">
-                                            <div className="flex justify-center">
-                                                {getTypeBadge(movement.type)}
-                                            </div>
-                                        </TableCell>
-                                        <TableCell className="text-center">
-                                            <span className="font-mono text-sm">{movement.reference}</span>
-                                            {movement.status && <Badge variant="outline" className="mr-2 text-[10px] h-4 px-1">{movement.status}</Badge>}
-                                        </TableCell>
-                                        <TableCell className="text-center">
-                                            <div className="flex flex-col items-center">
-                                                <span className="text-sm">{movement.description || "-"}</span>
-                                                <span className="text-xs text-muted-foreground">{movement.itemsCount} <DualText k="common.items" fallback="عناصر" /></span>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell className="text-center dir-ltr text-right">
-                                            <span className={movement.type === 'issue' ? 'text-red-600 font-bold' : 'text-green-600 font-bold'}>
-                                                {movement.type === 'issue' ? '-' : '+'}{movement.totalQuantity}
-                                            </span>
-                                        </TableCell>
-                                        <TableCell className="text-center text-muted-foreground text-sm font-mono">
-                                            {movement.inventoryValueBefore ? movement.inventoryValueBefore.toFixed(2) : "-"}
-                                        </TableCell>
-                                        <TableCell className="text-center font-bold text-base">
-                                            {movement.totalAmount.toFixed(2)}
-                                        </TableCell>
-                                        <TableCell className="text-center font-semibold text-sm font-mono text-blue-700">
-                                            {movement.inventoryValueAfter ? movement.inventoryValueAfter.toFixed(2) : "-"}
-                                        </TableCell>
-                                    </TableRow>
-                                ))
+                                displayMovements.map((movement) => {
+                                    const isNegative = movement.type === 'issue' || (movement.type === 'adjustment' && movement.totalQuantity < 0) || movement.type === 'return' // Returns usually + stock? Wait. 
+                                    // Issues -> Stock decrease, Value decrease (-).
+                                    // Purchase -> Stock increase, Value increase (+).
+                                    // Return -> Stock increase, Value increase (+).
+                                    // Adjustment -> Depends.
+
+                                    let valueChange = movement.totalAmount
+                                    let valueColor = "text-green-600"
+                                    let sign = "+"
+
+                                    if (movement.type === 'issue') {
+                                        valueChange = -movement.totalAmount
+                                        valueColor = "text-red-600"
+                                        sign = "-"
+                                    } else if (movement.type === 'purchase') {
+                                        valueChange = movement.totalAmount
+                                        valueColor = "text-green-600"
+                                        sign = "+"
+                                    } else if (movement.type === 'return') {
+                                        valueChange = movement.totalAmount
+                                        valueColor = "text-green-600"
+                                        sign = "+"
+                                    } else if (movement.type === 'adjustment') {
+                                        if (movement.totalQuantity < 0) {
+                                            valueChange = -movement.totalAmount
+                                            valueColor = "text-red-600"
+                                            sign = "-"
+                                        }
+                                    }
+
+                                    return (
+                                        <>
+                                            <TableRow key={movement.id} className="hover:bg-muted/30 cursor-pointer" onClick={() => toggleRow(movement.id)}>
+                                                <TableCell className="p-2 text-center">
+                                                    {expandedRows.includes(movement.id) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4 opacity-50" />}
+                                                </TableCell>
+                                                <TableCell className="text-right font-mono text-xs">
+                                                    <div className="flex flex-col">
+                                                        <span>{new Date(movement.date).toLocaleDateString()}</span>
+                                                        <span className="text-muted-foreground">{new Date(movement.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell className="text-center">
+                                                    {getTypeBadge(movement.type)}
+                                                </TableCell>
+                                                <TableCell className="text-right font-mono text-xs">{movement.reference}</TableCell>
+                                                <TableCell className="text-right text-sm max-w-[200px] truncate" title={movement.description}>
+                                                    {movement.description}
+                                                </TableCell>
+                                                <TableCell className="text-center font-bold text-sm" dir="ltr">
+                                                    <span className={movement.totalQuantity < 0 ? "text-red-600" : "text-green-600"}>
+                                                        {movement.totalQuantity > 0 ? "+" : ""}{movement.totalQuantity}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell className="text-right font-mono text-xs text-muted-foreground">
+                                                    {formatCurrency(movement.inventoryValueBefore || 0)}
+                                                </TableCell>
+                                                <TableCell className={`text-center font-bold font-mono text-sm ${valueColor}`} dir="ltr">
+                                                    {sign}{formatCurrency(Math.abs(valueChange))}
+                                                </TableCell>
+                                                <TableCell className="text-right font-bold font-mono text-sm">
+                                                    {formatCurrency(movement.inventoryValueAfter || 0)}
+                                                </TableCell>
+                                            </TableRow>
+
+                                            {/* Expanded Details Row */}
+                                            {expandedRows.includes(movement.id) && movement.details && (
+                                                <TableRow className="bg-muted/10">
+                                                    <TableCell colSpan={9} className="p-0">
+                                                        <div className="p-4 border-b bg-muted/20 shadow-inner">
+                                                            <div className="flex items-center gap-2 mb-2">
+                                                                <PackageOpen className="h-4 w-4 text-muted-foreground" />
+                                                                <h4 className="font-semibold text-sm">Transaction Details / تفاصيل الحركة</h4>
+                                                            </div>
+                                                            <Table className="bg-white rounded-md border text-xs">
+                                                                <TableHeader>
+                                                                    <TableRow className="bg-gray-50 hover:bg-gray-50">
+                                                                        <TableHead>Product / المنتج</TableHead>
+                                                                        <TableHead className="text-center">Qty / الكمية</TableHead>
+                                                                        <TableHead className="text-center">Cost / التكلفة</TableHead>
+                                                                        <TableHead className="text-right">Total / الإجمالي</TableHead>
+                                                                    </TableRow>
+                                                                </TableHeader>
+                                                                <TableBody>
+                                                                    {movement.details.map((detail, idx) => (
+                                                                        <TableRow key={idx} className="hover:bg-transparent">
+                                                                            <TableCell className="font-medium">{detail.name}</TableCell>
+                                                                            <TableCell className="text-center" dir="ltr">
+                                                                                <span className={detail.quantity < 0 ? "text-red-600" : "text-green-600"}>
+                                                                                    {detail.quantity}
+                                                                                </span>
+                                                                            </TableCell>
+                                                                            <TableCell className="text-center">{formatCurrency(detail.price)}</TableCell>
+                                                                            <TableCell className="text-right font-bold">{formatCurrency(Math.abs(detail.total))}</TableCell>
+                                                                        </TableRow>
+                                                                    ))}
+                                                                </TableBody>
+                                                            </Table>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                        </>
+                                    )
+                                })
                             )}
                         </TableBody>
                     </Table>
                 </div>
             </CardContent>
-        </Card>
+        </div>
     )
 }

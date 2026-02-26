@@ -53,6 +53,7 @@ export function BranchManager() {
   const [isLoading, setIsLoading] = useState(false)
 
   const [formData, setFormData] = useState({
+    code: "",
     name: "",
     location: "",
     manager: "",
@@ -60,6 +61,11 @@ export function BranchManager() {
     username: "",
     password: "",
   })
+
+  // Auto-generate code for existing branches if missing (Migration)
+  // This is a client-side migration. Ideally should be a separate script.
+  // For now, we just rely on new branches having it.
+  // Existing branches: we can show a warning or auto-fill when editing.
 
   const filteredBranches = useMemo(() => {
     if (searchTerm) {
@@ -91,6 +97,7 @@ export function BranchManager() {
       if (editingBranch) {
         const updates: Partial<Branch> = {
           name: formData.name,
+          code: formData.code.toUpperCase(), // Ensure uppercase
           location: formData.location,
           manager: formData.manager || undefined,
           phone: formData.phone || undefined,
@@ -101,13 +108,47 @@ export function BranchManager() {
           updates.passwordHash = await hashPassword(formData.password)
         }
 
-        const updated = updateBranch(editingBranch.id, updates)
+        const updated = await updateBranch(editingBranch.id, updates)
         if (updated) {
           syncBranch(updated).catch(console.error)
           addAuditLog("admin", "Admin User", "update", "branch", updated.id, updated.name, undefined, { updates: Object.keys(updates) })
           toast({ title: "تم التحديث", description: "تم تحديث بيانات الفرع بنجاح" })
         }
       } else {
+        // Auto-generate code if empty
+        let finalCode = formData.code.toUpperCase()
+        if (!finalCode) {
+          const prefix = (formData.name[0] || "B").toUpperCase()
+
+          // Calculate the next available global sequence number
+          // Logic: The numeric part must be unique globally (01, 02, 03...)
+
+          // 1. Extract numbers from all existing codes
+          const existingNumbers = branches.map(b => {
+            const match = (b.code || "").match(/\d+$/)
+            return match ? parseInt(match[0], 10) : 0
+          })
+
+          // 2. Find max
+          const maxNum = Math.max(0, ...existingNumbers)
+
+          // 3. Next number
+          const nextNum = maxNum + 1
+
+          finalCode = `${prefix}${nextNum.toString().padStart(2, '0')}`
+        }
+
+        // Check if code exists
+        if (branches.some(b => b.code === finalCode)) {
+          toast({
+            title: "رمز الفرع مستخدم",
+            description: "يرجى اختيار رمز فرع آخر",
+            variant: "destructive",
+          })
+          setIsLoading(false)
+          return
+        }
+
         // Check if username exists
         if (branches.some(b => b.username === formData.username)) {
           toast({
@@ -120,8 +161,9 @@ export function BranchManager() {
         }
 
         const passwordHash = await hashPassword(formData.password)
-        const newBranch = addBranch({
+        const newBranch = await addBranch({
           name: formData.name,
+          code: finalCode,
           location: formData.location,
           manager: formData.manager || undefined,
           phone: formData.phone || undefined,
@@ -145,6 +187,7 @@ export function BranchManager() {
   const handleEdit = (branch: Branch) => {
     setEditingBranch(branch)
     setFormData({
+      code: branch.code || "",
       name: branch.name,
       location: branch.location,
       manager: branch.manager || "",
@@ -152,6 +195,17 @@ export function BranchManager() {
       username: branch.username || "",
       password: "", // Always empty for security
     })
+    // Auto-suggest code if missing
+    if (!branch.code) {
+      const prefix = (branch.name[0] || "B").toUpperCase()
+
+      // Find index based on creation date to maintain consistent ordering for legacy branches
+      const sortedBranches = [...branches].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      const index = sortedBranches.findIndex(b => b.id === branch.id)
+      const num = index + 1
+
+      setFormData(prev => ({ ...prev, code: `${prefix}${num.toString().padStart(2, '0')}` }))
+    }
     setIsOpen(true)
   }
 
@@ -169,12 +223,13 @@ export function BranchManager() {
   }
 
   const resetForm = () => {
-    setFormData({ name: "", location: "", manager: "", phone: "", username: "", password: "" })
+    setFormData({ code: "", name: "", location: "", manager: "", phone: "", username: "", password: "" })
     setEditingBranch(null)
   }
 
   const exportToCSV = () => {
     const data = branches.map(b => ({
+      "الرمز": b.code || "-",
       "الاسم": b.name,
       "الموقع": b.location,
       "المدير": b.manager || "-",
@@ -216,6 +271,7 @@ export function BranchManager() {
           <thead>
             <tr>
               <th>#</th>
+              <th>الرمز</th>
               <th>اسم الفرع</th>
               <th>الموقع</th>
               <th>المدير</th>
@@ -227,6 +283,7 @@ export function BranchManager() {
             ${branches.map((b, index) => `
               <tr>
                 <td>${index + 1}</td>
+                <td>${b.code || "-"}</td>
                 <td>${b.name}</td>
                 <td>${b.location}</td>
                 <td>${b.manager || "-"}</td>
@@ -301,7 +358,7 @@ export function BranchManager() {
 
         try {
           const passwordHash = await hashPassword(password)
-          const newBranch = addBranch({
+          const newBranch = await addBranch({
             name,
             location,
             manager,
@@ -404,6 +461,17 @@ export function BranchManager() {
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
+                    <Label htmlFor="code">رمز الفرع (Code)</Label>
+                    <Input
+                      id="code"
+                      value={formData.code}
+                      onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
+                      placeholder="مثال: F01"
+                      className="font-mono uppercase"
+                    />
+                    <p className="text-xs text-muted-foreground">يترك فارغاً للتوليد التلقائي (أول حرف + رقم)</p>
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="name">اسم الفرع *</Label>
                     <Input
                       id="name"
@@ -496,7 +564,10 @@ export function BranchManager() {
             <CardHeader className="bg-muted/50 pb-3">
               <div className="flex items-start justify-between">
                 <div>
-                  <CardTitle className="text-lg">{branch.name}</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-lg">{branch.name}</CardTitle>
+                    {branch.code && <Badge variant="outline" className="font-mono">{branch.code}</Badge>}
+                  </div>
                   <CardDescription className="flex items-center gap-1 mt-1">
                     <MapPin className="h-3 w-3" />
                     {branch.location}

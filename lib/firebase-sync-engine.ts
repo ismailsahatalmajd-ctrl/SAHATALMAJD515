@@ -1,13 +1,35 @@
-"use strict";
-import { db as firestore } from "./firebase";
+import { db as firestore, storage } from "./firebase";
 import { db as localDb } from "./db";
-import { collection, onSnapshot, doc, writeBatch, getDoc, setDoc, deleteDoc, query, where, getDocs, Timestamp } from "firebase/firestore";
+import { collection, onSnapshot, doc, writeBatch, getDoc, setDoc, deleteDoc, query, where, getDocs, Timestamp, updateDoc } from "firebase/firestore";
+import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { Product, Transaction } from "./types";
 import { notify } from "./events";
 import { store } from "./data-store";
 import type { StoreEvent } from "./events";
 import { processSyncQueue } from "./sync-api";
 import { v4 as uuidv4 } from 'uuid';
+
+// Helper for Network Retries (Exponential Backoff)
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
+    let lastError: any;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            return await fn();
+        } catch (e: any) {
+            lastError = e;
+            const isRetryable = e?.code === 'deadline-exceeded' || e?.code === 'unavailable' || e?.message?.includes('timeout') || e?.message?.includes('unavailable');
+
+            if (isRetryable && attempt < maxAttempts) {
+                const delay = 1000 * Math.pow(2, attempt - 1); // 1s, 2s, 4s
+                console.warn(`[Sync] Operation failed (${e.code || e.message}). Retrying in ${delay}ms... (Attempt ${attempt}/${maxAttempts})`);
+                await new Promise(r => setTimeout(r, delay));
+                continue;
+            }
+            throw e;
+        }
+    }
+    throw lastError;
+}
 
 // Helper for Offline Enqueueing
 async function enqueue(table: string, op: string, payload: any) {
@@ -42,9 +64,10 @@ function updateStoreCache(table: string, record: any) {
         'returns': 'returns',
         'locations': 'locations',
         'units': 'units',
-        'branch_requests': 'branchRequests',
-        'branch_invoices': 'branchInvoices',
-        'inventory_adjustments': 'adjustments',
+        'branchRequests': 'branchRequests',
+        'branchInvoices': 'branchInvoices',
+        'inventoryAdjustments': 'adjustments',
+        'purchaseRequests': 'purchaseRequests',
     }
 
     const key = map[table]
@@ -67,8 +90,8 @@ function updateStoreCache(table: string, record: any) {
         'branches': 'branches_change',
         'issues': 'issues_change',
         'returns': 'returns_change',
-        'branch_requests': 'branch_requests_change',
-        'branch_invoices': 'branch_invoices_change',
+        'branchRequests': 'branch_requests_change',
+        'branchInvoices': 'branch_invoices_change',
     }
     if (eventMap[table]) notify(eventMap[table])
 }
@@ -85,9 +108,10 @@ function removeFromStoreCache(table: string, id: string) {
         'returns': 'returns',
         'locations': 'locations',
         'units': 'units',
-        'branch_requests': 'branchRequests',
-        'branch_invoices': 'branchInvoices',
-        'inventory_adjustments': 'adjustments',
+        'branchRequests': 'branchRequests',
+        'branchInvoices': 'branchInvoices',
+        'inventoryAdjustments': 'adjustments',
+        'purchaseRequests': 'purchaseRequests',
     }
 
     const key = map[table]
@@ -101,7 +125,7 @@ function removeFromStoreCache(table: string, id: string) {
 }
 
 // Collections to sync
-const COLLECTIONS = {
+export const COLLECTIONS = {
     PRODUCTS: 'products',
     TRANSACTIONS: 'transactions',
     CATEGORIES: 'categories',
@@ -115,6 +139,7 @@ const COLLECTIONS = {
     BRANCH_INVOICES: 'branchInvoices',
     PURCHASE_REQUESTS: 'purchaseRequests',
     PRODUCT_IMAGES: 'product_images',
+    SYNC_QUEUE: 'syncQueue',
     // Branch Inventory System Collections
     BRANCH_INVENTORY: 'branchInventory',
     CONSUMPTION_RECORDS: 'consumptionRecords',
@@ -206,6 +231,7 @@ export const startRealtimeSync = () => {
         unsubscribers.push(syncCollection(COLLECTIONS.LOCATIONS, localDb.locations, "change"));
         unsubscribers.push(syncCollection(COLLECTIONS.ADJUSTMENTS, localDb.inventoryAdjustments, "change"));
         unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_REQUESTS, localDb.branchRequests, "branch_requests_change"));
+        unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_INVOICES, localDb.branchInvoices, "branch_invoices_change"));
         unsubscribers.push(syncCollection(COLLECTIONS.PRODUCT_IMAGES, localDb.productImages, "product_images_change"));
 
         // Branch Inventory System Sync
@@ -233,24 +259,49 @@ export const stopRealtimeSync = () => {
     console.log("🛑 Stopped Firebase Sync");
 };
 
+
+let isQuotaExceeded = false;
+
+const checkQuota = () => {
+    if (isQuotaExceeded) {
+        throw new Error("FIREBASE_QUOTA_EXCEEDED_SKIP");
+    }
+}
+
 // 2. Push Local Changes (Local -> Cloud)
 export const syncProductToCloud = async (product: Product) => {
     if (!product.id) return false;
     try {
+        checkQuota();
         const ref = doc(firestore, COLLECTIONS.PRODUCTS, product.id);
         const cleanData = JSON.parse(JSON.stringify(product));
 
-        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Sync Timeout")), 30000));
+        // Prevent overwriting the valid Storage URL with local placeholder
+        if (cleanData.image === 'DB_IMAGE') {
+            delete cleanData.image;
+        }
 
-        await Promise.race([
-            setDoc(ref, { ...cleanData, lastSyncedAt: Timestamp.now() }, { merge: true }),
-            timeout
-        ]);
+        await withRetry(async () => {
+            const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Sync Timeout")), 30000));
+            await Promise.race([
+                setDoc(ref, { ...cleanData, lastSyncedAt: Timestamp.now() }, { merge: true }),
+                timeout
+            ]);
+        });
 
         console.log("☁️ Pushed product to cloud:", product.productName);
         return true;
     } catch (e: any) {
-        console.warn(`[Sync] Push failed for product ${product.productName}, queueing for offline sync.`, e);
+        if (e?.code === 'resource-exhausted' || e?.message?.includes('Quota exceeded')) {
+            console.warn("🚨 Quota Exceeded detected. Switching to offline mode.");
+            isQuotaExceeded = true;
+        }
+        if (e.message !== "FIREBASE_QUOTA_EXCEEDED_SKIP") {
+            const code = e?.code || 'unknown';
+            console.warn(`[Sync] Push failed for product ${product.productName} (${code}), queueing for offline sync.`, e);
+        } else {
+            console.log(`[Sync] Skipped push for ${product.productName} (Quota Exceeded Mode)`);
+        }
         await enqueue(COLLECTIONS.PRODUCTS, 'upsert', product);
         return false;
     }
@@ -259,17 +310,30 @@ export const syncProductToCloud = async (product: Product) => {
 export const syncProductImageToCloud = async (productId: string, data: string) => {
     if (!productId || !data) return false;
     try {
-        const ref = doc(firestore, COLLECTIONS.PRODUCT_IMAGES, productId);
-        const payload = {
-            productId,
-            data,
-            updatedAt: Timestamp.now()
-        };
-        await setDoc(ref, payload, { merge: true });
-        console.log("☁️ Pushed product image to cloud:", productId);
+        checkQuota();
+
+        // 1. Upload to Firebase Storage
+        const storageRef = ref(storage, `product-images/${productId}`);
+        await uploadString(storageRef, data, 'data_url');
+
+        // 2. Get Download URL
+        const downloadURL = await getDownloadURL(storageRef);
+        console.log("☁️ Uploaded image to Storage:", downloadURL);
+
+        // 3. Update Product Document with URL
+        const productRef = doc(firestore, COLLECTIONS.PRODUCTS, productId);
+        await setDoc(productRef, { image: downloadURL, lastSyncedAt: Timestamp.now() }, { merge: true });
+
         return true;
-    } catch (e) {
-        console.warn(`[Sync] Push failed for image ${productId}, queueing.`, e);
+    } catch (e: any) {
+        if (e?.code === 'resource-exhausted' || e?.message?.includes('Quota exceeded')) {
+            console.warn("🚨 Quota Exceeded detected. Switching to offline mode.");
+            isQuotaExceeded = true;
+        }
+        if (e.message !== "FIREBASE_QUOTA_EXCEEDED_SKIP") {
+            console.warn(`[Sync] Push failed for image ${productId}, queueing.`, e);
+        }
+        // Fallback: Queue for retry (might need better handling for persistent failures)
         await enqueue(COLLECTIONS.PRODUCT_IMAGES, 'upsert', { productId, data });
         return false;
     }
@@ -278,11 +342,15 @@ export const syncProductImageToCloud = async (productId: string, data: string) =
 export const deleteProductImageFromCloud = async (productId: string) => {
     if (!productId) return false;
     try {
+        checkQuota();
         const ref = doc(firestore, COLLECTIONS.PRODUCT_IMAGES, productId);
         await deleteDoc(ref);
         console.log("☁️ Deleted product image from cloud:", productId);
         return true;
-    } catch (e) {
+    } catch (e: any) {
+        if (e?.code === 'resource-exhausted' || e?.message?.includes('Quota exceeded')) {
+            isQuotaExceeded = true;
+        }
         console.warn(`[Sync] Delete failed for image ${productId}, queueing.`, e);
         await enqueue(COLLECTIONS.PRODUCT_IMAGES, 'delete', { id: productId });
         return false;
@@ -291,9 +359,13 @@ export const deleteProductImageFromCloud = async (productId: string) => {
 
 export const deleteProductFromCloud = async (id: string) => {
     try {
+        checkQuota();
         await deleteDoc(doc(firestore, COLLECTIONS.PRODUCTS, id));
         console.log("☁️ Deleted product from cloud:", id);
-    } catch (e) {
+    } catch (e: any) {
+        if (e?.code === 'resource-exhausted' || e?.message?.includes('Quota exceeded')) {
+            isQuotaExceeded = true;
+        }
         console.warn(`[Sync] Delete failed for product ${id}, queueing.`, e);
         await enqueue(COLLECTIONS.PRODUCTS, 'delete', { id });
     }
@@ -303,11 +375,18 @@ export const deleteProductFromCloud = async (id: string) => {
 export const syncRecord = async (collectionName: string, record: any) => {
     if (!record.id) return false;
     try {
+        checkQuota();
         const cleanData = JSON.parse(JSON.stringify(record));
-        await setDoc(doc(firestore, collectionName, record.id), { ...cleanData, lastSyncedAt: Timestamp.now() }, { merge: true });
+        await withRetry(() => setDoc(doc(firestore, collectionName, record.id), { ...cleanData, lastSyncedAt: Timestamp.now() }, { merge: true }));
         return true;
-    } catch (e) {
-        console.warn(`[Sync] Push failed for ${collectionName}, queueing.`, e);
+    } catch (e: any) {
+        if (e?.code === 'resource-exhausted' || e?.message?.includes('Quota exceeded')) {
+            console.warn("🚨 Quota Exceeded detected. Switching to offline mode.");
+            isQuotaExceeded = true;
+        }
+        if (e.message !== "FIREBASE_QUOTA_EXCEEDED_SKIP") {
+            console.warn(`[Sync] Push failed for ${collectionName}, queueing.`, e);
+        }
         await enqueue(collectionName, 'upsert', record);
         return false;
     }
@@ -315,7 +394,7 @@ export const syncRecord = async (collectionName: string, record: any) => {
 
 export const deleteRecord = async (collectionName: string, id: string) => {
     try {
-        await deleteDoc(doc(firestore, collectionName, id));
+        await withRetry(() => deleteDoc(doc(firestore, collectionName, id)));
         console.log(`☁️ Deleted ${collectionName}:`, id);
         return true;
     } catch (e) {
@@ -535,29 +614,143 @@ export const pullAllDataFromFirebase = async () => {
 
 export const syncProductsBatch = async (products: Product[]) => {
     if (!products.length) return
+    checkQuota()
     console.log(`☁️ Batch Syncing ${products.length} products...`)
 
-    const BATCH_SIZE = 300
+    const BATCH_SIZE = 50 // Further reduced from 100 to 50 to prevent timeouts
     for (let i = 0; i < products.length; i += BATCH_SIZE) {
+        checkQuota()
         const chunk = products.slice(i, i + BATCH_SIZE)
-        const batch = writeBatch(firestore)
-        let count = 0
+        // Note: writeBatch must be created fresh for each commit
+        // We cannot reuse the same batch object for retries if it was partially applied (which shouldn't happen with atomic batch)
+        // But we DO need to rebuild the batch if we want to retry properly or just re-call commit? 
+        // Firestore batch.commit() can be retried.
 
-        chunk.forEach(p => {
-            if (!p.id) return
-            const ref = doc(firestore, COLLECTIONS.PRODUCTS, p.id)
-            const clean = JSON.parse(JSON.stringify(p))
-            batch.set(ref, { ...clean, lastSyncedAt: Timestamp.now() }, { merge: true })
-            count++
-        })
+        let attempts = 0
+        let committed = false
 
-        if (count > 0) {
+        while (attempts < 3 && !committed) {
             try {
+                // Rebuild batch ensuring clean state
+                const batch = writeBatch(firestore)
+                chunk.forEach(p => {
+                    if (!p.id) return
+                    const ref = doc(firestore, COLLECTIONS.PRODUCTS, p.id)
+                    const clean = JSON.parse(JSON.stringify(p))
+
+                    // IF we are doing a FULL OVERWRITE (no merge), we must protect the image field
+                    // if the local one is just a placeholder, otherwise we lose the cloud URL.
+                    if (clean.image === 'DB_IMAGE') {
+                        delete clean.image;
+                        // If we delete it and use merge:false, we LOSE it.
+                        // So for safety with images, we still need merge:true BUT we will 
+                        // explicitly set movement fields to 0 in bulk-operations.tsx (already done).
+                        // Let's use merge:true but make sure ALL fields are present.
+                    }
+
+                    batch.set(ref, { ...clean, lastSyncedAt: Timestamp.now() }, { merge: true })
+                })
+
                 await batch.commit()
-                console.log(`☁️ Committed batch ${i} - ${i + count}`)
-                await new Promise(r => setTimeout(r, 500))
-            } catch (e) {
-                console.error("Batch commit failed", e)
+                console.log(`☁️ Committed products batch ${i} - ${i + chunk.length}`)
+                committed = true
+                await new Promise(r => setTimeout(r, 2000))
+            } catch (e: any) {
+                attempts++
+                console.error(`Product Batch commit failed (attempt ${attempts}):`, e)
+
+                if (e?.code === 'resource-exhausted' || e?.message?.includes('Quota exceeded')) {
+                    console.error("🚨 FIREBASE QUOTA EXCEEDED (Daily limit or Storage full). Stopping sync.")
+                    isQuotaExceeded = true
+                    throw new Error("FIREBASE_QUOTA_EXCEEDED")
+                }
+
+                if (e?.code === 'deadline-exceeded' || e?.code === 'unavailable') {
+                    console.warn(`⚠️ Network Timeout/Unavailable (attempt ${attempts}). Retrying with backoff...`)
+                }
+
+                if (attempts >= 3) {
+                    console.error("Giving up on product batch after 3 attempts.")
+                    // Don't throw to allow other batches to proceed, but log error
+                } else {
+                    const backoff = 2000 * Math.pow(2, attempts - 1) // 2s, 4s, 8s
+                    await new Promise(r => setTimeout(r, backoff))
+                }
+            }
+        }
+    }
+}
+
+export const syncProductImagesBatch = async (images: { productId: string, data: string }[]) => {
+    if (!images.length) return
+    checkQuota()
+    console.log(`☁️ Batch Syncing ${images.length} images to STORAGE...`)
+
+    const BATCH_SIZE = 5 // Keep small for parallel uploads
+    for (let i = 0; i < images.length; i += BATCH_SIZE) {
+        checkQuota()
+        const chunk = images.slice(i, i + BATCH_SIZE)
+
+        let attempts = 0
+        let committed = false
+
+        while (attempts < 3 && !committed) {
+            try {
+                // 1. Upload images to Storage in parallel
+                const uploadPromises = chunk.map(async (img) => {
+                    if (!img.productId || !img.data) return null;
+                    try {
+                        const storageRef = ref(storage, `product-images/${img.productId}`);
+                        await uploadString(storageRef, img.data, 'data_url');
+                        const url = await getDownloadURL(storageRef);
+                        return { productId: img.productId, url };
+                    } catch (err) {
+                        console.error(`Failed to upload image for ${img.productId}`, err);
+                        return null;
+                    }
+                });
+
+                const uploadedImages = await Promise.all(uploadPromises);
+
+                // 2. Update Products in Firestore with the new URLs
+                const batch = writeBatch(firestore);
+                let updatesCount = 0;
+
+                uploadedImages.forEach(item => {
+                    if (item && item.url) {
+                        const productRef = doc(firestore, COLLECTIONS.PRODUCTS, item.productId);
+                        batch.set(productRef, { image: item.url, lastSyncedAt: Timestamp.now() }, { merge: true });
+                        updatesCount++;
+                    }
+                });
+
+                if (updatesCount > 0) {
+                    await batch.commit();
+                    console.log(`☁️ Synced ${updatesCount} image URLs to Firestore products (Batch ${i})`);
+                }
+
+                committed = true
+                await new Promise(r => setTimeout(r, 2000))
+            } catch (e: any) {
+                attempts++
+                console.error(`Image Batch commit failed (attempt ${attempts}):`, e)
+
+                if (e?.code === 'resource-exhausted' || e?.message?.includes('Quota exceeded')) {
+                    console.error("🚨 FIREBASE QUOTA EXCEEDED (Daily limit or Storage full). Stopping sync.")
+                    isQuotaExceeded = true
+                    throw new Error("FIREBASE_QUOTA_EXCEEDED")
+                }
+
+                if (e?.code === 'deadline-exceeded' || e?.code === 'unavailable') {
+                    console.warn(`⚠️ Network Timeout/Unavailable (attempt ${attempts}). Retrying with backoff...`)
+                }
+
+                if (attempts >= 3) {
+                    console.error("Giving up on image batch after 3 attempts.")
+                } else {
+                    const backoff = 2000 * Math.pow(2, attempts - 1) // 2s, 4s, 8s
+                    await new Promise(r => setTimeout(r, backoff))
+                }
             }
         }
     }

@@ -2,6 +2,9 @@ import type { BranchRequest } from "./branch-request-types"
 import { getInvoiceSettings } from "./invoice-settings-store"
 import { db } from "@/lib/db"
 import { getSafeImageSrc } from "@/lib/utils"
+import { formatOrderNumber } from "@/lib/id-generator" // Import generator
+import JsBarcode from "jsbarcode" // Reuse JsBarcode if available via script tag
+
 
 export async function generateBranchRequestPDF(request: BranchRequest): Promise<void> {
   const settings = await getInvoiceSettings()
@@ -20,6 +23,11 @@ export async function generateBranchRequestPDF(request: BranchRequest): Promise<
     second: '2-digit',
     hour12: true
   })
+
+  // Ensure request number
+  // Ensure request number
+  // Only use existing requestNumber (for new requests). Do NOT auto-generate for old ones.
+  const requestNo = request.requestNumber || (request.id.startsWith('branch-') ? request.id : request.id.slice(0, 8))
 
   // Use more formal English/Arabic titles similar to Invoice
   const title = isReturn ? `Branch Return - ${request.branchName} / مرتجع فرع` : `Branch Request - ${request.branchName} / طلب فرع`
@@ -137,10 +145,12 @@ export async function generateBranchRequestPDF(request: BranchRequest): Promise<
 
         <div class="meta-container">
           <div class="meta-right">
-             <div style="margin-bottom: 5px;"><strong>Request No / رقم الطلب:</strong> <span style="font-size: 16px;">${request.requestNumber || (request.id.startsWith('branch-') ? request.id : request.id.slice(0, 8))}</span></div>
-             <div><strong>Date / التاريخ:</strong> ${dateStr}</div>
+             <div style="margin-bottom: 5px;"><strong>Request No / رقم الطلب:</strong> <span style="font-size: 16px; font-weight: bold;">${requestNo}</span></div>
+             <div style="font-size: 12px; color: #777;">ID: ${request.id.slice(0, 8)}</div>
+             <div style="margin-top: 5px;"><svg id="barcode"></svg></div>
           </div>
           <div class="meta-left">
+             <div style="margin-bottom: 5px;"><strong>Date / التاريخ:</strong> ${dateStr}</div>
              <div style="margin-bottom: 5px;"><strong>Branch / اسم الفرع:</strong> ${request.branchName}</div>
              <div><strong>Type / النوع:</strong> ${isReturn ? 'Return / مرتجع' : 'Supply / توريد'}</div>
           </div>
@@ -165,8 +175,19 @@ export async function generateBranchRequestPDF(request: BranchRequest): Promise<
         
         ${settings.footerText ? `<div class="footer-text">${settings.footerText}</div>` : ""}
         
+        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.0/dist/JsBarcode.all.min.js"></script>
         <script>
-          window.onload = function() { window.print(); }
+          window.onload = function() { 
+            try {
+                JsBarcode("#barcode", "${requestNo}", {
+                  format: "CODE128",
+                  width: 1.5,
+                  height: 40,
+                  displayValue: false
+                });
+            } catch(e) { console.error(e); }
+            setTimeout(function() { window.print(); }, 500); 
+          }
         </script>
       </body>
     </html>

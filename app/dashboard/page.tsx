@@ -44,7 +44,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setMounted(true)
-    
+
     // Load branches
     const allBranches = getBranches()
     setBranches(allBranches)
@@ -52,39 +52,39 @@ export default function DashboardPage() {
     if (authLoading) return
 
     if (!user) {
-        router.replace("/login")
-        return
+      router.replace("/login")
+      return
     }
 
     const initDashboard = async () => {
-        if (user.role === "admin") {
-          // Admin can view any branch
-          const qId = searchParams?.get('id')
-          if (qId) {
-             setBranchId(qId)
-             setAuthorized(true)
-          } else {
-             router.replace("/branches")
-          }
-        } else if (user.role === "branch") {
-           // Branch user MUST view their own branch
-           const myBranchId = user.branchId
-           setBranchId(myBranchId || "")
-           setAuthorized(true)
-           
-           // If branch not found in local storage, fetch from server (skip in static export)
-           const foundLocal = allBranches.find(b => b.id === myBranchId)
-           if (!foundLocal) {
-               try {
-                   // fetch('/api/branches') might fail in static export
-               } catch (err) {
-                   console.error("Failed to load branches from server", err)
-               }
-           }
+      if (user.role === "admin") {
+        // Admin can view any branch
+        const qId = searchParams?.get('id')
+        if (qId) {
+          setBranchId(qId)
+          setAuthorized(true)
         } else {
-            router.replace("/login")
+          router.replace("/branches")
         }
-        setLoading(false)
+      } else if (user.role === "branch") {
+        // Branch user MUST view their own branch
+        const myBranchId = user.branchId
+        setBranchId(myBranchId || "")
+        setAuthorized(true)
+
+        // If branch not found in local storage, fetch from server (skip in static export)
+        const foundLocal = allBranches.find(b => b.id === myBranchId)
+        if (!foundLocal) {
+          try {
+            // fetch('/api/branches') might fail in static export
+          } catch (err) {
+            console.error("Failed to load branches from server", err)
+          }
+        }
+      } else {
+        router.replace("/login")
+      }
+      setLoading(false)
     }
 
     initDashboard()
@@ -92,29 +92,29 @@ export default function DashboardPage() {
   }, [router, searchParams, user, authLoading])
 
   const handleForceRefresh = async () => {
-      setLoading(true)
-      try {
-           const res = await fetch('/api/branches')
-           if (!res.ok) throw new Error("API not available")
-           const json = await res.json()
-           if (json.data && Array.isArray(json.data)) {
-               setBranches(json.data)
-               saveBranches(json.data)
-               window.location.reload()
-           } else {
-               toast({ title: "Error", description: "No data received from server", variant: "destructive" })
-           }
-      } catch (e) {
-          toast({ title: "Error", description: "Failed to connect to server", variant: "destructive" })
-      } finally {
-          setLoading(false)
+    setLoading(true)
+    try {
+      const res = await fetch('/api/branches')
+      if (!res.ok) throw new Error("API not available")
+      const json = await res.json()
+      if (json.data && Array.isArray(json.data)) {
+        setBranches(json.data)
+        saveBranches(json.data)
+        window.location.reload()
+      } else {
+        toast({ title: "Error", description: "No data received from server", variant: "destructive" })
       }
+    } catch (e) {
+      toast({ title: "Error", description: "Failed to connect to server", variant: "destructive" })
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleFactoryResetBranchRequests = async () => {
     if (confirm("Are you sure you want to delete all old requests? / هل أنت متأكد من حذف جميع الطلبات القديمة؟")) {
-        await clearAllBranchRequests()
-        window.location.reload()
+      await clearAllBranchRequests()
+      window.location.reload()
     }
   }
 
@@ -124,7 +124,7 @@ export default function DashboardPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all")
   const [locationFilter, setLocationFilter] = useState<string>("all")
   const rawProducts: Product[] = mounted ? getProducts() : []
-  
+
   const products = useMemo(() => {
     const map = new Map<string, Product>()
     rawProducts.forEach(p => map.set(p.id, p))
@@ -151,7 +151,10 @@ export default function DashboardPage() {
 
   const [cart, setCart] = useState<BranchInvoiceItem[]>([])
   const invoices = mounted ? getInvoicesByBranch(branchId).slice(0, 5) : []
-  const requests = mounted ? getBranchRequests().filter((r) => r.branchId === branchId).slice(0, 5) : []
+  const requests = mounted ? getBranchRequests()
+    .filter((r) => r.branchId === branchId)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 5) : []
   const issues = mounted ? getIssues().filter((i) => i.branchId === branchId).slice(0, 5) : []
 
   const [requestType, setRequestType] = useState<"supply" | "return">("return")
@@ -159,13 +162,13 @@ export default function DashboardPage() {
 
   async function confirmIssue(id: string) {
     if (!confirm("Confirm receipt? / هل أنت متأكد من استلام هذه الشحنة؟")) return
-    
+
     const updated = setIssueDelivered(id, "branch")
     if (updated) {
-        toast({ title: "Receipt Confirmed / تم تأكيد الاستلام", description: "Status updated successfully / تم تحديث حالة الشحنة بنجاح" })
-        setLastUpdate(Date.now())
+      toast({ title: "Receipt Confirmed / تم تأكيد الاستلام", description: "Status updated successfully / تم تحديث حالة الشحنة بنجاح" })
+      setLastUpdate(Date.now())
     } else {
-        toast({ title: "Error / خطأ", description: "Failed to update status / فشل تحديث الحالة", variant: "destructive" })
+      toast({ title: "Error / خطأ", description: "Failed to update status / فشل تحديث الحالة", variant: "destructive" })
     }
   }
 
@@ -252,31 +255,31 @@ export default function DashboardPage() {
     }
 
     const items = cart.map(item => ({
-        productId: item.productId,
-        productCode: item.productCode,
-        productName: item.productName,
-        quantity: item.quantity,
-        unit: item.unit,
-        unitPrice: item.unitPrice,
-        totalPrice: item.totalPrice,
-        image: item.image,
-        returnReason: item.returnReason
+      productId: item.productId,
+      productCode: item.productCode,
+      productName: item.productName,
+      quantity: item.quantity,
+      unit: item.unit,
+      unitPrice: item.unitPrice,
+      totalPrice: item.totalPrice,
+      image: item.image,
+      returnReason: item.returnReason
     }))
 
     const created = await addBranchRequest({
-        branchId: branch.id,
-        branchName: branch.name,
-        items: items as any,
-        type: requestType,
-        notes: requestNotes,
-        status: "submitted",
-        createdBy: "branch"
+      branchId: branch.id,
+      branchName: branch.name,
+      items: items as any,
+      type: requestType,
+      notes: requestNotes,
+      status: "submitted",
+      createdBy: "branch"
     })
-    
+
     toast({ title: "تم إرسال الطلب", description: "تم إرسال طلبك بنجاح" })
 
     if (requestType === 'return') {
-       generateBranchRequestPDF(created)
+      generateBranchRequestPDF(created)
     }
 
     setCart([])
@@ -294,26 +297,26 @@ export default function DashboardPage() {
   }
 
   if (loading) {
-     return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>
+    return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>
   }
 
   if (!branch) return (
     <div className="flex h-screen items-center justify-center flex-col gap-4">
-        <div className="text-xl font-bold">فرع غير موجود</div>
-        <div className="text-muted-foreground">معرف الفرع: {branchId}</div>
-        <div className="flex gap-2">
-            <Button onClick={handleForceRefresh} variant="default">
-               تحديث البيانات من السحابة
-            </Button>
-            <Button onClick={handleLogout} variant="destructive">
-              <LogOut className="w-4 h-4 ml-2" /> تسجيل خروج
-            </Button>
-        </div>
+      <div className="text-xl font-bold">فرع غير موجود</div>
+      <div className="text-muted-foreground">معرف الفرع: {branchId}</div>
+      <div className="flex gap-2">
+        <Button onClick={handleForceRefresh} variant="default">
+          تحديث البيانات من السحابة
+        </Button>
+        <Button onClick={handleLogout} variant="destructive">
+          <LogOut className="w-4 h-4 ml-2" /> تسجيل خروج
+        </Button>
+      </div>
     </div>
   )
-  
+
   if (!authorized) {
-    return null 
+    return null
   }
 
   return (
@@ -358,7 +361,7 @@ export default function DashboardPage() {
               <TabsTrigger value="invoice">Order System / نظام الطلبات</TabsTrigger>
               <TabsTrigger value="request">Return System / نظام المرتجعات</TabsTrigger>
             </TabsList>
-            
+
             <div className="mt-4 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
                 <div className="md:col-span-1">
@@ -455,10 +458,10 @@ export default function DashboardPage() {
                         </TableCell>
                         {activeTab === 'request' && requestType === 'return' && (
                           <TableCell>
-                            <Input 
-                              placeholder="Reason... / السبب..." 
-                              value={it.returnReason || ""} 
-                              onChange={(e) => updateReturnReason(idx, e.target.value)} 
+                            <Input
+                              placeholder="Reason... / السبب..."
+                              value={it.returnReason || ""}
+                              onChange={(e) => updateReturnReason(idx, e.target.value)}
                               className="w-40"
                             />
                           </TableCell>
@@ -470,7 +473,7 @@ export default function DashboardPage() {
                     ))}
                   </TableBody>
                 </Table>
-                
+
                 <div className="mt-4 pt-4 border-t">
                   <TabsContent value="invoice">
                     <div className="flex justify-between items-center">
@@ -506,10 +509,10 @@ export default function DashboardPage() {
 
       <Card>
         <CardHeader className="flex flex-row justify-between items-center">
-             <CardTitle>Tracking & Logs / المتابعة والسجلات</CardTitle>
-             <Button variant="ghost" size="sm" onClick={handleFactoryResetBranchRequests} className="text-red-500 hover:text-red-700 hover:bg-red-50">
-                <LogOut className="w-4 h-4 ml-2" /> Clear History / حذف السجل
-             </Button>
+          <CardTitle>Tracking & Logs / المتابعة والسجلات</CardTitle>
+          <Button variant="ghost" size="sm" onClick={handleFactoryResetBranchRequests} className="text-red-500 hover:text-red-700 hover:bg-red-50">
+            <LogOut className="w-4 h-4 ml-2" /> Clear History / حذف السجل
+          </Button>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="requests">
@@ -521,76 +524,76 @@ export default function DashboardPage() {
             <TabsContent value="requests" className="space-y-4 pt-4">
               <Table>
                 <TableHeader>
-                   <TableRow>
-                      <TableHead>Request No / رقم الطلب</TableHead>
-                      <TableHead>Type / النوع</TableHead>
-                      <TableHead>Status / الحالة</TableHead>
-                      <TableHead>Date / التاريخ</TableHead>
-                      <TableHead>Notes / ملاحظات</TableHead>
-                      <TableHead>Print / طباعة</TableHead>
-                   </TableRow>
+                  <TableRow>
+                    <TableHead>Request No / رقم الطلب</TableHead>
+                    <TableHead>Type / النوع</TableHead>
+                    <TableHead>Status / الحالة</TableHead>
+                    <TableHead>Date / التاريخ</TableHead>
+                    <TableHead>Notes / ملاحظات</TableHead>
+                    <TableHead>Print / طباعة</TableHead>
+                  </TableRow>
                 </TableHeader>
                 <TableBody>
-                   {requests.length === 0 ? <TableRow><TableCell colSpan={6} className="text-center">No Requests / لا توجد طلبات</TableCell></TableRow> : 
-                     requests.map(r => (
-                       <TableRow key={r.id}>
-                         <TableCell>{r.requestNumber || r.id.slice(0,8)}</TableCell>
-                         <TableCell>
-                            <Badge variant={r.type === 'return' ? 'destructive' : 'default'}>
-                               {r.type === 'return' ? 'Return / مرتجع' : 'Supply / توريد'}
-                            </Badge>
-                         </TableCell>
-                         <TableCell>
-                            <Badge variant={r.status === 'approved' ? 'default' : r.status === 'cancelled' ? 'destructive' : 'secondary'}>
-                               {r.status === 'submitted' ? 'Pending / قيد المراجعة' : r.status === 'approved' ? 'Approved / مقبول' : r.status === 'cancelled' ? 'Rejected / مرفوض' : r.status}
-                            </Badge>
-                         </TableCell>
-                         <TableCell>{new Date(r.createdAt).toLocaleDateString('ar-SA')}</TableCell>
-                         <TableCell>{r.notes}</TableCell>
-                         <TableCell>
-                            <Button size="icon" variant="ghost" onClick={() => generateBranchRequestPDF(r)}>
-                                <Printer className="w-4 h-4" />
-                            </Button>
-                         </TableCell>
-                       </TableRow>
-                     ))
-                   }
+                  {requests.length === 0 ? <TableRow><TableCell colSpan={6} className="text-center">No Requests / لا توجد طلبات</TableCell></TableRow> :
+                    requests.map(r => (
+                      <TableRow key={r.id}>
+                        <TableCell>{r.requestNumber || r.id.slice(0, 8)}</TableCell>
+                        <TableCell>
+                          <Badge variant={r.type === 'return' ? 'destructive' : 'default'}>
+                            {r.type === 'return' ? 'Return / مرتجع' : 'Supply / توريد'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={r.status === 'approved' ? 'default' : r.status === 'cancelled' ? 'destructive' : 'secondary'}>
+                            {r.status === 'submitted' ? 'Pending / قيد المراجعة' : r.status === 'approved' ? 'Approved / مقبول' : r.status === 'cancelled' ? 'Rejected / مرفوض' : r.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{new Date(r.createdAt).toLocaleDateString('ar-SA')}</TableCell>
+                        <TableCell>{r.notes}</TableCell>
+                        <TableCell>
+                          <Button size="icon" variant="ghost" onClick={() => generateBranchRequestPDF(r)}>
+                            <Printer className="w-4 h-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  }
                 </TableBody>
               </Table>
             </TabsContent>
             <TabsContent value="incoming" className="space-y-4 pt-4">
               <Table>
                 <TableHeader>
-                   <TableRow>
-                      <TableHead>Issue No / رقم الصرف</TableHead>
-                      <TableHead>Value / القيمة</TableHead>
-                      <TableHead>Status / الحالة</TableHead>
-                      <TableHead>Date / التاريخ</TableHead>
-                      <TableHead>Action / الإجراء</TableHead>
-                   </TableRow>
+                  <TableRow>
+                    <TableHead>Issue No / رقم الصرف</TableHead>
+                    <TableHead>Value / القيمة</TableHead>
+                    <TableHead>Status / الحالة</TableHead>
+                    <TableHead>Date / التاريخ</TableHead>
+                    <TableHead>Action / الإجراء</TableHead>
+                  </TableRow>
                 </TableHeader>
                 <TableBody>
-                   {issues.filter(i => !i.delivered).length === 0 ? <TableRow><TableCell colSpan={5} className="text-center">No Pending Shipments / لا توجد شحنات معلقة</TableCell></TableRow> : 
-                     issues.filter(i => !i.delivered).map(i => (
-                       <TableRow key={i.id}>
-                         <TableCell>{i.id.slice(0,8)}</TableCell>
-                         <TableCell>{i.totalValue.toFixed(2)}</TableCell>
-                         <TableCell><Badge variant="outline">On the way / في الطريق</Badge></TableCell>
-                         <TableCell>{new Date(i.createdAt).toLocaleDateString('ar-SA')}</TableCell>
-                         <TableCell>
-                            <Button size="sm" onClick={() => confirmIssue(i.id)}>
-                                <CheckCircle className="w-4 h-4 ml-2" />
-                                Confirm Receipt / تأكيد الاستلام
-                            </Button>
-                         </TableCell>
-                       </TableRow>
-                     ))
-                   }
+                  {issues.filter(i => !i.delivered).length === 0 ? <TableRow><TableCell colSpan={5} className="text-center">No Pending Shipments / لا توجد شحنات معلقة</TableCell></TableRow> :
+                    issues.filter(i => !i.delivered).map(i => (
+                      <TableRow key={i.id}>
+                        <TableCell>{i.id.slice(0, 8)}</TableCell>
+                        <TableCell>{i.totalValue.toFixed(2)}</TableCell>
+                        <TableCell><Badge variant="outline">On the way / في الطريق</Badge></TableCell>
+                        <TableCell>{new Date(i.createdAt).toLocaleDateString('ar-SA')}</TableCell>
+                        <TableCell>
+                          <Button size="sm" onClick={() => confirmIssue(i.id)}>
+                            <CheckCircle className="w-4 h-4 ml-2" />
+                            Confirm Receipt / تأكيد الاستلام
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  }
                 </TableBody>
               </Table>
             </TabsContent>
             <TabsContent value="invoices" className="pt-4">
-               <div className="text-muted-foreground">Issued Invoices Count: / عدد الفواتير المصدرة: {invoices.length}</div>
+              <div className="text-muted-foreground">Issued Invoices Count: / عدد الفواتير المصدرة: {invoices.length}</div>
             </TabsContent>
           </Tabs>
         </CardContent>

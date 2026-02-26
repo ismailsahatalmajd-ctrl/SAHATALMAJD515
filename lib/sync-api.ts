@@ -68,14 +68,22 @@ async function performFirebaseOp(collectionName: string, op: 'upsert' | 'delete'
     }
     const targetCollection = map[collectionName] || collectionName
 
+    // 🔥 Safety: Do not sync large binary images to Firestore collection
+    if (targetCollection === 'product_images' || targetCollection === 'productImages') {
+      console.warn(`[Sync] Skipping Firestore sync for ${targetCollection} (use Storage instead)`)
+      return true
+    }
+
     if (op === 'upsert') {
-      // Ensure ID
-      if (!data.id) throw new Error("Document must have ID")
+      // Ensure ID (Support productId fallback used by images/cached data)
+      const docId = data.id || data.productId
+      if (!docId) throw new Error("Document must have ID")
+
       // Remove undefined
       const cleanData = JSON.parse(JSON.stringify(data))
-      await setDoc(doc(firestore, targetCollection, data.id), cleanData, { merge: true })
+      await setDoc(doc(firestore, targetCollection, docId), cleanData, { merge: true })
     } else {
-      const idToDelete = data.id
+      const idToDelete = data.id || data.productId
       if (idToDelete) {
         await deleteDoc(doc(firestore, targetCollection, idToDelete))
       }

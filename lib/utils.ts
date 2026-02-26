@@ -120,22 +120,40 @@ export function formatEnglishNumber(value: number | string): string {
 }
 
 // Format currency with thousands separator and 2 decimal places (English numerals)
+// Format currency with thousands separator and dynamic decimal places
 export function formatCurrency(value: number | string): string {
   const num = typeof value === "number" ? value : Number(String(value).replace(/[^\d.-]/g, ""))
   if (Number.isNaN(num)) return "0.00"
+
+  // Dynamic precision: Use 2 decimals minimum, but allow up to 6 if needed for small values
+  // e.g. 1.00 -> 1.00
+  // e.g. 1.0005 -> 1.0005
+  // Check literal fraction length to avoid floating point weirdness if possible, but fallback to helpful max
+  const str = String(num);
+  const fractionPart = str.includes('.') ? str.split('.')[1] : '';
+  const neededDigits = fractionPart.length;
+  const maxDigits = Math.min(Math.max(2, neededDigits), 6);
+
   return new Intl.NumberFormat("en-US", {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: maxDigits,
     useGrouping: true // Add thousands separator
   }).format(num)
 }
 
-// Format number with thousands separator and NO decimal places (English numerals)
+// Format number with thousands separator and dynamic precision (up to 6 decimals)
+// Previously forced 0 decimals, now allows fractions for small units
 export function formatNumberWithSeparators(value: number | string): string {
   const num = typeof value === "number" ? value : Number(String(value).replace(/[^\d.-]/g, ""))
   if (Number.isNaN(num)) return "0"
+
+  const str = String(num);
+  const fractionPart = str.includes('.') ? str.split('.')[1] : '';
+  const maxDigits = Math.min(fractionPart.length, 6);
+
   return new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxDigits,
     useGrouping: true // Add thousands separator
   }).format(num)
 }

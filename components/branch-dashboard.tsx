@@ -236,19 +236,19 @@ export function BranchDashboard() {
       // For better performance with large datasets, we limit the result set.
       return await db.products
         .filter(p => {
-          return (
+          const qMatch =
             normalize(p.productName).includes(q) ||
             normalize(p.productCode).includes(q) ||
             normalize(p.itemNumber).includes(q) ||
-            (p.cartonBarcode && normalize(p.cartonBarcode).includes(q))
-          )
-        })
-        .filter(p => {
+            (p.cartonBarcode ? normalize(p.cartonBarcode).includes(q) : false);
+
+          if (!qMatch) return false;
+
           if (categoryFilter !== "all" && p.category !== categoryFilter) return false
           if (locationFilter !== "all" && p.location !== locationFilter) return false
           return true
         })
-        .limit(3000) // Increased limit to cover all products
+        .limit(3000)
         .toArray()
     } else {
       // If no search, just apply category/location filters
@@ -273,13 +273,25 @@ export function BranchDashboard() {
     if (cart.length === 0) return []
     return await db.products.where('id').anyOf(cart.map(c => c.productId)).toArray()
   }, [cart]) || []
-  // const allRequests = mounted ? getBranchRequests() : []
-  const invoices = (allInvoicesData || []).filter(i => i.branchId === branchId)
-  const requests = (allRequests || []).filter((r) => r.branchId === branchId)
-  const issues = (allIssuesData || []).filter((i) => i.branchId === branchId)
+  const normalizeBranch = (s: string) => (s || "").toLowerCase().trim()
+
+  const matchesBranch = (targetId: string, targetName?: string) => {
+    if (!branchId || !branch) return false;
+    // Main match by ID
+    if (targetId === branchId) return true;
+    // Fallback: match by Normalized Name (handles ID mismatch after sync/migration)
+    if (targetName && branch.name && normalizeBranch(targetName) === normalizeBranch(branch.name)) return true;
+    return false;
+  }
+
+  const invoices = (allInvoicesData as any[] || []).filter(i => matchesBranch(i.branchId, i.branchName)) as any[]
+  const requests = (allRequests as any[] || []).filter((r) => matchesBranch(r.branchId, r.branchName)) as any[]
+  const issues = (allIssuesData as any[] || []).filter((i) => matchesBranch(i.branchId, i.branchName)) as any[]
 
   const displayInvoices = invoices.slice(0, 50)
-  const displayRequests = requests.slice(0, 50)
+  const displayRequests = requests
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 50)
   const displayIssues = issues.slice(0, 50)
 
   const [requestType, setRequestType] = useState<"supply" | "return">("return")
@@ -1004,8 +1016,8 @@ export function BranchDashboard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {displayRequests.length === 0 ? <TableRow><TableCell colSpan={6} className="text-center">No Requests / لا توجد طلبات</TableCell></TableRow> :
-                    displayRequests.map(r => (
+                  {(displayRequests as any[]).length === 0 ? <TableRow><TableCell colSpan={6} className="text-center">No Requests / لا توجد طلبات</TableCell></TableRow> :
+                    (displayRequests as any[]).map(r => (
                       <TableRow key={r.id}>
                         <TableCell>{r.requestNumber || r.id.slice(0, 8)}</TableCell>
                         <TableCell>
@@ -1027,7 +1039,7 @@ export function BranchDashboard() {
                                     r.status === 'cancelled' ? 'Rejected / مرفوض' : r.status}
                           </Badge>
                         </TableCell>
-                        <TableCell>{new Date(r.createdAt).toLocaleDateString('en-GB')}</TableCell>
+                        <TableCell>{new Date(r.createdAt).toLocaleDateString('en-GB')} {new Date(r.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</TableCell>
                         <TableCell>{r.notes}</TableCell>
                         <TableCell>
                           <Button size="icon" variant="ghost" onClick={() => generateBranchRequestPDF(r)}>
@@ -1053,7 +1065,7 @@ export function BranchDashboard() {
                 <TableBody>
                   {(() => {
                     // Filter: Delivered (Incoming) OR Received (History)
-                    const shipments = displayIssues.filter(i => i.delivered || i.branchReceived);
+                    const shipments = (displayIssues as any[]).filter(i => i.delivered || i.branchReceived);
 
                     // Sort: Newest First (Descending) based on Received Date (if exists) OR Delivered Date
                     const sortedShipments = shipments.sort((a, b) => {
@@ -1129,10 +1141,10 @@ export function BranchDashboard() {
                                 View Invoice / عرض الفاتورة
                               </Button>
                               {(() => {
-                                const linkedReq = requests.find(r => r.id === i.requestId)
+                                const linkedReq = (requests as any[]).find(r => r.id === i.requestId)
                                 if (linkedReq) {
                                   return (
-                                    <Button size="sm" variant="ghost" onClick={() => generateBranchRequestPDF(linkedReq)} title="View Request / عرض الطلب">
+                                    <Button size="sm" variant="ghost" onClick={() => generateBranchRequestPDF(linkedReq as any)} title="View Request / عرض الطلب">
                                       <ClipboardList className="w-4 h-4 ml-2" />
                                       Request / الطلب
                                     </Button>

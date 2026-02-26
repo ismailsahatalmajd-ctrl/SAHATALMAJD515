@@ -149,7 +149,7 @@ export function ProductsTable({
   // I will skip declaring 'const [searchTerm, setSearchTerm]' and instead use specific names.
 
   const [turnoverFilter, setTurnoverFilter] = useState<"all" | "fast" | "normal" | "slow" | "stagnant" | "new">("all")
-  const [exportMode, setExportMode] = useState<"filtered" | "all">("filtered")
+  const [exportMode, setExportMode] = useState<"filtered" | "all" | "selected">("filtered")
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewSrc, setPreviewSrc] = useState("")
   const [previewTitle, setPreviewTitle] = useState("")
@@ -799,7 +799,10 @@ export function ProductsTable({
       ]
       const active = order.filter((k) => k !== 'actions' && (visibleColumns as any)[k])
       const headers = active.map((k) => getColumnLabel(k))
-      const dataset = exportMode === 'filtered' ? sortedProducts : products
+      const dataset = exportMode === 'selected'
+        ? products.filter(p => selectedIds.has(p.id))
+        : (exportMode === 'filtered' ? sortedProducts : products)
+
       // Pre-process rows to resolve images (async)
       const rows = await Promise.all(dataset.map(async (p) => {
         let imageData = p.image || ''
@@ -813,7 +816,7 @@ export function ProductsTable({
 
         return active.map((k) => {
           switch (k) {
-            case 'image': return imageData // Export actual base64/URL
+            case 'image': return imageData.startsWith('http') ? imageData : (imageData ? "Image (Base64)" : "")
             case 'productCode': return convertNumbersToEnglish(p.productCode)
             case 'itemNumber': return convertNumbersToEnglish(p.itemNumber)
             case 'productName': return p.productName
@@ -886,7 +889,7 @@ export function ProductsTable({
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
       const count = dataset.length
-      const modeKey = exportMode === 'filtered' ? "products.table.export.mode.filtered" : "products.table.export.mode.all"
+      const modeKey = exportMode === 'selected' ? "products.table.export.mode.selected" : (exportMode === 'filtered' ? "products.table.export.mode.filtered" : "products.table.export.mode.all")
       toast({
         title: getDualString("products.table.export.success"),
         description: getDualString("products.table.export.excelDesc", undefined, undefined, { count, mode: getDualString(modeKey) })
@@ -902,7 +905,9 @@ export function ProductsTable({
 
   const exportDimensionsCSV = () => {
     try {
-      const dataset = exportMode === 'filtered' ? sortedProducts : products
+      const dataset = exportMode === 'selected'
+        ? products.filter(p => selectedIds.has(p.id))
+        : (exportMode === 'filtered' ? sortedProducts : products)
       const headers = ['كود المنتج', 'اسم المنتج', 'الطول', 'العرض', 'الارتفاع', 'الوحدة']
       const rows = dataset.map((p) => {
         const L = p.cartonLength ?? ''
@@ -1163,11 +1168,17 @@ export function ProductsTable({
               <SelectContent>
                 <SelectItem value="filtered"><DualText k="products.export.filtered" /></SelectItem>
                 <SelectItem value="all"><DualText k="products.export.all" /></SelectItem>
+                <SelectItem value="selected" disabled={selectedIds.size === 0}>
+                  <DualText k="products.export.selected" fallback="المحدد فقط" /> ({selectedIds.size})
+                </SelectItem>
               </SelectContent>
             </Select>
 
             <Button variant="outline" size="sm" onClick={() => {
-              const targetProducts = exportMode === 'filtered' ? sortedProducts : products
+              const targetProducts = exportMode === 'selected'
+                ? products.filter(p => selectedIds.has(p.id))
+                : (exportMode === 'filtered' ? sortedProducts : products)
+
               const stats = {
                 totalProducts: targetProducts.length,
                 totalQuantity: targetProducts.reduce((acc, p) => acc + (Number(p.currentStock) || 0), 0),
@@ -1182,7 +1193,10 @@ export function ProductsTable({
                 viewMode: viewMode // Pass current view mode
               })
             }}
-              disabled={exportMode === 'filtered' ? sortedProducts.length === 0 : false}
+              disabled={
+                exportMode === 'filtered' ? sortedProducts.length === 0 :
+                  (exportMode === 'selected' ? selectedIds.size === 0 : products.length === 0)
+              }
             >
               <Printer className="ml-2 h-4 w-4" />
               <DualText k="products.export.printPdf" />
@@ -1204,11 +1218,17 @@ export function ProductsTable({
               )
             }
 
-            <Button variant="outline" size="sm" onClick={exportExcel} disabled={exportMode === 'filtered' ? sortedProducts.length === 0 : false}>
+            <Button variant="outline" size="sm" onClick={exportExcel} disabled={
+              exportMode === 'filtered' ? sortedProducts.length === 0 :
+                (exportMode === 'selected' ? selectedIds.size === 0 : products.length === 0)
+            }>
               <Download className="ml-2 h-4 w-4" />
               <DualText k="products.export.excel" />
             </Button>
-            <Button variant="outline" size="sm" onClick={exportDimensionsCSV} disabled={exportMode === 'filtered' ? sortedProducts.length === 0 : false}>
+            <Button variant="outline" size="sm" onClick={exportDimensionsCSV} disabled={
+              exportMode === 'filtered' ? sortedProducts.length === 0 :
+                (exportMode === 'selected' ? selectedIds.size === 0 : products.length === 0)
+            }>
               <Download className="ml-2 h-4 w-4" />
               <DualText k="products.export.dimensionsCsv" />
             </Button>
@@ -1466,7 +1486,7 @@ export function ProductsTable({
                                 if (cartons > 0) parts.push(`${cartons} ${cartonLabel}`)
                                 // Helper logic: if remainder is 0, we can omit it usually, or for clarity "5 Box + 0 Piece".
                                 // Usually "5 Box" is cleaner.
-                                if (remainder > 0) parts.push(`${remainder} ${unitLabel}`)
+                                if (remainder > 0) parts.push(`${formatNumberWithSeparators(remainder)} ${unitLabel}`)
 
                                 // If parts is empty (e.g. 0), generic format. But we checked numVal !== 0.
 
@@ -1735,6 +1755,9 @@ export function ProductsTable({
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-[90vw] max-h-[90vh] overflow-auto p-0">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Image Preview</DialogTitle>
+          </DialogHeader>
           <img src={previewSrc} alt="Preview" className="w-full h-auto object-contain" />
         </DialogContent>
       </Dialog>

@@ -90,16 +90,22 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
             const issues = await db.issues.where('productId').equals(product.id).toArray()
             const returns = await db.returns.where('productId').equals(product.id).toArray()
 
-            // حساب المجاميع
+            // حساب المجاميع من خلال البحث عن المنتج داخل كل عملية
             const totalPurchases = transactions
               .filter(t => t.type === 'purchase')
               .reduce((sum, t) => sum + (Number(t.quantity) || 0), 0)
 
-            const totalIssues = issues.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0)
+            const totalIssues = issues.reduce((sum, i) => {
+              const p = i.products?.find((pp: any) => String(pp.productId) === String(product.id))
+              return sum + (Number(p?.quantity) || 0)
+            }, 0)
 
-            const totalReturns = returns.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0)
+            const totalReturns = returns.reduce((sum, r) => {
+              const p = r.products?.find((pp: any) => String(pp.productId) === String(product.id))
+              return sum + (Number(p?.quantity) || 0)
+            }, 0)
 
-            // حساب الرصيد الحالي
+            // حساب الرصيد الحالي بناءً على المعادلة: ابتدائي + مشتريات + مرتجعات - مصروفات
             const currentStock = (Number(product.openingStock) || 0) + totalPurchases + totalReturns - totalIssues
 
             // تحديث البيانات مع القيم المحسوبة
@@ -191,95 +197,8 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
         return
       }
 
-      // Check for duplicates (Name, Code, ItemNumber)
-      // Ensure existingProducts is safe
-      const existingProducts = getProducts() || []
+      // Check for duplicates (Disabled by user request)
 
-      if (!product) { // Only check on creation, or we can check on edit too if code changed
-        const normName = normalize(formData.productName || "")
-        const normCode = normalize(formData.productCode || "")
-        const normItem = normalize(formData.itemNumber || "")
-
-        const duplicate = existingProducts.find(p => {
-          if (!p) return false
-          // Don't match self if editing (though we are in !product block)
-          const isNameMatch = normalize(p.productName || "") === normName
-          const isCodeMatch = normCode && normalize(p.productCode || "") === normCode
-          const isItemMatch = normItem && normalize(p.itemNumber || "") === normItem
-
-          const isCharacteristicsMatch = isNameMatch &&
-            normalize(p.category || "") === normalize(formData.category || "") &&
-            Number(p.price || 0) === Number(formData.price || 0) &&
-            normalize(p.unit || "") === normalize(formData.unit || "")
-
-          if (isCodeMatch || isItemMatch) return true
-          if (isCharacteristicsMatch) return true
-          if (isNameMatch && !isCharacteristicsMatch) {
-            // Name matches but other characteristics differ - warn but maybe allow?
-            // For now, strict on name match to avoid confusion
-            return true
-          }
-
-          return false
-        })
-
-        if (duplicate) {
-          toast({
-            title: getDualString("common.error"),
-            description: getDualString("productForm.error.duplicate.exists", undefined, undefined, { name: duplicate.productName, code: duplicate.productCode }),
-            variant: "destructive"
-          })
-          setIsSaving(false)
-          return
-        }
-      } else {
-        // Check duplicates on edit (excluding self)
-        const normName = normalize(formData.productName || "")
-        const normCode = normalize(formData.productCode || "")
-        const normItem = normalize(formData.itemNumber || "")
-
-        const duplicate = existingProducts.find(p => {
-          if (!p) return false
-          // Robust ID comparison (handle string/number mismatch)
-          if (product.id && p.id && String(p.id) === String(product.id)) return false
-
-          const isNameMatch = normalize(p.productName || "") === normName
-          const isCodeMatch = normCode && normalize(p.productCode || "") === normCode
-          const isItemMatch = normItem && normalize(p.itemNumber || "") === normItem
-
-          const isCharacteristicsMatch = isNameMatch &&
-            normalize(p.category || "") === normalize(formData.category || "") &&
-            Number(p.price || 0) === Number(formData.price || 0)
-
-          return isCodeMatch || isItemMatch || isCharacteristicsMatch || isNameMatch
-        })
-
-        if (duplicate) {
-          let k = "productForm.error.duplicate.nameExists"
-          let params: any = { name: formData.productName }
-
-          if (normalize(duplicate.productCode || "") === normCode) {
-            k = "productForm.error.duplicate.codeUsed"
-            params = { code: formData.productCode }
-          } else if (normalize(duplicate.itemNumber || "") === normItem) {
-            k = "productForm.error.duplicate.itemNumberUsed"
-            params = { item: formData.itemNumber }
-          } else if (normalize(duplicate.productName || "") === normName &&
-            normalize(duplicate.category || "") === normalize(formData.category || "") &&
-            Number(duplicate.price || 0) === Number(formData.price || 0)) {
-            k = "productForm.error.duplicate.characteristics"
-            params = {}
-          }
-
-          toast({
-            title: getDualString("productForm.error.duplicate.title"),
-            description: getDualString(k, undefined, undefined, params),
-            variant: "destructive"
-          })
-          setIsSaving(false)
-          return
-        }
-      }
 
       // Ensure quantityPerCarton is at least 1
       // Ensure quantityPerCarton is at least 1

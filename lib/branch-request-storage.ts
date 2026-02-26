@@ -20,7 +20,9 @@ function getAvailableQtyByProductCode(productCode: string): number {
   return p ? p.currentStock : 0
 }
 
-export function addBranchRequest(
+import { formatOrderNumber } from "./id-generator"
+
+export async function addBranchRequest(
   req: Omit<BranchRequest, "id" | "createdAt" | "updatedAt" | "history" | "requestNumber" | "status" | "chatMessages"> & { status?: BranchRequestStatus },
 ) {
   const requests = getBranchRequests()
@@ -32,9 +34,10 @@ export function addBranchRequest(
     availableQuantity: it.availableQuantity ?? getAvailableQtyByProductCode(it.productCode),
   }))
 
+  const prefix = req.type === 'return' ? "RN" : "OR"
   const newRequest: BranchRequest = {
     id: generateId(),
-    requestNumber: undefined,
+    requestNumber: await formatOrderNumber(req.branchId, prefix),
     branchId: req.branchId,
     branchName: req.branchName,
     items,

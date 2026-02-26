@@ -9,7 +9,7 @@ export function getBranchInvoices(): BranchInvoice[] {
 }
 
 export function saveBranchInvoices(invoices: BranchInvoice[]): void {
-  // Enforce limit: max 5 invoices per branch
+  // Enforce limit: max 50 invoices per branch (Increased from 5 to prevent data loss)
   const grouped = new Map<string, BranchInvoice[]>()
   invoices.forEach(inv => {
     if (!grouped.has(inv.branchId)) grouped.set(inv.branchId, [])
@@ -20,8 +20,8 @@ export function saveBranchInvoices(invoices: BranchInvoice[]): void {
   grouped.forEach((group) => {
     // Sort newest first
     group.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    // Keep top 5
-    const keep = group.slice(0, 5)
+    // Keep top 50
+    const keep = group.slice(0, 50)
     keptInvoices.push(...keep)
   })
 

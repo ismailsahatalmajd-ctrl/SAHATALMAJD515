@@ -332,24 +332,7 @@ export async function addProduct(product: Omit<Product, "id" | "createdAt" | "up
     // Check if ID exists (full product passed) or generate new
     const id = (product as Product).id || generateId()
 
-    // Prevent duplicates on creation (manual entry protection)
-    if (!(product as Product).id) {
-      const code = (product.productCode || "").trim()
-      const num = (product.itemNumber || "").trim()
-      if (code || num) {
-        const existing = store.cache.products.find(p =>
-          (code && p.productCode === code) || (num && p.itemNumber === num)
-        )
-        if (existing) {
-          console.warn(`Prevented duplicate creation for ${code || num}`)
-          // For now, we update the existing one to merge changes if it's a re-entry attempt?
-          // Or just throw? 
-          // User wants "Root Solution". Preventing duplicates is Root.
-          // Let's throw an error so the UI handles it (e.g. "Product exists").
-          throw new Error("يوجد منتج بنفس الكود أو الرقم مسبقاً")
-        }
-      }
-    }
+    // Prevent duplicates check removed as per user request (allow same code/number)
 
     // Optimization: Handle large images
     let image = product.image
@@ -677,7 +660,7 @@ export async function addTransaction(transaction: Omit<Transaction, "id" | "crea
         case "purchase":
           // Calculate Weighted Average Price (WAP)
           // Formula: ((CurrentStock * OldAvg) + (NewQty * NewPrice)) / (CurrentStock + NewQty)
-          const currentSysStock = (product.openingStock || 0) + (product.purchases || 0) - (product.issues || 0)
+          const currentSysStock = (product.openingStock || 0) + (product.purchases || 0) + (product.returns || 0) - (product.issues || 0)
           const oldAvg = Number(product.averagePrice || product.price || 0)
           const newQty = Number(transaction.quantity || 0)
           const newPrice = Number(transaction.unitPrice || 0)
@@ -695,12 +678,10 @@ export async function addTransaction(transaction: Omit<Transaction, "id" | "crea
             }
           }
 
-          quantityChange = transaction.quantity
           product.purchases = (product.purchases || 0) + transaction.quantity
           // DO NOT update inventoryCount for purchases - it's a physical count only
           break
         case "sale":
-          quantityChange = -transaction.quantity
           product.issues = (product.issues || 0) + transaction.quantity
           // DO NOT update inventoryCount for sales - it's a physical count only
           product.lastActivity = new Date().toISOString()
@@ -720,24 +701,29 @@ export async function addTransaction(transaction: Omit<Transaction, "id" | "crea
             const newTotalStock = currentStockForReturn + returnQty
 
             if (newTotalStock > 0) {
-              product.averagePrice = (oldStockValue + addedReturnValue) / newTotalStock
+              // Only update average price if we have a valid value to average with
+              if (returnValue > 0 && oldStockValue >= 0) {
+                product.averagePrice = (oldStockValue + addedReturnValue) / newTotalStock
+              }
             }
           }
 
-          quantityChange = transaction.quantity
           product.returns = (product.returns || 0) + transaction.quantity
           product.returnsValue = (product.returnsValue || 0) + (transaction.totalAmount || 0)
           break
         case "adjustment":
-          quantityChange = transaction.quantity
           // Adjustment is physical count validation - update only if explicitly needed
           // But keep it separate from transaction logic
+          // For adjustment, we usually want to set the text value, but simple transaction adding
+          // shouldn't forcibly reset stock unless it's a "Stocktake" type.
+          // Assuming "adjustment" just records it.
           break
       }
 
       // Save updated product
       product.averagePrice = isNaN(product.averagePrice) ? 0 : product.averagePrice
-      product.purchases = (Number(product.purchases) || 0) + quantityChange
+
+      // Removed incorrect global update: product.purchases = ... + quantityChange
 
       // Formula: currentStock = openingStock + purchases + returns - issues
       product.currentStock = (Number(product.openingStock) || 0) + (Number(product.purchases) || 0) + (Number(product.returns) || 0) - (Number(product.issues) || 0)
@@ -1147,6 +1133,8 @@ export async function updateIssue(id: string, updates: Partial<Issue>): Promise<
   return updatedIssue
 }
 
+import { formatInvoiceNumber, formatOrderNumber } from "./id-generator"
+
 export async function addIssue(issue: Omit<Issue, "id" | "createdAt">): Promise<Issue> {
   // [User Request] Ensure Issue Valuation uses Current Average Price at time of creation
   const products = await db.products.toArray()
@@ -1166,13 +1154,30 @@ export async function addIssue(issue: Omit<Issue, "id" | "createdAt">): Promise<
   const totalValue = updatedProducts.reduce((acc, p) => acc + p.totalPrice, 0)
 
   const issues = getIssues()
+  const id = generateId()
+  const now = new Date().toISOString()
+
+  // Generate codes
+  // Generate codes
+  // NOTE: We do NOT generate invoiceCode (IS) here.
+  // It will be generated when the user prints the issue (transforms Order -> Issue)
+  const invoiceCode = undefined // await formatInvoiceNumber("IS", issue.branchId)
+
+  // Use provided orderCode (if coming from a request) or generate new one
+  let orderCode = issue.orderCode
+  if (!orderCode) {
+    orderCode = await formatOrderNumber(issue.branchId)
+  }
+
   const newIssue: Issue = {
     ...issue,
+    id,
+    invoiceCode,
+    orderCode,
     products: updatedProducts,
     totalValue,
-    id: generateId(),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
     lastModifiedBy: getDeviceId()
   }
   issues.push(newIssue)
@@ -1384,10 +1389,14 @@ export function saveReturns(returns: Return[]) {
   notify('returns_change')
 }
 
-export async function addReturn(returnData: Omit<Return, "id" | "createdAt">): Promise<Return> {
+
+export async function addReturn(returnData: Omit<Return, "id" | "createdAt" | "updatedAt">): Promise<Return> {
+  const returnCode = await formatInvoiceNumber("RR", returnData.branchId || "MAIN")
+
   const newReturn: Return = {
     ...returnData,
     id: generateId(),
+    returnCode,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     lastModifiedBy: getDeviceId()

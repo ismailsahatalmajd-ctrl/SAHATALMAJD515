@@ -121,7 +121,7 @@ export class DataStore {
 
             // Safety timeout per table fetch (60s for large datasets)
             // Products table can be large, especially with images
-            const timeout = task.name === 'products' ? 90000 : 60000; // 90s for products, 60s for others
+            const timeout = task.name === 'products' ? 300000 : 60000; // 5 min for products
 
             const tableData = await Promise.race([
               task.query.toArray(),

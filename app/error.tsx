@@ -24,13 +24,35 @@ export default function Error({
       <p className="text-muted-foreground max-w-md">
         {error.message || "حدث خطأ غير متوقع أثناء تحميل الصفحة."}
       </p>
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={() => window.location.reload()}>
-          تحديث الصفحة
-        </Button>
-        <Button onClick={() => reset()}>
-          حاول مرة أخرى
-        </Button>
+      <div className="flex flex-col gap-4">
+        <div className="flex gap-2 justify-center">
+          <Button variant="outline" onClick={() => window.location.reload()}>
+            تحديث الصفحة
+          </Button>
+          <Button onClick={() => reset()}>
+            حاول مرة أخرى
+          </Button>
+        </div>
+
+        {/* 🛠️ SPECIAL FIX FOR FIRESTORE ERROR */}
+        {(error.message?.includes('firebase') || error.message?.includes('Te') || process.env.NODE_ENV === 'development') && (
+          <div className="mt-4 p-4 border border-amber-200 bg-amber-50 rounded-lg">
+            <p className="text-sm text-amber-800 mb-2 font- arabic">
+              تم اكتشاف خلل في قاعدة البيانات المحلية (Firestore Cache).
+              اضغط أدناه لإصلاح عميق لقاعدة البيانات وإعادة التشغيل.
+            </p>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={async () => {
+                const { resetPersistence } = await import('@/lib/firebase')
+                await resetPersistence()
+              }}
+            >
+              إصلاح عميق وإعادة تشغيل (Deep Fix & Reset)
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   )

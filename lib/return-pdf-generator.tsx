@@ -3,6 +3,7 @@ import { getProducts } from "@/lib/storage"
 import { formatArabicGregorianDate, formatArabicGregorianTime, formatEnglishNumber, getNumericInvoiceNumber, getSafeImageSrc } from "@/lib/utils"
 import { getInvoiceSettings } from "./invoice-settings-store"
 import { db } from "@/lib/db"
+import { formatInvoiceNumber } from "@/lib/id-generator"
 
 export async function generateReturnPDF(ret: Return) {
   const settings = await getInvoiceSettings()
@@ -16,6 +17,11 @@ export async function generateReturnPDF(ret: Return) {
 
   const dateStrEn = new Date(ret.createdAt).toLocaleDateString('en-GB')
   const timeStrEn = new Date(ret.createdAt).toLocaleTimeString('en-GB')
+
+  // Use existing returnCode (RR-...) for new returns.
+  // For old returns, fall back to the legacy returnNumber (or ID based).
+  // Do NOT auto-generate new RR codes for old records.
+  const displayCode = ret.returnCode || returnNumber
 
   // Resolve images from DB
   const productsWithImages = await Promise.all(ret.products.map(async (p) => {
@@ -119,9 +125,11 @@ export async function generateReturnPDF(ret: Return) {
   <div class="info-section">
     <div class="info-box">
       <h3>معلومات الفاتورة / Invoice Information</h3>
-      <p><strong>رقم فاتورة المرتجع / Return Invoice No:</strong> ${returnNumber}</p>
+      <p><strong>رقم إيصال المرتجع / Return Receipt No:</strong> <span style="font-weight:bold; font-size:14px;">${displayCode}</span></p>
+      ${ret.requestCode ? `<p><strong>رقم طلب المرتجع / Return Request No:</strong> ${ret.requestCode}</p>` : ''}
       <p><strong>التاريخ / Date:</strong> ${dateStr} - ${dateStrEn}</p>
       <p><strong>الوقت / Time:</strong> ${timeStr} - ${timeStrEn}</p>
+      <div style="margin-top:5px; text-align:center;"><svg id="barcode"></svg></div>
       ${ret.originalInvoiceNumber ? `<p><strong>رقم الفاتورة الأصلية / Original Invoice No:</strong> ${ret.originalInvoiceNumber}</p>` : ""}
     </div>
     <div class="info-box">
@@ -205,11 +213,22 @@ export async function generateReturnPDF(ret: Return) {
 
   const printWindow = window.open("", "_blank")
   if (!printWindow) return
-  printWindow.document.write(pdfContent)
-  printWindow.document.close()
-  printWindow.focus()
   // Delay print to ensure resources load
-  setTimeout(() => {
-    printWindow.print()
-  }, 300)
+  printWindow.document.write('<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.0/dist/JsBarcode.all.min.js"><\/script>');
+  printWindow.document.write(`
+    <script>
+      window.onload = function() {
+        try {
+            JsBarcode("#barcode", "${displayCode}", {
+                format: "CODE128",
+                width: 1.5,
+                height: 40,
+                displayValue: false
+            });
+        } catch(e) { console.error(e); }
+        setTimeout(() => { window.print(); }, 500);
+      }
+    </script>
+  `);
+  printWindow.document.close();
 }

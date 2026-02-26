@@ -1,6 +1,17 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { initializeFirestore, getFirestore, enableMultiTabIndexedDbPersistence, disableNetwork, enableNetwork } from "firebase/firestore";
+import {
+    initializeFirestore,
+    getFirestore,
+    enableMultiTabIndexedDbPersistence,
+    disableNetwork,
+    enableNetwork,
+    terminate,
+    clearIndexedDbPersistence,
+    Firestore,
+    Timestamp
+} from "firebase/firestore";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
     apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyCdVt4ykUgUNHE5ggUZYeWqQjzXyIg6uEU",
@@ -14,13 +25,11 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-import { Firestore } from "firebase/firestore";
-
 // Initialize Firestore
 let db: Firestore;
 try {
     db = initializeFirestore(app, {
-        // experimentalForceLongPolling: true, // Reduced overhead
+        experimentalForceLongPolling: true,
     });
     console.log("🔥 Firebase Initialized");
 } catch (e) {
@@ -29,30 +38,49 @@ try {
 
 const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+const storage = getStorage(app);
 
 let isPersistenceEnabled = false;
 
 export const enableOfflinePersistence = async () => {
     if (typeof window !== 'undefined' && !isPersistenceEnabled) {
         try {
-            // Enable Multi-Tab Persistence (Allow sync across multiple browser tabs)
             await enableMultiTabIndexedDbPersistence(db);
             isPersistenceEnabled = true;
             console.log("✅ Firebase Multi-Tab Persistence Enabled");
         } catch (err: any) {
             if (err.code == 'failed-precondition') {
-                console.warn("⚠️ Persistence failed: Multiple tabs already active with standard persistence.");
+                console.warn("⚠️ Persistence failed: Multiple tabs already active.");
             } else if (err.code == 'unimplemented') {
                 console.warn("⚠️ Persistence failed: Browser not supported.");
             } else {
-                console.warn("⚠️ Persistence warning:", err);
+                console.error("⚠️ Persistence FATAL Error:", err);
+
+                // 🛠️ AUTO-FIX FOR DEVELOPMENT:
+                if (process.env.NODE_ENV === 'development') {
+                    console.log("🛠️ Dev Mode: Attempting to clear corrupted Persistence...");
+                    try {
+                        await terminate(db);
+                        await clearIndexedDbPersistence(db);
+                        console.log("✨ Persistence cleared successfully. Please refresh the page.");
+                    } catch (clearErr) {
+                        console.error("Failed to clear persistence:", clearErr);
+                    }
+                }
             }
         }
     }
 }
 
-import { getStorage } from "firebase/storage";
-
-const storage = getStorage(app);
+export const resetPersistence = async () => {
+    if (typeof window === 'undefined') return;
+    try {
+        await terminate(db);
+        await clearIndexedDbPersistence(db);
+        window.location.reload();
+    } catch (e) {
+        console.error("Persistence reset failed", e);
+    }
+}
 
 export { app, db, auth, storage };

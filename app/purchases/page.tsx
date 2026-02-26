@@ -181,7 +181,7 @@ export default function PurchasesPage() {
       })
     } else {
       // Local
-      const newPurchase = addTransaction({
+      await addTransaction({
         productId: formData.productId,
         productName: product.productName,
         type: "purchase",
@@ -190,16 +190,8 @@ export default function PurchasesPage() {
         totalAmount: formData.quantity * formData.unitPrice,
         notes: formData.notes,
       })
-
-      // Update product
-      const newAveragePrice = (product.averagePrice * product.currentStock + formData.unitPrice * formData.quantity) / (product.currentStock + formData.quantity)
-      const newCurrentStock = product.currentStock + formData.quantity
-      updateProduct(product.id, {
-        purchases: product.purchases + formData.quantity,
-        currentStock: newCurrentStock,
-        averagePrice: newAveragePrice,
-        currentStockValue: newCurrentStock * newAveragePrice,
-      })
+      // NOTE: addTransaction inside storage.ts already handles updating the product's
+      // purchases count, average price, and current stock. We do NOT need to call updateProduct here.
 
     }
 

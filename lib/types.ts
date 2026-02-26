@@ -100,6 +100,7 @@ export interface Branch {
   manager?: string
   phone?: string
   contactEmail?: string
+  code?: string // Branch Code (e.g. F01)
   // تجزئة رمز الدخول للفرع (SHA-256) - legacy
   accessCodeHash?: string
   // Branch Type: main (Owner/Admin) or regular or user
@@ -247,7 +248,9 @@ export interface Location {
 
 export interface Issue {
   id: string
-  invoiceNumber?: string
+  invoiceNumber?: string // Legacy or short number
+  invoiceCode?: string // New Format: IS-B01-0001-0010
+  orderCode?: string // New Format: OR-B01-0020
   branchId: string
   branchName: string
   products: IssueProduct[]
@@ -290,6 +293,8 @@ export interface IssueProduct {
 export interface Return {
   id: string
   returnNumber?: string
+  returnCode?: string // New Format: RR-B01-0001 (Warehouse Receipt)
+  requestCode?: string // New Format: RN-B01-0001 (Branch Request)
   // مصدر المرتجع: عملية صرف (عودة إلى المخزون) أو عملية شراء (عودة إلى المورد)
   sourceType?: "issue" | "purchase"
   // ربط المرتجع بسجل مصدر محدد

@@ -8,7 +8,13 @@ import { getSafeImageSrc } from "@/lib/utils"
 // Warehouse Assembly Invoice (Printable)
 export async function generateAssemblyPDF(
   input: Issue | Issue[],
-  settingsOverride?: { mode: 'merged' | 'detailed', showImages: boolean, showPrice: boolean, showTotal: boolean }
+  settingsOverride?: {
+    mode: 'merged' | 'detailed',
+    showImages: boolean,
+    showPrice: boolean,
+    showTotal: boolean,
+    sortByItemNumber?: boolean
+  }
 ) {
   const w = window.open("", "_blank")
   if (!w) return
@@ -27,7 +33,8 @@ export async function generateAssemblyPDF(
     mode: 'detailed',
     showImages: true,
     showPrice: false,
-    showTotal: false
+    showTotal: false,
+    sortByItemNumber: false
   }
 
   const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/sahat-almajd-logo.svg` : '/sahat-almajd-logo.svg'
@@ -59,8 +66,9 @@ export async function generateAssemblyPDF(
       itemNumber: dbProductsMap.get(p.productId)?.itemNumber || ""
     }));
 
-    // Sort by Item Number
-    mergedList.sort((a, b) => (a.itemNumber || "").localeCompare(b.itemNumber || "", undefined, { numeric: true, sensitivity: 'base' }));
+    if (assemblySettings.sortByItemNumber) {
+      mergedList.sort((a, b) => (a.itemNumber || "").localeCompare(b.itemNumber || "", undefined, { numeric: true }));
+    }
 
     groupedData = [{ branchName: "All Branches / جميع الفروع", products: mergedList }]
   } else {
@@ -87,9 +95,10 @@ export async function generateAssemblyPDF(
     }
 
     groupedData = Array.from(branchMap.entries()).map(([k, v]) => {
-      // Sort within each branch
-      const sortedInBranch = [...v].sort((a, b) => (a.itemNumber || "").localeCompare(b.itemNumber || "", undefined, { numeric: true, sensitivity: 'base' }));
-      return { branchName: k, products: sortedInBranch };
+      if (assemblySettings.sortByItemNumber) {
+        v.sort((a, b) => (a.itemNumber || "").localeCompare(b.itemNumber || "", undefined, { numeric: true }));
+      }
+      return { branchName: k, products: v };
     });
   }
 
@@ -135,12 +144,18 @@ export async function generateAssemblyPDF(
 
   groupedData.forEach(group => {
     // Section Header (If Detailed and > 1 branch)
+    const totalCols = 9
+      + (assemblySettings.sortByItemNumber ? 1 : 0)
+      + (assemblySettings.showImages ? 1 : 0)
+      + (assemblySettings.showPrice ? 1 : 0)
+      + (assemblySettings.showTotal ? 1 : 0);
+
     const showGroupHeader = !isMerged && groupedData.length > 1
 
     if (showGroupHeader) {
       tableRowsHtml += `
         <tr class="group-header">
-          <td colspan="${assemblySettings.showImages ? 12 : 11}" style="background:#e0f2fe; color:#0369a1; font-weight:bold; text-align:right; font-size:14px; padding:6px 12px; border-top:2px solid #bae6fd;">
+          <td colspan="${totalCols}" style="background:#e0f2fe; color:#0369a1; font-weight:bold; text-align:right; font-size:14px; padding:6px 12px; border-top:2px solid #bae6fd;">
             فرع: ${group.branchName}
           </td>
         </tr>
@@ -160,6 +175,7 @@ export async function generateAssemblyPDF(
       tableRowsHtml += `
        <tr class="item-row">
          <td class="row-index">${globalIndex++}</td>
+         ${assemblySettings.sortByItemNumber ? `<td style="text-align:center; font-weight:bold; color:#2563eb; width:40px;">${p.itemNumber || '-'}</td>` : ''}
          ${assemblySettings.showImages ? `<td class="image-cell"><img src="${imgSrc}" alt="" onerror="this.style.display='none'"/></td>` : ''}
          <td class="code-cell">${p.productCode || '-'}</td>
          <td class="name-cell">
@@ -263,6 +279,7 @@ export async function generateAssemblyPDF(
       <thead>
         <tr>
           <th>#</th>
+          ${assemblySettings.sortByItemNumber ? '<th>التسلسل<br/><span style="font-weight:normal;font-size:9px">No.</span></th>' : ''}
           ${assemblySettings.showImages ? '<th>صورة<br/><span style="font-weight:normal;font-size:9px">Image</span></th>' : ''}
           <th>كود<br/><span style="font-weight:normal;font-size:9px">Code</span></th>
           <th style="width:35%;">المنتج<br/><span style="font-weight:normal;font-size:9px">Product</span></th>

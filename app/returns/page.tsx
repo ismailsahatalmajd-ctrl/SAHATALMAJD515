@@ -20,6 +20,8 @@ import { Search, Undo2, FileText, Download, Printer } from "lucide-react"
 import { generateReturnPDF } from "@/lib/return-pdf-generator"
 import { generateBranchRequestPDF } from "@/lib/branch-request-pdf-generator"
 import { formatArabicGregorianDate, formatArabicGregorianDateTime, downloadJSON } from "@/lib/utils"
+// Import ID generator for returns
+import { formatInvoiceNumber } from "@/lib/id-generator"
 import { useRef } from "react"
 import { useI18n } from "@/components/language-provider"
 import { useInvoiceSettings } from "@/lib/invoice-settings-store"
@@ -116,6 +118,7 @@ export default function ReturnsPage() {
     const q = returnsSearchTerm.toLowerCase()
     return returns.filter(r =>
       r.id.toLowerCase().includes(q) ||
+      (r.returnCode || "").toLowerCase().includes(q) ||
       (r.branchName || "").toLowerCase().includes(q) ||
       (r.customerPhone || "").toLowerCase().includes(q) ||
       (r.originalInvoiceNumber || "").toLowerCase().includes(q)
@@ -304,9 +307,13 @@ export default function ReturnsPage() {
 
       const totalValue = returnProducts.reduce((sum, x) => sum + x.totalPrice, 0)
       const returnId = Date.now().toString()
+      // Generate Return Receipt Code (Global)
+      const returnCode = await formatInvoiceNumber("RR", req.branchId)
 
       const newReturn = {
         id: returnId,
+        returnCode, // RR-B01-XXXX-XXXXX
+        requestCode: req.requestNumber, // Link to Request RN-B01-XXXX
         branchId: req.branchId,
         branchName: req.branchName,
         products: returnProducts,
@@ -468,6 +475,8 @@ export default function ReturnsPage() {
                   <Table className="table-fixed">
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-[120px] border-x text-center font-bold text-blue-600">رقم العملية (Op No)</TableHead>
+                        <TableHead className="w-[150px] border-x text-center font-bold">نوع العملية (Type)</TableHead>
                         <TableHead className="w-[100px] border-x text-center"><DualText k="returns.request.branch" fallback="الفرع" /></TableHead>
                         <TableHead className="w-[80px] border-x text-center"><DualText k="returns.request.itemsCount" fallback="عدد العناصر" /></TableHead>
                         <TableHead className="w-[150px] border-x text-center"><DualText k="returns.request.notes" fallback="ملاحظات" /></TableHead>
@@ -485,6 +494,10 @@ export default function ReturnsPage() {
                       ) : (
                         branchReturnRequests.map((req) => (
                           <TableRow key={req.id}>
+                            <TableCell className="font-medium border-x text-center font-mono text-blue-600" dir="ltr">{req.requestNumber || req.id.slice(0, 8)}</TableCell>
+                            <TableCell className="border-x text-center">
+                              <Badge variant="secondary">طلب مرتجع (Return Request)</Badge>
+                            </TableCell>
                             <TableCell className="font-medium border-x text-center">{req.branchName}</TableCell>
                             <TableCell className="border-x text-center">{req.items.length}</TableCell>
                             <TableCell className="text-muted-foreground border-x text-center">{req.notes || "-"}</TableCell>
@@ -765,7 +778,8 @@ export default function ReturnsPage() {
                 <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[100px] border-x text-center"><DualText k="returns.history.columns.returnNo" /></TableHead>
+                      <TableHead className="w-[150px] border-x text-center font-bold text-blue-600">رقم العملية (Op No)</TableHead>
+                      <TableHead className="w-[120px] border-x text-center font-bold">نوع العملية (Type)</TableHead>
                       <TableHead className="w-[100px] border-x text-center"><DualText k="returns.history.columns.source" /></TableHead>
                       <TableHead className="w-[120px] border-x text-center"><DualText k="returns.history.columns.phone" /></TableHead>
                       <TableHead className="w-[120px] border-x text-center"><DualText k="returns.history.columns.originalInvoice" /></TableHead>
@@ -787,7 +801,10 @@ export default function ReturnsPage() {
                     ) : (
                       filteredReturns.map((r) => (
                         <TableRow key={r.id}>
-                          <TableCell className="font-medium border-x text-center">#{r.id.slice(-6)}</TableCell>
+                          <TableCell className="font-medium border-x text-center font-mono text-blue-600" dir="ltr">{r.returnCode || r.returnNumber || `#${r.id.slice(-6)}`}</TableCell>
+                          <TableCell className="border-x text-center">
+                            <Badge variant="outline">استلام مرتجع (Return Receipt)</Badge>
+                          </TableCell>
                           <TableCell className="border-x text-center">
                             <Badge variant="outline">{r.sourceType === "purchase" ? <DualText k="purchases.title" /> : <DualText k="issues.issueProducts" />}</Badge>
                           </TableCell>

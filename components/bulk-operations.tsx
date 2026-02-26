@@ -17,7 +17,7 @@ import {
 } from "@/lib/storage"
 import { deleteAllProductsApi } from "@/lib/sync-api"
 import { performFactoryReset } from "@/lib/system-reset"
-import { syncProduct, syncProductImageToCloud, stopRealtimeSync, startRealtimeSync } from "@/lib/firebase-sync-engine"
+import { syncProduct, syncProductImageToCloud, stopRealtimeSync, startRealtimeSync, syncProductsBatch, syncProductImagesBatch } from "@/lib/firebase-sync-engine"
 import { db } from "@/lib/db"
 import { useToast } from "@/hooks/use-toast"
 import { getApiUrl } from "@/lib/api"
@@ -71,51 +71,6 @@ const asyncPool = async <T, R>(concurrency: number, iterable: T[], iteratorFn: (
     }
   }
   return Promise.all(ret)
-}
-
-export const parseExcelData = async (
-  data: string[][],
-  imagesMap: Record<string, string> = {},
-  mappingOverride?: Record<string, number>
-): Promise<Product[]> => {
-  const products: Product[] = []
-  const mapping = mappingOverride || {}
-
-  for (let i = 1; i < data.length; i++) {
-    const row = data[i]
-    if (!row || row.length === 0) continue
-
-    const productName = String(row[mapping['productName'] ?? -1] || '').trim()
-    if (!productName) continue
-
-    products.push({
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      productName,
-      productCode: String(row[mapping['productCode'] ?? -1] || '').trim(),
-      itemNumber: String(row[mapping['itemNumber'] ?? -1] || '').trim(),
-      category: String(row[mapping['category'] ?? -1] || '').trim(),
-      location: String(row[mapping['location'] ?? -1] || '').trim(),
-      unit: String(row[mapping['unit'] ?? -1] || '').trim(),
-      price: Number(row[mapping['price'] ?? -1]) || 0,
-      averagePrice: Number(row[mapping['price'] ?? -1]) || 0,
-      quantity: Number(row[mapping['currentStock'] ?? -1]) || 0,
-      currentStock: Number(row[mapping['currentStock'] ?? -1]) || 0,
-      openingStock: Number(row[mapping['openingStock'] ?? -1]) || 0,
-      purchases: 0,
-      issues: 0,
-      returns: 0,
-      returnsValue: 0,
-      inventoryCount: 0,
-      difference: 0,
-      currentStockValue: 0,
-      quantityPerCarton: Number(row[mapping['quantityPerCarton'] ?? -1]) || 1,
-      image: imagesMap[i] || String(row[mapping['image'] ?? -1] || '').trim(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      lastActivity: new Date().toISOString()
-    } as any as Product)
-  }
-  return products
 }
 
 interface BulkOperationsProps {
@@ -310,6 +265,10 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
     { key: 'averagePrice', label: 'متوسط السعر', k: 'common.avgPrice', required: false, type: 'number' },
     { key: 'currentStockValue', label: 'قيمة المخزون الحالي', k: 'products.columns.currentStockValue', required: false, type: 'number' },
     { key: 'issuesValue', label: 'قيمة المصروفات', k: 'products.columns.issuesValue', required: false, type: 'number' },
+    { key: 'cartonLength', label: 'طول الكرتون', k: 'products.columns.cartonLength', required: false, type: 'number' },
+    { key: 'cartonWidth', label: 'عرض الكرتون', k: 'products.columns.cartonWidth', required: false, type: 'number' },
+    { key: 'cartonHeight', label: 'ارتفاع الكرتون', k: 'products.columns.cartonHeight', required: false, type: 'number' },
+    { key: 'cartonBarcode', label: 'باركود الكرتون', k: 'products.columns.cartonBarcode', required: false, type: 'text' },
     { key: 'image', label: 'الصورة', k: 'common.image', required: false, type: 'text' },
   ]
 
@@ -355,6 +314,10 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       averagePrice: find(["متوسط السعر", "average price", "avg cost", "avg price"]),
       currentStockValue: find(["قيمة المخزون الحالي", "current stock value", "stock value", "total value", "اجمالي القيمة"]),
       issuesValue: find(["قيمة المصروفات", "issues value", "sales value"]),
+      cartonLength: find(["طول الكرتون", "carton length", "length", "الطول"]),
+      cartonWidth: find(["عرض الكرتون", "carton width", "width", "العرض"]),
+      cartonHeight: find(["ارتفاع الكرتون", "carton height", "height", "الارتفاع"]),
+      cartonBarcode: find(["باركود الكرتون", "carton barcode", "c.barcode", "باركود ك"]),
       image: find(["الصورة", "image", "img", "photo", "pic", "url"]),
     } as any
   }
@@ -764,7 +727,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
         const imagesWs = workbook.addWorksheet(imagesSheetName)
         imagesWs.addRow(['id', 'seq', 'chunk'])
         worksheet.columns = headers.map((h, idx) => ({ header: h, key: `col_${idx}`, width: [15, 15, 30, 15, 15, 10, 12, 15, 12, 12, 10, 15, 10, 12, 12, 18, 15, 22][idx] || 15 }))
-        worksheet.addRow(headers)
+        // Removed worksheet.addRow(headers) to prevent duplicate header row
 
         const targetMime = imageExportMode === 'jpeg' ? 'image/jpeg' : 'image/png'
         const targetExt = imageExportMode === 'jpeg' ? 'jpeg' : 'png'
@@ -824,7 +787,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
               const targetRow = i + 2 // +1 للرأس، +1 لبدء العد من 1
               worksheet.getRow(targetRow).height = 60
               worksheet.addImage(imageId, {
-                tl: { col: 16, row: targetRow - 1 },
+                tl: { col: 17, row: targetRow - 1 }, // Changed col from 16 to 17 (Image column)
                 ext: { width: 80, height: 60 },
               })
 
@@ -972,6 +935,10 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
     }
   }
 
+  const safeFloat = (num: number): number => {
+    return Math.round(num * 1000000) / 1000000
+  }
+
   const parseArabicNum = (val: any): number => {
     const s = String(val ?? "").trim()
     if (!s) return 0
@@ -1027,6 +994,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
         difference: findColumn(["الفرق", "difference"]),
         price: findColumn(["السعر", "price"]),
         image: findColumn(["الصورة", "image"]),
+        cartonBarcode: findColumn(["باركود الكرتون", "carton barcode", "c.barcode", "باركود ك"]),
       }
     }
 
@@ -1056,7 +1024,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       if (colMap.inventoryCount >= 0) {
         inventoryCount = parseArabicNum(row[colMap.inventoryCount])
       } else {
-        inventoryCount = openingStock + purchases - issues
+        inventoryCount = safeFloat(openingStock + purchases - issues)
       }
 
       const price = colMap.price >= 0 ? parseArabicNum(row[colMap.price]) : 0
@@ -1066,6 +1034,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       const cartonHeight = colMap.cartonHeight >= 0 ? Math.max(0, parseArabicNum(row[colMap.cartonHeight])) : undefined
       const cartonUnit = colMap.cartonUnit >= 0 ? String(row[colMap.cartonUnit] || "").trim() : undefined
       const quantityPerCarton = colMap.quantityPerCarton >= 0 ? Math.max(1, parseArabicNum(row[colMap.quantityPerCarton])) : 1
+      const cartonBarcode = colMap.cartonBarcode >= 0 ? String(row[colMap.cartonBarcode] || "").trim() : undefined
 
       let image: string | undefined = undefined
       if (colMap.image >= 0 && row[colMap.image]) {
@@ -1096,14 +1065,14 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
         currentStock = parseArabicNum(row[colMap.currentStock])
       } else {
         // Fallback to formula
-        currentStock = openingStock + purchases - issues
+        currentStock = safeFloat(openingStock + purchases - issues)
       }
 
       let difference = 0
       if (colMap.difference >= 0 && row[colMap.difference] !== undefined && row[colMap.difference] !== null) {
         difference = parseArabicNum(row[colMap.difference])
       } else {
-        difference = currentStock - inventoryCount
+        difference = safeFloat(currentStock - inventoryCount)
       }
 
       const averagePrice = price
@@ -1113,10 +1082,10 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       if (colMap.currentStockValue >= 0 && row[colMap.currentStockValue] !== undefined && row[colMap.currentStockValue] !== null) {
         currentStockValue = parseArabicNum(row[colMap.currentStockValue])
       } else {
-        currentStockValue = currentStock * averagePrice
+        currentStockValue = safeFloat(currentStock * averagePrice)
       }
 
-      const issuesValue = issues * averagePrice
+      const issuesValue = safeFloat(issues * averagePrice)
 
       products.push({
         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -1143,6 +1112,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
         cartonHeight,
         cartonUnit,
         quantityPerCarton,
+        cartonBarcode,
         returns: 0,
         returnsValue: 0,
         createdAt: new Date().toISOString(),
@@ -1609,6 +1579,11 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                         saveMappingPref(mappingSignature, columnMapping)
                         setMappingDialogOpen(false)
                         setIsImporting(true)
+
+                        // 🛑 STOP REALTIME SYNC DURING BULK PROCESS
+                        // This prevents old cloud data from overwriting new local imports during calculation
+                        stopRealtimeSync()
+
                         setConversionProgress(0)
                         setConversionStatus(getDualString("bulk.status.processing"))
 
@@ -1644,12 +1619,29 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
 
                           toast({ title: "نتيجة التحليل (Analysis Result)", description: `تم العثور على ${importedProducts.length} منتج من أصل ${importAllRows.length - 1} صف بيانات (Found ${importedProducts.length} products from ${importAllRows.length - 1} rows)` })
 
-                          setConversionStatus(t("bulk.status.convertImages"))
+                          // 🛡️ IMAGE GUARD: Only process images if the COLUMN is mapped AND the USER selected it for update
+                          const isImageColumnMapped = columnMapping['image'] !== undefined && columnMapping['image'] !== -1
+                          const isImageUpdate = updateFields.includes('image') && isImageColumnMapped
+
+                          setConversionStatus(isImageUpdate ? t("bulk.status.convertImages") : getDualString("bulk.status.processing"))
+
+                          // Optimization: Prepare lookup to check matches BEFORE converting images
+                          const dbProducts = getProducts()
+                          const matchLookup = new Set(dbProducts.map(p => String(p[matchField as keyof Product] || '').trim().toLowerCase()))
+
                           let completed = 0
+                          let lastUpdate = Date.now()
                           const CONCURRENCY = 3
                           const productsWithImages = await asyncPool(CONCURRENCY, importedProducts, async (product: any) => {
                             let out = product
-                            if (product.image && (product.image.startsWith('http://') || product.image.startsWith('https://'))) {
+
+                            // Check if we should convert (Skip if it's an Existing Product update AND we aren't updating images)
+                            let shouldConvert = isImageUpdate
+                            if (importMode === 'update' && !isImageUpdate) {
+                              shouldConvert = false
+                            }
+
+                            if (shouldConvert && product.image && (product.image.startsWith('http://') || product.image.startsWith('https://'))) {
                               const base64Image = await convertImageToBase64(product.image)
                               if (base64Image) {
                                 out = { ...product, image: base64Image }
@@ -1659,15 +1651,29 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                               }
                             }
                             completed++
-                            if (completed % 10 === 0 || completed === importedProducts.length) {
+
+                            const now = Date.now()
+                            if (now - lastUpdate > 100 || completed === importedProducts.length) {
+                              lastUpdate = now
                               const pct = Math.round((completed / (importedProducts.length || 1)) * 100)
                               setConversionProgress(pct)
-                              setConversionStatus(
-                                getDualString("bulk.status.convertImagesProgress", undefined, undefined, {
-                                  completed: String(completed),
-                                  total: String(importedProducts.length)
-                                })
-                              )
+
+                              // 🛠️ FIX UI STATUS: Don't mention images if not updating them
+                              if (isImageUpdate) {
+                                setConversionStatus(
+                                  getDualString("bulk.status.convertImagesProgress", undefined, undefined, {
+                                    completed: String(completed),
+                                    total: String(importedProducts.length)
+                                  })
+                                )
+                              } else {
+                                setConversionStatus(
+                                  getDualString("bulk.status.processingProgress", undefined, "جاري المعالجة... ({completed}/{total})", {
+                                    completed: String(completed),
+                                    total: String(importedProducts.length)
+                                  })
+                                )
+                              }
                             }
                             return out
                           })
@@ -1679,35 +1685,103 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                           if (importMode === 'update') {
                             setConversionStatus("جاري مطابقة وتحديث البيانات...")
                             const updatedList = [...existingProducts]
+                            const usedTargetIndices = new Set<number>()
 
                             productsWithImages.forEach((newP: any) => {
                               const rowIndex = newP._originalRowIndex
                               let targetIndex = -1
 
-                              // 1. الربط اليدوي أولاً (له الأولوية)
+                              // 1. الربط اليدوي أولاً (له الأولوية القصوى)
                               if (manualMappings[rowIndex]) {
-                                targetIndex = updatedList.findIndex(p => p.id === manualMappings[rowIndex])
+                                targetIndex = updatedList.findIndex((p, idx) => p.id === manualMappings[rowIndex] && !usedTargetIndices.has(idx))
+                                // If manually mapped but already used, fallback to standard matching or allow it?
+                                // Usually manual means "I want THIS one". Let's respect it but keep tracking.
                               }
 
-                              // 2. الربط التلقائي بواسطة الحقل المحدد
+                              // 2. الربط التلقائي الاحترافي (Smart Match)
                               if (targetIndex === -1) {
                                 const matchValue = String(newP[matchField as keyof Product] || '').trim().toLowerCase()
                                 if (matchValue) {
-                                  targetIndex = updatedList.findIndex(p =>
-                                    String(p[matchField as keyof Product] || '').trim().toLowerCase() === matchValue
-                                  )
+                                  // البحث عن كل المرشحين المتطابقين الذين لم يتم استخدامهم بعد
+                                  const candidates: number[] = []
+                                  updatedList.forEach((p, idx) => {
+                                    if (usedTargetIndices.has(idx)) return
+                                    const pValue = String(p[matchField as keyof Product] || '').trim().toLowerCase()
+                                    if (pValue === matchValue) candidates.push(idx)
+                                  })
+
+                                  if (candidates.length === 1) {
+                                    targetIndex = candidates[0]
+                                  } else if (candidates.length > 1) {
+                                    // 🧠 البحث عن "أفضل مطابقة" (Best Match) بين المكررين
+                                    // نقوم بمقارنة الحقول الأخرى لضمان الدقة
+                                    let bestIdx = candidates[0]
+                                    let maxScore = -1
+
+                                    candidates.forEach(idx => {
+                                      const p = updatedList[idx]
+                                      let score = 0
+                                      // مقارنة الحقول التي تساعد في التمييز
+                                      if (p.category && newP.category && p.category.trim().toLowerCase() === newP.category.trim().toLowerCase()) score += 3
+                                      if (p.location && newP.location && p.location.trim().toLowerCase() === newP.location.trim().toLowerCase()) score += 2
+                                      if (p.unit && newP.unit && p.unit.trim().toLowerCase() === newP.unit.trim().toLowerCase()) score += 1
+                                      if (p.productName && newP.productName && p.productName.trim().toLowerCase() === newP.productName.trim().toLowerCase()) score += 5
+
+                                      if (score > maxScore) {
+                                        maxScore = score
+                                        bestIdx = idx
+                                      }
+                                    })
+                                    targetIndex = bestIdx
+                                  }
                                 }
                               }
 
                               if (targetIndex !== -1) {
+                                usedTargetIndices.add(targetIndex)
                                 // تحديث المنتج الموجود
                                 const target = updatedList[targetIndex]
                                 const updates: any = { updatedAt: new Date().toISOString() }
+
+                                // NEW LOGIC: If updating ANY stock determinant, reset others to act as a "Stock Reset"
+                                const isUpdatingStock =
+                                  newP['openingStock'] !== undefined ||
+                                  newP['inventoryCount'] !== undefined ||
+                                  newP['currentStock'] !== undefined;
+
                                 updateFields.forEach(field => {
                                   if (newP[field] !== undefined) {
+                                    // 🛡️ IMAGE GUARD
+                                    if (field === 'image' && (!columnMapping['image'] || columnMapping['image'] === -1)) return;
                                     updates[field] = newP[field]
                                   }
                                 })
+
+                                if (isUpdatingStock) {
+                                  // ⚡ ABSOLUTE TRUTH LOGIC:
+                                  // If we are updating stock and these fields were NOT in the Excel (not mapped),
+                                  // we FORCE them to 0.
+                                  if (!columnMapping['purchases'] || columnMapping['purchases'] === -1) updates['purchases'] = 0;
+                                  if (!columnMapping['issues'] || columnMapping['issues'] === -1) updates['issues'] = 0;
+                                  if (!columnMapping['returns'] || columnMapping['returns'] === -1) updates['returns'] = 0;
+
+                                  // If Current Stock is provided (Main Truth), and Opening Stock is NOT provided,
+                                  // make Opening Stock = Current Stock to satisfy Equation: Stock = Open + 0 - 0.
+                                  // This prevents inconsistency after saving.
+                                  if (newP['currentStock'] !== undefined && (!columnMapping['openingStock'] || columnMapping['openingStock'] === -1)) {
+                                    updates['openingStock'] = newP['currentStock'];
+                                  }
+
+                                  // Also ensure currentStock and inventoryCount match what was imported exactly
+                                  if (newP['currentStock'] !== undefined) updates['currentStock'] = newP['currentStock'];
+                                  if (newP['inventoryCount'] !== undefined) updates['inventoryCount'] = newP['inventoryCount'];
+
+                                  // Reset difference to 0 if we are setting new stock levels without specific inventory count
+                                  if (!columnMapping['difference'] || columnMapping['difference'] === -1) {
+                                    updates['difference'] = 0;
+                                  }
+                                }
+
                                 updatedList[targetIndex] = { ...target, ...updates }
                               } else {
                                 // إضافة كمنتج جديد (مع تنظيف الميتا)
@@ -1724,7 +1798,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                           // Optimize Images: Split large images to side table
                           const imageRecords: { productId: string; data: string }[] = []
                           const finalOptimized = finalProductsToSave.map(p => {
-                            if (p.image && p.image.length > 500 && !p.image.startsWith('http')) {
+                            if (p.image && p.image.startsWith('data:image')) {
                               imageRecords.push({ productId: p.id, data: p.image })
                               return { ...p, image: 'DB_IMAGE' }
                             }
@@ -1792,37 +1866,50 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                           const productsToSync = finalOptimized;
                           const imageRecordsToSync = imageRecords;
 
-                          // --- START CLOUD SYNC FIX ---
+                          // --- START CLOUD SYNC FIX: BATCH MODE ---
                           setConversionStatus("جاري المزامنة مع السحابة... (قد يستغرق وقتاً)")
 
-                          let syncedCount = 0
-                          const SYNC_CONCURRENCY = 10
-                          await asyncPool(SYNC_CONCURRENCY, productsToSync, async (p: any) => {
-                            try {
-                              await syncProduct(p)
-                              syncedCount++
-                              const progress = Math.round((syncedCount / (productsToSync.length + imageRecordsToSync.length)) * 100)
-                              setConversionProgress(progress)
-                            } catch (e) {
-                              console.error("Failed to sync product", p.productName, e)
-                            }
-                          })
+                          // Use Batch Sync to avoid "write stream exhausted"
+                          // We split large product lists into smaller chunks of 100 for better progress reporting
+                          // although syncProductsBatch handles 300 internally, we want to update UI more often here
 
-                          // 2. Sync Images (Optimized Pool)
-                          let syncedImages = 0
-                          const IMG_SYNC_CONCURRENCY = 5
-                          await asyncPool(IMG_SYNC_CONCURRENCY, imageRecordsToSync, async (img: any) => {
-                            try {
-                              await syncProductImageToCloud(img.productId, img.data)
-                              syncedImages++
-                              const progress = Math.round(((syncedCount + syncedImages) / (productsToSync.length + imageRecordsToSync.length)) * 100)
-                              setConversionProgress(progress)
-                            } catch (e) {
-                              console.error("Failed to sync image for product", img.productId, e)
-                            }
-                          })
+                          try {
+                            const CHUNK_SIZE = 100
+                            let syncedCount = 0
+                            const totalItems = productsToSync.length + imageRecordsToSync.length
 
-                          console.log(`[Bulk Import] Synced ${syncedCount} products and ${syncedImages} images to cloud.`)
+                            // 1. Sync Products in Chunks
+                            for (let i = 0; i < productsToSync.length; i += CHUNK_SIZE) {
+                              const chunk = productsToSync.slice(i, i + CHUNK_SIZE)
+                              await syncProductsBatch(chunk)
+                              syncedCount += chunk.length
+                              const progress = Math.round((syncedCount / totalItems) * 100)
+                              setConversionProgress(progress)
+                            }
+
+                            // 2. Sync Images in Chunks
+                            for (let i = 0; i < imageRecordsToSync.length; i += CHUNK_SIZE) {
+                              const chunk = imageRecordsToSync.slice(i, i + CHUNK_SIZE)
+                              await syncProductImagesBatch(chunk)
+                              syncedCount += chunk.length
+                              const progress = Math.round((syncedCount / totalItems) * 100)
+                              setConversionProgress(progress)
+                            }
+
+                            console.log(`[Bulk Import] Batch Synced ${productsToSync.length} products and ${imageRecordsToSync.length} images.`)
+                          } catch (e: any) {
+                            console.error("Batch Sync Failed", e)
+                            if (e?.message?.includes('FIREBASE_QUOTA_EXCEEDED') || e?.message?.includes('Quota') || e?.code === 'resource-exhausted') {
+                              toast({
+                                title: "تم تجاوز الحد اليومي (Quota Exceeded)",
+                                description: "عذراً، لقد تجاوزت الحد المجاني اليومي لقاعدة البيانات. تم حفظ البيانات محلياً بنجاح، ولكن لن تظهر على الأجهزة الأخرى حتى يتم تجديد الحصة غداً.",
+                                variant: "destructive",
+                                duration: 10000
+                              })
+                            } else {
+                              toast({ title: "تنبيه المزامنة", description: "قد تكون بعض العناصر لم يتم رفعها بنجاح. تحقق من الاتصال.", variant: "destructive" })
+                            }
+                          }
                           // --- END CLOUD SYNC FIX ---
 
                           // onProductsUpdate(allProducts) // Removed to prevent blocking UI with granular updates
@@ -1853,6 +1940,8 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                           setImportPreviewRows([])
                           setImportAllRows([])
                           setImportImagesMap({})
+                          // 🚀 RESTART REALTIME SYNC
+                          startRealtimeSync()
                         }
                       }}><DualText k="bulk.mapping.confirm" /></Button>
                     </div>
@@ -1892,19 +1981,22 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                       </thead>
                       <tbody>
                         {(() => {
-                          const rows = importAllRows.slice(1);
-                          const filtered = rows.filter((r, idx) => {
-                            const rowIndex = idx + 1;
-                            if (ignoredRows.has(rowIndex)) return false;
+                          const existingMatchValues = new Set(
+                            getProducts().map(p => String(p[matchField as keyof Product] || '').trim().toLowerCase())
+                          );
+
+                          const rowsWithIndex = importAllRows.slice(1).map((r, i) => ({ data: r, originalIndex: i + 1 }));
+
+                          const filtered = rowsWithIndex.filter(({ data: r, originalIndex }) => {
+                            if (ignoredRows.has(originalIndex)) return false;
 
                             if (showOnlyNew) {
-                              if (manualMappings[rowIndex]) return false;
+                              if (manualMappings[originalIndex]) return false;
                               if (importMode === 'update') {
                                 const colIdx = columnMapping[matchField];
                                 if (colIdx >= 0) {
                                   const excelVal = String(r[colIdx] || '').trim().toLowerCase();
-                                  const isMatch = getProducts().some(p => String(p[matchField as keyof Product] || '').trim().toLowerCase() === excelVal);
-                                  if (isMatch) return false;
+                                  if (existingMatchValues.has(excelVal)) return false;
                                 }
                               }
                             }
@@ -1913,10 +2005,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
 
                           const displayed = filtered.slice(0, 500);
 
-                          return displayed.map((r, ri) => {
-                            // للحصول على الفهرس الحقيقي في الصفوف الأصلية
-                            const actualRowIndex = importAllRows.indexOf(r);
-
+                          return displayed.map(({ data: r, originalIndex: actualRowIndex }) => {
                             let isMatch = false;
                             let isManualLink = !!manualMappings[actualRowIndex];
 
@@ -1926,7 +2015,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                               const colIdx = columnMapping[matchField];
                               if (colIdx >= 0) {
                                 const excelVal = String(r[colIdx] || '').trim().toLowerCase();
-                                isMatch = getProducts().some(p => String(p[matchField as keyof Product] || '').trim().toLowerCase() === excelVal);
+                                isMatch = existingMatchValues.has(excelVal);
                               }
                             }
 

@@ -77,15 +77,18 @@ export function useIssuesRealtime() {
 }
 
 export function useReturnsRealtime() {
-    return useDexieTableProgressive(db.returns, 20)
+    const table = useMemo(() => db.returns.toCollection().reverse(), [])
+    return useDexieTableProgressive(table, 20)
 }
 
 export function useBranchRequestsRealtime() {
-    return useDexieTableProgressive(db.branchRequests, 20)
+    const table = useMemo(() => db.branchRequests.toCollection().reverse(), [])
+    return useDexieTableProgressive(table, 20)
 }
 
 export function useBranchInvoicesRealtime() {
-    return useDexieTableProgressive(db.branchInvoices, 20)
+    const table = useMemo(() => db.branchInvoices.toCollection().reverse(), [])
+    return useDexieTableProgressive(table, 20)
 }
 
 export function useAdjustmentsRealtime() {

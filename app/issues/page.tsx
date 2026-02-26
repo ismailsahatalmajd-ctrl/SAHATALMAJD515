@@ -39,6 +39,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import * as XLSX from 'xlsx'
 
 export default function IssuesPage() {
   const settings = useInvoiceSettings()
@@ -79,7 +80,8 @@ export default function IssuesPage() {
     mode: 'merged' as 'merged' | 'detailed',
     showImages: true,
     showPrice: true,
-    showTotal: true
+    showTotal: true,
+    sortByItemNumber: false
   })
 
   // Invoice filters
@@ -125,12 +127,19 @@ export default function IssuesPage() {
         (issue) =>
           String(issue.branchName || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
           String(issue.id || "").includes(searchTerm) ||
+          String(issue.invoiceCode || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+          String(issue.orderCode || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
           issue.products.some((p) => String(p.productName || "").toLowerCase().includes(searchTerm.toLowerCase())),
       )
     }
     if (invoiceNumberSearch.trim().length > 0) {
-      const q = invoiceNumberSearch.trim()
-      list = list.filter((iss) => getNumericInvoiceNumber(iss.id, new Date(iss.createdAt)).includes(q))
+      const q = invoiceNumberSearch.trim().toLowerCase()
+      list = list.filter((iss) => {
+        const legacy = getNumericInvoiceNumber(iss.id, new Date(iss.createdAt))
+        const modern = (iss.invoiceCode || "").toLowerCase()
+        const order = (iss.orderCode || "").toLowerCase()
+        return legacy.includes(q) || modern.includes(q) || order.includes(q)
+      })
     }
     if (branchMode === "specific" && branchSelected) {
       list = list.filter((i) => i.branchName === branchSelected)
@@ -492,6 +501,39 @@ export default function IssuesPage() {
   const totalInvoiceAmount = aggregatedInvoiceRows.reduce((sum, r) => sum + r.subtotal, 0)
 
   const formatCurrency = (val: number) => `${formatEnglishNumber(val.toFixed(2))} ${t("common.currency")}`
+
+  const handleExportToOdooExcel = (issueOrIssues: Issue | Issue[]) => {
+    const data: any[] = []
+    const issuesToExport = Array.isArray(issueOrIssues) ? issueOrIssues : [issueOrIssues]
+
+    issuesToExport.forEach(issue => {
+      issue.products.forEach((ip, idx) => {
+        data.push({
+          "id": "",
+          "picking_type_id": idx === 0 ? "Internal Transfers" : "",
+          "partner_id": idx === 0 ? "Factory" : "",
+          "location_dest_id": idx === 0 ? "Partners/Customers" : "",
+          "priority": idx === 0 ? "Normal" : "",
+          "scheduled_date": idx === 0 ? new Date(issue.createdAt).toISOString().replace('T', ' ').split('.')[0] : "",
+          "origin": idx === 0 ? (issue.invoiceCode || issue.orderCode || getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))) : "",
+          "location_id": idx === 0 ? "MAIN/Stock" : "",
+          "move_line_ids/product_id": `[${ip.productCode}] ${ip.productName}`,
+          "move_line_ids/quantity": ip.quantity,
+          "move_line_ids/product_uom_id": ip.unit || ""
+        })
+      })
+    })
+
+    const ws = XLSX.utils.json_to_sheet(data)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Odoo Import")
+    XLSX.writeFile(wb, `Odoo_Export_${new Date().getTime()}.xlsx`)
+
+    toast({
+      title: getDualString("common.success"),
+      description: "تم تصدير البيانات بنجاح (Odoo Excel Export Success)"
+    })
+  }
 
   const exportInvoiceCSV = () => {
     const confirmed = window.confirm(getDualString("issues.invoice.confirm.saveBeforeExport"))
@@ -863,13 +905,25 @@ export default function IssuesPage() {
                     <option value="all">All / الكل</option>
                   </select>
                   {selectedIssueIds.length > 0 && (
-                    <Button
-                      className="bg-blue-600 hover:bg-blue-700"
-                      onClick={() => setIsAssemblyDialogOpen(true)}
-                    >
-                      <Package className="ml-2 h-4 w-4" />
-                      <span>تجميع / Assemble ({selectedIssueIds.length})</span>
-                    </Button>
+                    <>
+                      <Button
+                        className="bg-blue-600 hover:bg-blue-700"
+                        onClick={() => setIsAssemblyDialogOpen(true)}
+                      >
+                        <Package className="ml-2 h-4 w-4" />
+                        <span>تجميع / Assemble ({selectedIssueIds.length})</span>
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          const toExport = filteredIssues.filter(i => selectedIssueIds.includes(i.id))
+                          handleExportToOdooExcel(toExport)
+                        }}
+                      >
+                        <Download className="ml-2 h-4 w-4" />
+                        <span>تصدير للأودو ({selectedIssueIds.length})</span>
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
@@ -885,7 +939,9 @@ export default function IssuesPage() {
                           onCheckedChange={handleSelectAll}
                         />
                       </TableHead>
-                      <TableHead className="w-[120px] border-x text-center"><DualText k="issues.table.issues.columns.id" /></TableHead>
+
+                      <TableHead className="w-[150px] border-x text-center font-bold text-blue-600"><DualText k="issues.table.issues.columns.id" /></TableHead>
+                      <TableHead className="w-[100px] border-x text-center font-bold">نوع العملية (Type)</TableHead>
                       <TableHead className="w-[150px] border-x text-center"><DualText k="issues.table.issues.columns.branch" /></TableHead>
                       <TableHead className="w-[120px] border-x text-center"><DualText k="issues.table.issues.columns.productsCount" /></TableHead>
                       <TableHead className="w-[140px] border-x text-center"><DualText k="issues.table.issues.columns.total" /></TableHead>
@@ -932,7 +988,8 @@ export default function IssuesPage() {
                         limited.map((issue) => {
                           // Check if issue was modified after creation (tolerance 2 seconds)
                           const created = new Date(issue.createdAt).getTime()
-                          const updated = new Date(issue.updatedAt).getTime()
+                          // Use createdAt as fallback for updatedAt to avoid undefined error
+                          const updated = new Date(issue.updatedAt || issue.createdAt).getTime()
                           const isModified = (updated - created) > 2000
 
                           return (
@@ -949,7 +1006,14 @@ export default function IssuesPage() {
                                   onCheckedChange={() => toggleSelectIssue(issue.id)}
                                 />
                               </TableCell>
-                              <TableCell className="font-medium border-x text-center">{getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))}</TableCell>
+                              <TableCell className="border-x text-center font-bold font-mono text-blue-600" dir="ltr">
+                                {issue.invoiceCode || issue.orderCode || getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))}
+                              </TableCell>
+                              <TableCell className="border-x text-center">
+                                <Badge variant={issue.invoiceCode ? "default" : "secondary"}>
+                                  {issue.invoiceCode ? "صرف (Issue)" : "طلب (Order)"}
+                                </Badge>
+                              </TableCell>
                               <TableCell className="border-x text-center">
                                 <Badge variant="outline">{issue.branchName}</Badge>
                               </TableCell>
@@ -1040,6 +1104,10 @@ export default function IssuesPage() {
                                     <DropdownMenuItem onClick={() => handlePrintInvoice(issue)}>
                                       <FileText className="mr-2 h-4 w-4" />
                                       <span><DualText k="issues.actions.printIssue" /></span>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handleExportToOdooExcel(issue)}>
+                                      <Download className="mr-2 h-4 w-4" />
+                                      <span>تصدير للأودو (Odoo Excel)</span>
                                     </DropdownMenuItem>
                                     <DropdownMenuItem onClick={() => handleEditIssue(issue)}>
                                       <Edit className="mr-2 h-4 w-4" />
@@ -1183,6 +1251,17 @@ export default function IssuesPage() {
                       id="show-total"
                       checked={assemblySettings.showTotal}
                       onCheckedChange={(checked) => setAssemblySettings(prev => ({ ...prev, showTotal: checked }))}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="sort-item-number">الترتيب حسب رقم المنتج (Sort by Item Number)</Label>
+                    </div>
+                    <Switch
+                      id="sort-item-number"
+                      checked={assemblySettings.sortByItemNumber}
+                      onCheckedChange={(checked) => setAssemblySettings(prev => ({ ...prev, sortByItemNumber: checked }))}
                     />
                   </div>
                 </div>
@@ -1413,7 +1492,7 @@ export default function IssuesPage() {
             </CardContent>
           </Card>
         </div>
-      </main>
+      </main >
 
       <BulkIssueDialog
         open={isIssueDialogOpen}
@@ -1425,6 +1504,6 @@ export default function IssuesPage() {
         issueToEdit={editingIssue}
       />
       <ReturnDialog open={isReturnDialogOpen} onOpenChange={setIsReturnDialogOpen} onSuccess={handleReturnAdded} />
-    </div>
+    </div >
   )
 }

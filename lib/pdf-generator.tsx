@@ -3,6 +3,8 @@ import { db } from "@/lib/db"
 import { getSafeImageSrc, formatArabicGregorianDate, formatArabicGregorianTime, formatEnglishNumber, getNumericInvoiceNumber } from "@/lib/utils"
 import { getInvoiceSettings } from "@/lib/invoice-settings-store"
 import { getProducts } from "@/lib/storage"
+import { formatInvoiceNumber, formatOrderNumber } from "@/lib/id-generator" // Import generator
+import JsBarcode from "jsbarcode" // Ensure we can use JsBarcode if installed, or just use text for now. (assuming native browser print doesn't run jsbarcode easily without script ref, using script tag in template)
 
 export async function generateIssuePDF(issue: Issue) {
   const w = window.open("", "_blank")
@@ -18,7 +20,36 @@ export async function generateIssuePDF(issue: Issue) {
   const settings = await getInvoiceSettings()
   const allProducts = getProducts()
   const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/sahat-almajd-logo.svg` : '/sahat-almajd-logo.svg'
-  const invoiceNum = getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))
+
+  // Logic for new codes
+  let invoiceCode = issue.invoiceCode
+  let orderCode = issue.orderCode
+
+  // Generate if missing (Lazy generation on print)
+  // Generate if missing (Lazy generation on print)
+  let updated = false
+  if (!invoiceCode) {
+    invoiceCode = await formatInvoiceNumber("IS", issue.branchId)
+    updated = true
+  }
+  if (!orderCode) {
+    orderCode = await formatOrderNumber(issue.branchId)
+    updated = true
+  }
+
+  // Persist the generated codes to the DB (Transformation Step)
+  if (updated) {
+    try {
+      await db.issues.update(issue.id, { invoiceCode, orderCode })
+      // Update local object ref
+      issue.invoiceCode = invoiceCode
+      issue.orderCode = orderCode
+    } catch (e) {
+      console.error("Failed to persist generated codes during PDF generation", e)
+    }
+  }
+
+  const invoiceNum = invoiceCode || getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))
 
   // Resolve images
   // Fetch branch phone
@@ -143,7 +174,9 @@ export async function generateIssuePDF(issue: Issue) {
 
     /* Common Overrides */
     .qty-cell { font-weight: bold; }
+    .qty-cell { font-weight: bold; }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.0/dist/JsBarcode.all.min.js"></script>
 </head>
 <body>
   <div class="header">
@@ -158,13 +191,17 @@ export async function generateIssuePDF(issue: Issue) {
       <p><strong>اسم الفرع / Branch Name:</strong> ${issue.branchName}</p>
       ${branchPhone ? `<p><strong>رقم الجوال / Phone:</strong> ${branchPhone}</p>` : ''}
       <p><strong>عدد المنتجات / Products Count:</strong> ${issue.products.length} منتج</p>
+      <p style="margin-top: 5px; color: #2563eb;"><strong>رقم الطلب / Order Ref:</strong> ${orderCode}</p>
       ${issue.notes ? `<p><strong>ملاحظات / Notes:</strong> ${issue.notes}</p>` : ""}
     </div>
     <div class="info-box" style="text-align: right;">
       <h3 style="text-align: left; position: absolute; left: 20px; top: 20px;">معلومات الفاتورة<br>Invoice Info</h3>
-      <p><strong>رقم الفاتورة / Invoice No:</strong> ${invoiceNum}</p>
+      <p><strong>رقم الفاتورة / Invoice No:</strong> <span style="font-family: monospace; font-size: 16px;">${invoiceNum}</span></p>
       <p><strong>التاريخ / Date:</strong> ${formatArabicGregorianDate(new Date(issue.createdAt), { year: "numeric", month: "long", day: "numeric" })}</p>
       <p><strong>الوقت / Time:</strong> ${formatArabicGregorianTime(new Date(issue.createdAt))}</p>
+      <div style="margin-top: 10px; text-align: center;">
+        <svg id="barcode"></svg>
+      </div>
     </div>
   </div>
 
@@ -268,7 +305,15 @@ export async function generateIssuePDF(issue: Issue) {
 
   <script>
     window.onload = function() {
-      window.print();
+      try {
+        JsBarcode("#barcode", "${invoiceNum}", {
+          format: "CODE128",
+          width: 1.5,
+          height: 40,
+          displayValue: false
+        });
+      } catch (e) { console.error(e); }
+      setTimeout(function() { window.print(); }, 500);
     }
   </script>
 </body>

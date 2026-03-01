@@ -44,59 +44,89 @@ export async function getBranchCode(branchId: string): Promise<string> {
  * @param type نوع العملية (IS, OR, RN, RR)
  */
 export async function generateGlobalSequence(type: "IS" | "OR" | "RN" | "RR"): Promise<string> {
-    // في التطبيق الحقيقي، يجب أن يكون هذا العداد في قاعدة البيانات نفسها لضمان عدم التكرار.
-    // هنا سنقوم بحساب العدد الحالي + 1 بناءً على البيانات الموجودة.
-    // ملاحظة: هذا قد يسبب تكرار إذا قام جهازان بالعملية في نفس اللحظة (Race Condition).
-    // الحل الأمثل هو استخدام Atomic Counter في السيرفر أو Dexie Transaction.
-
-    let count = 0;
+    let maxSeq = 0;
 
     if (type === "IS") {
-        count = await db.issues.count();
-    } else if (type === "OR") {
-        // الطلبات
-        // نحتاج لعد الطلبات التي تم إنشاؤها
-        // حالياً الطلبات مخزنة في مصفوفة داخل التخزين المحلي، أو جدول requests لو قمنا بنقله
-        // سنستخدم الدالة المتاحة لجلب الطلبات
-        const reqs = getBranchRequests();
-        count = reqs.length;
-    } else if (type === "RN") {
-        // طلبات المرتجعات (طلبات الفروع بنوع return)
-        const reqs = getBranchRequests();
-        count = reqs.filter(r => r.type === 'return').length;
+        const items = await db.issues.toArray();
+        items.forEach(i => {
+            if (i.invoiceCode && i.invoiceCode.startsWith("IS-")) {
+                const parts = i.invoiceCode.split('-');
+                if (parts.length >= 4) {
+                    const seq = parseInt(parts[3], 10);
+                    if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+                }
+            }
+        });
+    } else if (type === "OR" || type === "RN") {
+        const items = getBranchRequests();
+        items.forEach(i => {
+            if (i.requestNumber && i.requestNumber.startsWith(`${type}-`)) {
+                const parts = i.requestNumber.split('-');
+                const pIdx = parts.length > 3 ? 3 : 2;
+                if (parts.length > pIdx) {
+                    const seq = parseInt(parts[pIdx], 10);
+                    if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+                }
+            }
+        });
     } else if (type === "RR") {
-        // استلام المرتجعات (جدول returns)
-        const rets = await db.returns.toArray();
-        count = rets.length;
+        const items = await db.returns.toArray();
+        items.forEach(i => {
+            if (i.returnCode && i.returnCode.startsWith("RR-")) {
+                const parts = i.returnCode.split('-');
+                if (parts.length >= 4) {
+                    const seq = parseInt(parts[3], 10);
+                    if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+                }
+            }
+        });
     }
 
-    // تنسيق الرقم: 5 خانات (00001) حسب طلب المستخدم
-    return (count + 1).toString().padStart(5, '0');
+    return (maxSeq + 1).toString().padStart(5, '0');
 }
 
 /**
  * تولد رقم تسلسلي خاص بالفرع (Branch Sequence)
  */
 export async function generateBranchSequence(branchId: string, type: "IS" | "OR" | "RN" | "RR"): Promise<string> {
-    let count = 0;
+    let maxSeq = 0;
 
     if (type === "IS") {
-        count = await db.issues.where("branchId").equals(branchId).count();
-    } else if (type === "OR") {
-        const reqs = getBranchRequests();
-        count = reqs.filter(r => r.branchId === branchId).length;
-    } else if (type === "RN") {
-        // طلبات المرتجعات للفرع
-        const reqs = getBranchRequests();
-        count = reqs.filter(r => r.branchId === branchId && r.type === 'return').length;
+        const items = await db.issues.where("branchId").equals(branchId).toArray();
+        items.forEach(i => {
+            if (i.invoiceCode && i.invoiceCode.startsWith("IS-")) {
+                const parts = i.invoiceCode.split('-');
+                if (parts.length >= 3) {
+                    const seq = parseInt(parts[2], 10);
+                    if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+                }
+            }
+        });
+    } else if (type === "OR" || type === "RN") {
+        const items = getBranchRequests().filter(r => r.branchId === branchId);
+        items.forEach(i => {
+            if (i.requestNumber && i.requestNumber.startsWith(`${type}-`)) {
+                const parts = i.requestNumber.split('-');
+                if (parts.length >= 3) {
+                    const seq = parseInt(parts[2], 10);
+                    if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+                }
+            }
+        });
     } else if (type === "RR") {
-        // استلام المرتجعات للفرع
-        const rets = await db.returns.toArray();
-        count = rets.filter(r => r.branchId === branchId).length;
+        const items = await db.returns.toArray();
+        items.filter(r => r.branchId === branchId).forEach(i => {
+            if (i.returnCode && i.returnCode.startsWith("RR-")) {
+                const parts = i.returnCode.split('-');
+                if (parts.length >= 3) {
+                    const seq = parseInt(parts[2], 10);
+                    if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+                }
+            }
+        });
     }
 
-    // تنسيق الرقم: 4 خانات (0001) دائمًا
-    return (count + 1).toString().padStart(4, '0');
+    return (maxSeq + 1).toString().padStart(4, '0');
 }
 
 /**

@@ -1016,15 +1016,29 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
         continue
       }
 
-      const openingStock = colMap.openingStock >= 0 ? parseArabicNum(row[colMap.openingStock]) : 0
-      const purchases = colMap.purchases >= 0 ? parseArabicNum(row[colMap.purchases]) : 0
-      const issues = colMap.issues >= 0 ? parseArabicNum(row[colMap.issues]) : 0
+      let openingStock = colMap.openingStock >= 0 && row[colMap.openingStock] !== undefined && row[colMap.openingStock] !== null && String(row[colMap.openingStock]).trim() !== "" ? parseArabicNum(row[colMap.openingStock]) : 0
+      const purchases = colMap.purchases >= 0 && row[colMap.purchases] !== undefined && row[colMap.purchases] !== null && String(row[colMap.purchases]).trim() !== "" ? parseArabicNum(row[colMap.purchases]) : 0
+      const issues = colMap.issues >= 0 && row[colMap.issues] !== undefined && row[colMap.issues] !== null && String(row[colMap.issues]).trim() !== "" ? parseArabicNum(row[colMap.issues]) : 0
+
+      let currentStock = 0
+      const hasCurrentStockCol = colMap.currentStock >= 0 && row[colMap.currentStock] !== undefined && row[colMap.currentStock] !== null && String(row[colMap.currentStock]).trim() !== ""
+      if (hasCurrentStockCol) {
+        currentStock = parseArabicNum(row[colMap.currentStock])
+        // [Intelligent Fix]: If Excel has "Current Stock" but "Opening Stock" is empty/0, backfill "Opening Stock"
+        // so that the internal equation (opening + purchases - issues = current) holds true.
+        if (openingStock === 0 && currentStock !== (purchases - issues)) {
+          openingStock = currentStock - purchases + issues
+        }
+      } else {
+        // Fallback to formula
+        currentStock = safeFloat(openingStock + purchases - issues)
+      }
 
       let inventoryCount = 0
-      if (colMap.inventoryCount >= 0) {
+      if (colMap.inventoryCount >= 0 && row[colMap.inventoryCount] !== undefined && row[colMap.inventoryCount] !== null && String(row[colMap.inventoryCount]).trim() !== "") {
         inventoryCount = parseArabicNum(row[colMap.inventoryCount])
       } else {
-        inventoryCount = safeFloat(openingStock + purchases - issues)
+        inventoryCount = currentStock
       }
 
       const price = colMap.price >= 0 ? parseArabicNum(row[colMap.price]) : 0
@@ -1033,7 +1047,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       const cartonWidth = colMap.cartonWidth >= 0 ? Math.max(0, parseArabicNum(row[colMap.cartonWidth])) : undefined
       const cartonHeight = colMap.cartonHeight >= 0 ? Math.max(0, parseArabicNum(row[colMap.cartonHeight])) : undefined
       const cartonUnit = colMap.cartonUnit >= 0 ? String(row[colMap.cartonUnit] || "").trim() : undefined
-      const quantityPerCarton = colMap.quantityPerCarton >= 0 ? Math.max(1, parseArabicNum(row[colMap.quantityPerCarton])) : 1
+      const quantityPerCarton = colMap.quantityPerCarton >= 0 && row[colMap.quantityPerCarton] !== undefined && String(row[colMap.quantityPerCarton]).trim() !== "" ? Math.max(1, parseArabicNum(row[colMap.quantityPerCarton])) : 1
       const cartonBarcode = colMap.cartonBarcode >= 0 ? String(row[colMap.cartonBarcode] || "").trim() : undefined
 
       let image: string | undefined = undefined
@@ -1059,17 +1073,8 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
         console.log("[v0] No image column or empty for:", productName)
       }
 
-      let currentStock = 0
-      // [Modified] User Request: Use Excel value if present, otherwise calculate
-      if (colMap.currentStock >= 0 && row[colMap.currentStock] !== undefined && row[colMap.currentStock] !== null) {
-        currentStock = parseArabicNum(row[colMap.currentStock])
-      } else {
-        // Fallback to formula
-        currentStock = safeFloat(openingStock + purchases - issues)
-      }
-
       let difference = 0
-      if (colMap.difference >= 0 && row[colMap.difference] !== undefined && row[colMap.difference] !== null) {
+      if (colMap.difference >= 0 && row[colMap.difference] !== undefined && row[colMap.difference] !== null && String(row[colMap.difference]).trim() !== "") {
         difference = parseArabicNum(row[colMap.difference])
       } else {
         difference = safeFloat(currentStock - inventoryCount)

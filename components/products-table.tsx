@@ -1266,8 +1266,8 @@ export function ProductsTable({
                 {(() => {
                   const viewColumns = getColumnsForView(viewMode)
                   return Object.keys(visibleColumns).map(key => {
-                    if (!(visibleColumns as any)[key]) return null
                     if (viewMode !== 'default' && !viewColumns.includes(key)) return null
+                    if (viewMode === 'default' && !(visibleColumns as any)[key]) return null
 
                     const width = columnWidths[key]
                     return (
@@ -1459,7 +1459,7 @@ export function ProductsTable({
                               content = formatCurrency(isNaN(numericVal) ? 0 : numericVal)
                             }
 
-                            // Quantity Formatting with Carton Breakdown
+                            // Quantity Formatting
                             if (['openingStock', 'purchases', 'issues', 'inventoryCount', 'currentStock', 'difference'].includes(key)) {
                               let numVal = Number(content || 0)
 
@@ -1471,40 +1471,8 @@ export function ProductsTable({
                                 numVal = op + pu - iss
                                 content = numVal // Update content for "difference" calculation logic below? No, difference logic is separate above.
                               }
-                              const perCarton = Number(product.quantityPerCarton || 1)
 
-                              if (perCarton > 1 && numVal !== 0 && !isNaN(numVal)) {
-                                const absVal = Math.abs(numVal)
-                                const cartons = Math.floor(absVal / perCarton)
-                                const remainder = absVal % perCarton
-                                const sign = numVal < 0 ? "-" : ""
-
-                                const parts = []
-                                const cartonLabel = product.cartonUnit || 'كرتون'
-                                const unitLabel = product.unit || 'حبة'
-
-                                if (cartons > 0) parts.push(`${cartons} ${cartonLabel}`)
-                                // Helper logic: if remainder is 0, we can omit it usually, or for clarity "5 Box + 0 Piece".
-                                // Usually "5 Box" is cleaner.
-                                if (remainder > 0) parts.push(`${formatNumberWithSeparators(remainder)} ${unitLabel}`)
-
-                                // If parts is empty (e.g. 0), generic format. But we checked numVal !== 0.
-
-                                if (parts.length > 0) {
-                                  content = (
-                                    <div className="flex flex-col items-center justify-center leading-tight">
-                                      <span className="font-medium text-foreground">{formatNumberWithSeparators(numVal)}</span>
-                                      <span className="text-[10px] whitespace-nowrap" dir="rtl">
-                                        {sign}({parts.join(' + ')})
-                                      </span>
-                                    </div>
-                                  )
-                                } else {
-                                  content = formatNumberWithSeparators(numVal)
-                                }
-                              } else {
-                                content = formatNumberWithSeparators(numVal)
-                              }
+                              content = formatNumberWithSeparators(numVal)
                             } else if (key === 'quantityPerCarton') {
                               content = formatNumberWithSeparators(Number(content || 0))
                             }

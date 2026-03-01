@@ -197,6 +197,7 @@ export async function approveBranchRequest(id: string, actor?: string): Promise<
     totalValue,
     notes: req.notes || "صرف طلب فرع",
     requestId: id, // Link back to the request
+    orderCode: req.requestNumber // Use the request number as the order code
   })
 
   // تحديث حالة الطلب وإضافة سجل

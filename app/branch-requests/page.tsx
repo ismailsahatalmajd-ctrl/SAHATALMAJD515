@@ -177,7 +177,7 @@ export default function BranchRequestsPage() {
                                 <TableBody>
                                     {requests.map((req) => (
                                         <TableRow key={req.id}>
-                                            <TableCell className="font-mono">{req.requestNumber || req.id.slice(0, 8)}</TableCell>
+                                            <TableCell className="font-mono">{req.requestNumber || `${req.type === 'return' ? 'RN' : 'OR'}-OLD-${req.id.slice(0, 5)}`}</TableCell>
                                             <TableCell>{req.branchName}</TableCell>
                                             <TableCell>{new Date(req.createdAt).toLocaleDateString('ar-EG')}</TableCell>
                                             <TableCell>

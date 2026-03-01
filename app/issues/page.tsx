@@ -1007,7 +1007,7 @@ export default function IssuesPage() {
                                 />
                               </TableCell>
                               <TableCell className="border-x text-center font-bold font-mono text-blue-600" dir="ltr">
-                                {issue.invoiceCode || issue.orderCode || getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))}
+                                {issue.invoiceCode || issue.orderCode || `OR-OLD-${getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))}`}
                               </TableCell>
                               <TableCell className="border-x text-center">
                                 <Badge variant={issue.invoiceCode ? "default" : "secondary"}>

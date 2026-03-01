@@ -801,7 +801,7 @@ export default function ReturnsPage() {
                     ) : (
                       filteredReturns.map((r) => (
                         <TableRow key={r.id}>
-                          <TableCell className="font-medium border-x text-center font-mono text-blue-600" dir="ltr">{r.returnCode || r.returnNumber || `#${r.id.slice(-6)}`}</TableCell>
+                          <TableCell className="font-medium border-x text-center font-mono text-blue-600" dir="ltr">{r.returnCode || r.returnNumber || `RR-OLD-${r.id.slice(-6)}`}</TableCell>
                           <TableCell className="border-x text-center">
                             <Badge variant="outline">استلام مرتجع (Return Receipt)</Badge>
                           </TableCell>

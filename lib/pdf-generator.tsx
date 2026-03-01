@@ -306,7 +306,7 @@ export async function generateIssuePDF(issue: Issue) {
   <script>
     window.onload = function() {
       try {
-        JsBarcode("#barcode", "${invoiceNum}", {
+        JsBarcode("#barcode", "${invoiceCode || invoiceNum}", {
           format: "CODE128",
           width: 1.5,
           height: 40,

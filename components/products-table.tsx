@@ -301,20 +301,28 @@ export function ProductsTable({
         } else {
           const existing = map.get(key)!
 
-          // Store old values to calculate weighted average
-          const oldStockCalc = (Number(existing.openingStock) || 0) + (Number(existing.purchases) || 0)
-          const newStockCalc = (Number(p.openingStock) || 0) + (Number(p.purchases) || 0)
+          // Use currentStock as weight for weighted average
+          // Products with currentStock = 0 do NOT affect the average price (zero weight)
+          // but their quantities are still summed normally
+          const existingCalcStock = (Number(existing.openingStock) || 0) + (Number(existing.purchases) || 0) + (Number(existing.returns) || 0) - (Number(existing.issues) || 0)
+          const newCalcStock = (Number(p.openingStock) || 0) + (Number(p.purchases) || 0) + (Number(p.returns) || 0) - (Number(p.issues) || 0)
+
           const oldPrice = Number(existing.averagePrice || existing.price || 0)
           const newPrice = Number(p.averagePrice || p.price || 0)
 
+          // Only products with stock > 0 contribute their price to the weighted average
+          const oldWeight = existingCalcStock > 0 ? existingCalcStock : 0
+          const newWeight = newCalcStock > 0 ? newCalcStock : 0
+          const totalWeight = oldWeight + newWeight
+
           let newAvgPrice = oldPrice
-          if (oldStockCalc + newStockCalc > 0) {
-            newAvgPrice = ((oldStockCalc * oldPrice) + (newStockCalc * newPrice)) / (oldStockCalc + newStockCalc)
-          } else if (oldPrice === 0) {
+          if (totalWeight > 0) {
+            newAvgPrice = ((oldWeight * oldPrice) + (newWeight * newPrice)) / totalWeight
+          } else if (oldPrice === 0 && newPrice > 0) {
             newAvgPrice = newPrice
           }
 
-          // Sum numeric fields
+          // Sum all quantity fields regardless of stock status
           existing.openingStock = (Number(existing.openingStock) || 0) + (Number(p.openingStock) || 0)
           existing.purchases = (Number(existing.purchases) || 0) + (Number(p.purchases) || 0)
           existing.returns = (Number(existing.returns) || 0) + (Number(p.returns) || 0)
@@ -322,14 +330,19 @@ export function ProductsTable({
           existing.currentStock = (Number(existing.currentStock) || 0) + (Number(p.currentStock) || 0)
           existing.inventoryCount = (Number(existing.inventoryCount) || 0) + (Number(p.inventoryCount) || 0)
 
-          // Apply new weighted average
+          // Sum issuesValue directly from each product's own value (at its original price)
+          // This preserves the historical cost of issued items even for zero-stock products
+          const existingIssuesValue = Number(existing.issuesValue) || (Number(existing.issues || 0) * oldPrice)
+          const newIssuesValue = Number(p.issuesValue) || (Number(p.issues || 0) * newPrice)
+          existing.issuesValue = existingIssuesValue + newIssuesValue
+
+          // Apply weighted average price (only from products with stock > 0)
           existing.averagePrice = newAvgPrice
           existing.price = newAvgPrice
 
-          // Recalculate values based on new average price and merged totals
-          const currentTotalStock = existing.openingStock + existing.purchases + existing.returns - existing.issues
-          existing.currentStockValue = currentTotalStock * newAvgPrice
-          existing.issuesValue = existing.issues * newAvgPrice
+          // Recalculate currentStockValue based on merged current stock × weighted avg price
+          const mergedCurrentStock = existing.openingStock + existing.purchases + existing.returns - existing.issues
+          existing.currentStockValue = mergedCurrentStock * newAvgPrice
         }
       })
       result = Array.from(map.values())

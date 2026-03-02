@@ -300,15 +300,36 @@ export function ProductsTable({
           map.set(key, { ...p })
         } else {
           const existing = map.get(key)!
+
+          // Store old values to calculate weighted average
+          const oldStockCalc = (Number(existing.openingStock) || 0) + (Number(existing.purchases) || 0)
+          const newStockCalc = (Number(p.openingStock) || 0) + (Number(p.purchases) || 0)
+          const oldPrice = Number(existing.averagePrice || existing.price || 0)
+          const newPrice = Number(p.averagePrice || p.price || 0)
+
+          let newAvgPrice = oldPrice
+          if (oldStockCalc + newStockCalc > 0) {
+            newAvgPrice = ((oldStockCalc * oldPrice) + (newStockCalc * newPrice)) / (oldStockCalc + newStockCalc)
+          } else if (oldPrice === 0) {
+            newAvgPrice = newPrice
+          }
+
           // Sum numeric fields
           existing.openingStock = (Number(existing.openingStock) || 0) + (Number(p.openingStock) || 0)
           existing.purchases = (Number(existing.purchases) || 0) + (Number(p.purchases) || 0)
           existing.returns = (Number(existing.returns) || 0) + (Number(p.returns) || 0)
           existing.issues = (Number(existing.issues) || 0) + (Number(p.issues) || 0)
           existing.currentStock = (Number(existing.currentStock) || 0) + (Number(p.currentStock) || 0)
-          existing.currentStockValue = (Number(existing.currentStockValue) || 0) + (Number(p.currentStockValue) || 0)
           existing.inventoryCount = (Number(existing.inventoryCount) || 0) + (Number(p.inventoryCount) || 0)
-          existing.issuesValue = (Number(existing.issuesValue) || 0) + (Number(p.issuesValue) || 0)
+
+          // Apply new weighted average
+          existing.averagePrice = newAvgPrice
+          existing.price = newAvgPrice
+
+          // Recalculate values based on new average price and merged totals
+          const currentTotalStock = existing.openingStock + existing.purchases + existing.returns - existing.issues
+          existing.currentStockValue = currentTotalStock * newAvgPrice
+          existing.issuesValue = existing.issues * newAvgPrice
         }
       })
       result = Array.from(map.values())

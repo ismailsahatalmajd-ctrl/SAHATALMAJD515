@@ -89,7 +89,7 @@ function parseTailNumber(s: string, prefix: string): number | null {
   if (!s || typeof s !== 'string') return null
   if (!s.startsWith(prefix)) return null
   const tail = s.slice(prefix.length)
-  if (!/^\d{4}$/.test(tail)) return null
+  if (!/^\d{4,6}$/.test(tail)) return null
   const n = parseInt(tail, 10)
   return Number.isFinite(n) ? n : null
 }
@@ -146,30 +146,29 @@ function pad4(n: number): string { return String(n).padStart(4, '0') }
 export async function nextInvoiceNumber(type: SeqType): Promise<string> {
   const seq = await getSequences()
   let next = 0
-  if (type === 'issue') next = Math.min(9999, seq.issue + 1)
-  else if (type === 'return') next = Math.min(9999, seq.return + 1)
-  else next = Math.min(9999, seq.branchOps + 1)
+  if (type === 'issue') next = Math.min(999999, seq.issue + 1)
+  else if (type === 'return') next = Math.min(999999, seq.return + 1)
+  else next = Math.min(999999, seq.branchOps + 1)
 
   const prefix = PREFIX[type]
-  const candidate = `${prefix}${pad4(next)}`
 
-  // Avoid duplicates by checking current datasets
   const issues = getIssues()
   const returns = getReturns()
   const branchInvoices = getBranchInvoices()
-  const exists = (
-    type === 'issue' && issues.some(i => (i as any).invoiceNumber === candidate)
-  ) || (
-      type === 'return' && returns.some(r => (r as any).returnNumber === candidate)
-    ) || (
-      type === 'branchOps' && branchInvoices.some(bi => (bi as any).invoiceNumber === candidate)
-    )
-  // If exists, advance until free (bounded to 9999)
+
+  const checkExists = (n: number) => {
+    const candidate = `${prefix}${String(n).padStart(4, '0')}`
+    if (type === 'issue') return issues.some(i => (i as any).invoiceNumber === candidate)
+    if (type === 'return') return returns.some(r => (r as any).returnNumber === candidate)
+    if (type === 'branchOps') return branchInvoices.some(bi => (bi as any).invoiceNumber === candidate)
+    return false
+  }
+
   let n = next
-  while (exists && n < 9999) {
+  while (checkExists(n) && n < 999999) {
     n++
   }
-  const final = `${prefix}${pad4(n)}`
+  const final = `${prefix}${String(n).padStart(4, '0')}`
 
   const updated: Sequences = {
     issue: type === 'issue' ? n : seq.issue,

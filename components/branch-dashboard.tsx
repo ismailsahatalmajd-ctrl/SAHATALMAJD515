@@ -576,6 +576,7 @@ export function BranchDashboard() {
         console.error("Failed to auto-create supply request:", e)
       }
 
+      let newIssue: any = null;
       try {
         const issueProducts = created.items.map((it) => ({
           productId: it.productId,
@@ -588,7 +589,7 @@ export function BranchDashboard() {
           unit: it.unit,
           notes: it.notes,
         }))
-        const newIssue = await addIssue({
+        newIssue = await addIssue({
           branchId: created.branchId,
           branchName: created.branchName,
           products: issueProducts,
@@ -603,9 +604,11 @@ export function BranchDashboard() {
         console.error("Failed to add issue for branch invoice:", e)
       }
 
-      const url = await generateBranchInvoicePDF(created)
+      // Print the official Issue PDF (IS-...) instead of the inner BranchInvoice (OP...)
+      const pdfToPrint = newIssue ? await generateIssuePDF(newIssue) : await generateBranchInvoicePDF(created)
+
       toast({ title: "Invoice Created / تم إنشاء فاتورة", description: `Total: ${created.totalValue.toFixed(2)}` })
-      window.open(url, "_blank")
+      window.open(pdfToPrint, "_blank")
       setCart([])
     } catch (error) {
       console.error("Submit invoice failed:", error)

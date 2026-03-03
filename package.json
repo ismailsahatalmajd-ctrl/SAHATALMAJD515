@@ -18,7 +18,9 @@
     "electron:dev": "cross-env NODE_ENV=development electron .",
     "electron:build": "npm run export && electron-builder --win",
     "electron:build-portable": "npm run export && electron-builder --win portable",
-    "electron:build-standalone": "npm run clean && npm run desktop:server-build && electron-builder --win"
+    "electron:build-standalone": "npm run clean && npm run desktop:server-build && electron-builder --win",
+    "suhail:dev": "cross-env NODE_ENV=development NEXT_PUBLIC_OFFLINE_MODE=true NEXT_PUBLIC_DISABLE_FIREBASE=true electron electron-suhail.js",
+    "suhail:build": "npm run export && electron-builder --win --config electron-builder-suhail.json"
   },
   "build": {
     "appId": "com.soheel.desktop",

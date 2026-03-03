@@ -13,6 +13,10 @@ import {
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getStorage } from "firebase/storage";
 
+// ─── Offline Mode: Skip Firebase entirely ────────────────────────────────────
+const isOfflineMode = process.env.NEXT_PUBLIC_OFFLINE_MODE === 'true'
+    || process.env.NEXT_PUBLIC_DISABLE_FIREBASE === 'true';
+
 const firebaseConfig = {
     apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyCdVt4ykUgUNHE5ggUZYeWqQjzXyIg6uEU",
     authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "newproject2-2afdc.firebaseapp.com",
@@ -25,13 +29,20 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-// Initialize Firestore
+// Initialize Firestore — in offline mode, disable network immediately after init
 let db: Firestore;
 try {
     db = initializeFirestore(app, {
         experimentalForceLongPolling: true,
     });
-    console.log("🔥 Firebase Initialized");
+
+    if (isOfflineMode) {
+        // Disable Firestore network access immediately — prevents all cloud calls
+        disableNetwork(db).catch(() => { });
+        console.log("🔒 Offline Mode: Firebase network disabled");
+    } else {
+        console.log("🔥 Firebase Initialized");
+    }
 } catch (e) {
     db = getFirestore(app);
 }
@@ -43,6 +54,7 @@ const storage = getStorage(app);
 let isPersistenceEnabled = false;
 
 export const enableOfflinePersistence = async () => {
+    if (isOfflineMode) return; // Skip in offline mode
     if (typeof window !== 'undefined' && !isPersistenceEnabled) {
         try {
             await enableMultiTabIndexedDbPersistence(db);

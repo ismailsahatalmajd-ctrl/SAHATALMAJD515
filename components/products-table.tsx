@@ -343,6 +343,11 @@ export function ProductsTable({
           // Recalculate currentStockValue based on merged current stock × weighted avg price
           const mergedCurrentStock = existing.openingStock + existing.purchases + existing.returns - existing.issues
           existing.currentStockValue = mergedCurrentStock * newAvgPrice
+
+          // Preserve image: if existing has no image, use the new product's image
+          if (!existing.image && p.image) {
+            existing.image = p.image
+          }
         }
       })
       result = Array.from(map.values())

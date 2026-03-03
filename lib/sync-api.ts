@@ -6,6 +6,16 @@ import type { Product, Transaction, Issue, Return, Branch, InventoryAdjustment, 
 import type { BranchRequest } from "./branch-request-types"
 import type { BranchInvoice } from "./branch-invoice-types"
 
+// ─── Offline Mode ─────────────────────────────────────────────────────────────
+// When NEXT_PUBLIC_OFFLINE_MODE=true (e.g. Suhail desktop local mode),
+// all Firebase/cloud sync operations are silently skipped.
+const isOfflineMode = process.env.NEXT_PUBLIC_OFFLINE_MODE === 'true'
+  || process.env.NEXT_PUBLIC_DISABLE_FIREBASE === 'true'
+
+if (isOfflineMode) {
+  console.log('[Sync] OFFLINE MODE enabled — all Firebase sync operations are disabled.')
+}
+
 // --- Helper for Offline Enqueueing ---
 async function enqueue(table: string, op: string, payload: any) {
   // We can rely on Firebase Offline Persistence mostly, but keeping this as backup or for manual sync logic
@@ -27,6 +37,7 @@ async function enqueue(table: string, op: string, payload: any) {
 
 // --- Process Queue (Called when online) ---
 export async function processSyncQueue(limit: number = 25) {
+  if (isOfflineMode) return  // Skip in offline mode
   try {
     const items = await db.syncQueue.orderBy('ts').limit(limit).toArray();
     if (items.length === 0) return;
@@ -49,6 +60,8 @@ export async function processSyncQueue(limit: number = 25) {
 }
 
 async function performFirebaseOp(collectionName: string, op: 'upsert' | 'delete', data: any, fromQueue = false) {
+  // Skip Firebase in offline/local mode
+  if (isOfflineMode) return true
   try {
     // collectionName mapping: some might differ
     // products -> products
@@ -145,6 +158,7 @@ export async function syncBranch(branch: Branch) {
   return performFirebaseOp('branches', 'upsert', branch)
 }
 export async function findRemoteBranchByUsername(username: string): Promise<Branch | null> {
+  if (isOfflineMode) return null  // Skip Firebase in offline mode
   try {
     const q = query(collection(firestore, 'branches'), where('username', '==', username))
     const snapshot = await getDocs(q)

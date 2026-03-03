@@ -43,6 +43,8 @@ try {
         env: {
             ...process.env,
             IS_ELECTRON: 'true',
+            NEXT_PUBLIC_OFFLINE_MODE: 'true',
+            NEXT_PUBLIC_DISABLE_FIREBASE: 'true',
             NEXT_DISABLE_ESLINT: '1',
             NEXT_DISABLE_TS_CHECK: '1',
             NODE_OPTIONS: '--max-old-space-size=4096'

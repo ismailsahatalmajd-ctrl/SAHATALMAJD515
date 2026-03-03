@@ -113,21 +113,23 @@ export default function LoginPage() {
         }
         // Seed to DBs
         try {
-          const { doc, setDoc } = await import("firebase/firestore")
-          const { db: firestore } = await import("@/lib/firebase")
+          const isOffline = process.env.NEXT_PUBLIC_OFFLINE_MODE === 'true'
+            || process.env.NEXT_PUBLIC_DISABLE_FIREBASE === 'true'
+          if (!isOffline) {
+            const { doc, setDoc } = await import("firebase/firestore")
+            const { db: firestore } = await import("@/lib/firebase")
+            // 1. Firestore
+            await setDoc(doc(firestore, "users", aliUser.uid), {
+              ...aliUser,
+              permissions: {},
+              isActive: true,
+              createdAt: new Date().toISOString(),
+              lastLogin: new Date().toISOString()
+            }, { merge: true })
+          }
+          // 2. Local DB (always)
           const { db } = await import("@/lib/db")
           const bcrypt = (await import("bcryptjs")).default
-
-          // 1. Firestore
-          await setDoc(doc(firestore, "users", aliUser.uid), {
-            ...aliUser,
-            permissions: {},
-            isActive: true, // Force active
-            createdAt: new Date().toISOString(),
-            lastLogin: new Date().toISOString()
-          }, { merge: true })
-
-          // 2. Local DB
           await db.branches.put({
             id: aliUser.uid,
             username: 'ALI515',
@@ -153,7 +155,24 @@ export default function LoginPage() {
         localBranches = await db.branches.toArray()
       }
 
-      const branch = localBranches.find(b => b.username === username)
+      let branch = localBranches.find(b => b.username === username)
+
+      // Fallback: If still not found locally AND online → fetch from Firebase and cache locally
+      // This handles first-time login on new devices (mobile, etc.)
+      if (!branch && navigator.onLine) {
+        console.log("Login: User not found locally, checking Firebase...")
+        try {
+          const { findRemoteBranchByUsername } = await import("@/lib/sync-api")
+          const remote = await findRemoteBranchByUsername(username)
+          if (remote) {
+            console.log("Login: Found user in Firebase, caching locally...")
+            await db.branches.put(remote as any)
+            branch = remote as any
+          }
+        } catch (e) {
+          console.warn("Login: Firebase fallback failed", e)
+        }
+      }
 
       if (!branch) {
         throw new Error(t("login.error.notFound"))
@@ -188,8 +207,10 @@ export default function LoginPage() {
           permissions: (branch as any).permissions || {}
         }
 
-        // AUTO-SEED OWNER IN FIRESTORE FOR THIS SPECIAL ACCOUNT
-        if (username === 'SAHATALMAJD515') {
+        // AUTO-SEED OWNER IN FIRESTORE — skip in offline/Electron mode
+        const isOffline = process.env.NEXT_PUBLIC_OFFLINE_MODE === 'true'
+          || process.env.NEXT_PUBLIC_DISABLE_FIREBASE === 'true'
+        if (!isOffline && username === 'SAHATALMAJD515') {
           try {
             const { doc, setDoc } = await import("firebase/firestore")
             const { db: firestore } = await import("@/lib/firebase")
@@ -201,32 +222,16 @@ export default function LoginPage() {
               displayName: branch.name || "المالك",
               role: 'owner',
               permissions: {
-                // Force explicit true for everything just in case
-                'inventory.view': true,
-                'inventory.add': true,
-                'inventory.edit': true,
-                'inventory.delete': true,
-                'inventory.adjust': true,
-                'transactions.purchase': true,
-                'transactions.issue': true,
-                'transactions.return': true,
-                'transactions.approve': true,
-                'branches.view': true,
-                'branches.manage': true,
-                'branch_requests.view': true,
-                'branch_requests.approve': true,
-                'users.view': true,
-                'users.manage': true,
-                'system.settings': true,
-                'system.backup': true,
-                'system.logs': true,
-                'page.dashboard': true,
-                'page.inventory': true,
-                'page.transactions': true,
-                'page.reports': true,
-                'page.settings': true,
-                'page.users': true,
-                'page.branches': true,
+                'inventory.view': true, 'inventory.add': true, 'inventory.edit': true,
+                'inventory.delete': true, 'inventory.adjust': true,
+                'transactions.purchase': true, 'transactions.issue': true,
+                'transactions.return': true, 'transactions.approve': true,
+                'branches.view': true, 'branches.manage': true,
+                'branch_requests.view': true, 'branch_requests.approve': true,
+                'users.view': true, 'users.manage': true,
+                'system.settings': true, 'system.backup': true, 'system.logs': true,
+                'page.dashboard': true, 'page.inventory': true, 'page.transactions': true,
+                'page.reports': true, 'page.settings': true, 'page.users': true, 'page.branches': true,
               },
               branchId: 'all',
               isActive: true,

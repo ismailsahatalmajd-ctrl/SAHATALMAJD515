@@ -38,6 +38,9 @@ next-env.d.ts
 /dist
 /release
 /release_new
+/release-suhail
+/release-suhail/
+/win-unpacked
 /backend
 
 # Tauri

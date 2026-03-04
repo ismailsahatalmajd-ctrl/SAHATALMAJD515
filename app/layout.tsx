@@ -1,5 +1,5 @@
 import type React from "react"
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import "./globals.css"
 import NumberNormalizer from "@/components/number-normalizer"
@@ -14,6 +14,13 @@ const _geistMono = Geist_Mono({ subsets: ["latin"] })
 import { FirebaseSyncManager } from "@/components/firebase-sync-manager"
 
 // ... existing imports
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+}
 
 export const metadata: Metadata = {
   title: "مستودع ساحة المجد",

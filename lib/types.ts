@@ -64,6 +64,7 @@ export interface Transaction {
   unitPrice: number
   totalAmount: number
   notes?: string
+  supplierName?: string
   createdAt: string
   createdBy?: string
   updatedAt?: string

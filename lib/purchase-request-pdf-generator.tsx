@@ -111,8 +111,10 @@ export async function generatePurchaseRequestPDF(req: PurchaseRequest, lang: Lan
           <th>كود المنتج<br>Product Code</th>
           <th>اسم المنتج<br>Product Name</th>
           <th>الوحدة<br>Unit</th>
-          <th>الكمية المطلوبة<br>Requested Qty</th>
+          <th>الكمية الطلوبة<br>Requested Qty</th>
           <th>الكمية المتبقية<br>Remaining Qty</th>
+          <th>مدة الاستخدام<br>Usage Duration</th>
+          <th>ملاحظات<br>Notes</th>
         </tr>
       </thead>
       <tbody>
@@ -131,6 +133,8 @@ export async function generatePurchaseRequestPDF(req: PurchaseRequest, lang: Lan
               <td>${unit || '-'}</td>
               <td>${formatEnglishNumber(item.requestedQuantity)}</td>
               <td>${formatEnglishNumber(item.availableQuantity ?? 0)}</td>
+              <td>${item.extraNotes || ''}</td>
+              <td>${item.itemNotes || ''}</td>
             </tr>
           `
   }).join("")}

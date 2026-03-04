@@ -9,6 +9,8 @@ export interface PurchaseRequestItem {
   requestedQuantity: number
   availableQuantity?: number
   image?: string
+  extraNotes?: string
+  itemNotes?: string
 }
 
 export type PurchaseRequestAction =

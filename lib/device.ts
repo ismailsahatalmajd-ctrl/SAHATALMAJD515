@@ -32,8 +32,9 @@ export const generateDeviceId = (): string => {
     hash = hash & hash; // Convert to 32bit integer
   }
 
-  // استخدام hash فقط بدون جزء عشوائي لمنع التكرار
-  return `dev_${Math.abs(hash).toString(36)}`;
+  const randomPart = Math.random().toString(36).substring(2, 7);
+  // استخدام hash مع جزء عشوائي لضمان التميز حتى مع تشابه البصمة
+  return `dev_${Math.abs(hash).toString(36)}_${randomPart}`;
 };
 
 export const getDeviceInfo = () => {

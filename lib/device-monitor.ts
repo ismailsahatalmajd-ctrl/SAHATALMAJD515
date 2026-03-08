@@ -84,12 +84,16 @@ export const initDeviceMonitor = () => {
         }
     }
 
-    // Initial update - تحديث فوري عند التحميل
+    // Interval update (every 60s)
     console.log('[DeviceMonitor] Starting initial heartbeat...')
     updateHeartbeat()
+    let lastHeartbeat = Date.now()
+    const HEARTBEAT_INTERVAL = 60000;
 
-    // Interval update (every 60s)
-    setInterval(updateHeartbeat, 60000)
+    setInterval(() => {
+        updateHeartbeat()
+        lastHeartbeat = Date.now()
+    }, HEARTBEAT_INTERVAL)
 
     // تحديث فوري عند تغيير بيانات المستخدم في localStorage
     if (typeof window !== 'undefined') {
@@ -97,13 +101,21 @@ export const initDeviceMonitor = () => {
             if (e.key === 'sahat_user') {
                 console.log('[DeviceMonitor] User data changed, updating heartbeat...')
                 updateHeartbeat()
+                lastHeartbeat = Date.now()
             }
         })
 
-        // تحديث عند تغيير focus للنافذة
+        // تحديث عند تغيير focus للنافذة (مع المنع في حالة التحديث القريب)
         window.addEventListener('focus', () => {
+            const now = Date.now()
+            // لا ترسل إذا مر أقل من 30 ثانية على آخر نبضة
+            if (now - lastHeartbeat < 30000) {
+                console.log('[DeviceMonitor] Focus heartbeat skipped (too soon)')
+                return
+            }
             console.log('[DeviceMonitor] Window focused, updating heartbeat...')
             updateHeartbeat()
+            lastHeartbeat = now
         })
     }
 

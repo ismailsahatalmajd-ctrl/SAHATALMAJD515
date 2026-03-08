@@ -1,7 +1,8 @@
 "use client"
 
-import { useMemo, useState, useEffect } from "react"
-import { Plus, Search, FileText, Undo2, Download, Edit, Package, Barcode, Check, MoreHorizontal, Trash2, Settings2 } from 'lucide-react'
+import { useMemo, useState, useEffect, useRef } from "react"
+import { useVirtualizer } from "@tanstack/react-virtual"
+import { Plus, Search, FileText, Undo2, Download, Edit, Package, Barcode, Check, MoreHorizontal, Trash2, Settings2, Loader2 } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { Input } from "@/components/ui/input"
@@ -23,7 +24,6 @@ import { useI18n } from "@/components/language-provider"
 import { useInvoiceSettings } from "@/lib/invoice-settings-store"
 import { useToast } from "@/hooks/use-toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
-import { useRef } from "react"
 import { useIssues, useReturns, useProducts } from "@/hooks/use-firestore"
 import { syncIssue, syncProduct, syncReturn } from "@/lib/sync-api"
 import { useAuth } from "@/components/auth-provider"
@@ -96,6 +96,15 @@ export default function IssuesPage() {
   const [branchMode, setBranchMode] = useState<"all" | "specific">("all")
   const [branchSelected, setBranchSelected] = useState<string>("")
   const [productMode, setProductMode] = useState<"all" | "specific">("all")
+
+  const parentRef = useRef<HTMLDivElement>(null)
+
+  const rowVirtualizer = useVirtualizer({
+    count: Math.min(filteredIssues.length, issuesLimit === "all" ? filteredIssues.length : Number(issuesLimit || 15)),
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 80, // Average row height
+    overscan: 5,
+  })
 
   useEffect(() => {
     loadData()
@@ -929,9 +938,13 @@ export default function IssuesPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
+              <div
+                ref={parentRef}
+                className="rounded-md border overflow-auto"
+                style={{ maxHeight: '600px' }}
+              >
                 <Table className="table-fixed">
-                  <TableHeader>
+                  <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
                     <TableRow>
                       <TableHead className="w-[50px] border-x text-center">
                         <Checkbox
@@ -957,7 +970,7 @@ export default function IssuesPage() {
                       <TableHead className="text-center w-[280px] border-x"><DualText k="issues.table.issues.columns.actions" /></TableHead>
                     </TableRow>
                   </TableHeader>
-                  <TableBody>
+                  <TableBody style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}>
                     {(() => {
                       const sorted = [...filteredIssues].sort((a, b) => {
                         const score = (i: Issue) => {
@@ -978,168 +991,187 @@ export default function IssuesPage() {
 
                       const limitNum = issuesLimit === "all" ? sorted.length : Number(issuesLimit || 15)
                       const limited = sorted.slice(0, limitNum)
-                      return limited.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={11} className="text-center text-muted-foreground">
-                            <DualText k="issues.table.issues.empty" />
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        limited.map((issue) => {
-                          // Check if issue was modified after creation (tolerance 2 seconds)
-                          const created = new Date(issue.createdAt).getTime()
-                          // Use createdAt as fallback for updatedAt to avoid undefined error
-                          const updated = new Date(issue.updatedAt || issue.createdAt).getTime()
-                          const isModified = (updated - created) > 2000
 
-                          return (
-                            <TableRow
-                              key={issue.id}
-                              className={`
-                                ${selectedIssueIds.includes(issue.id) ? "bg-blue-50/50" : ""}
-                                ${isModified && !selectedIssueIds.includes(issue.id) ? "bg-amber-50 hover:bg-amber-100/80" : ""}
-                              `}
-                            >
-                              <TableCell className="border-x text-center">
-                                <Checkbox
-                                  checked={selectedIssueIds.includes(issue.id)}
-                                  onCheckedChange={() => toggleSelectIssue(issue.id)}
-                                />
-                              </TableCell>
-                              <TableCell className="border-x text-center font-bold font-mono text-blue-600" dir="ltr">
-                                {issue.invoiceCode || issue.orderCode || `OR-OLD-${getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))}`}
-                              </TableCell>
-                              <TableCell className="border-x text-center">
-                                <Badge variant={issue.invoiceCode ? "default" : "secondary"}>
-                                  {issue.invoiceCode ? "صرف (Issue)" : "طلب (Order)"}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="border-x text-center">
-                                <Badge variant="outline">{issue.branchName}</Badge>
-                              </TableCell>
-                              <TableCell className="border-x text-center">{formatEnglishNumber(issue.products.length)} <DualText k="common.product" /></TableCell>
-                              <TableCell className="font-semibold border-x text-center">{formatEnglishNumber(issue.totalValue.toFixed(2))} <DualText k="common.currency" /></TableCell>
-                              <TableCell className="border-x text-center">{formatArabicGregorianDateTime(new Date(issue.createdAt))}</TableCell>
+                      if (limited.length === 0) {
+                        return (
+                          <TableRow>
+                            <TableCell colSpan={12} className="h-24 text-center">
+                              {issuesLoading ? <Loader2 className="h-6 w-6 animate-spin mx-auto" /> : <DualText k="common.noData" />}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      }
 
-                              {/* Branch Status Column */}
-                              <TableCell className="border-x text-center align-middle">
-                                {issue.branchReceived ? (
-                                  <Badge variant="outline" className="text-green-600 border-green-600 bg-green-50 flex flex-col items-center justify-center gap-0.5 w-full max-w-[120px] px-1 py-1 mx-auto h-auto">
-                                    <div className="flex items-center gap-1">
-                                      <Check className="w-3 h-3 flex-shrink-0" />
-                                      <span className="text-[10px] font-bold">تم الاستلام</span>
-                                    </div>
-                                    <span className="text-[9px] opacity-90 leading-none">Received</span>
-                                    {issue.branchReceivedAt && (
-                                      <span className="text-[8px] opacity-75 mt-0.5 font-mono dir-ltr">
-                                        {formatArabicGregorianDateTime(new Date(issue.branchReceivedAt))}
-                                      </span>
-                                    )}
-                                  </Badge>
-                                ) : (
-                                  <Badge variant="secondary" className="bg-gray-100 text-gray-500 flex flex-col items-center justify-center gap-0.5 w-full max-w-[120px] px-1 py-1 mx-auto h-auto">
-                                    <span className="text-[10px] font-bold">قيد الانتظار</span>
-                                    <span className="text-[9px] opacity-90 leading-none">Pending</span>
-                                  </Badge>
-                                )}
-                              </TableCell>
+                      const virtualRows = rowVirtualizer.getVirtualItems()
 
-                              {/* Warehouse Status Column */}
-                              <TableCell className="border-x text-center align-middle">
-                                {issue.delivered ? (
-                                  <Badge variant="default" className="bg-green-600 hover:bg-green-700 flex flex-col items-center justify-center gap-0.5 w-full max-w-[120px] px-1 py-1 mx-auto h-auto">
-                                    <div className="flex items-center gap-1">
-                                      <Check className="w-3 h-3 flex-shrink-0 text-white" />
-                                      <span className="text-[10px] font-bold text-white">تم التسليم</span>
-                                    </div>
-                                    <span className="text-[9px] opacity-90 leading-none text-white/90">Delivered</span>
-                                    {issue.deliveredAt && (
-                                      <span className="text-[8px] opacity-80 mt-0.5 font-mono text-white/80 dir-ltr">
-                                        {formatArabicGregorianDateTime(new Date(issue.deliveredAt))}
-                                      </span>
-                                    )}
-                                  </Badge>
-                                ) : (
-                                  <Badge variant="secondary" className="bg-orange-100 text-orange-600 flex flex-col items-center justify-center gap-0.5 w-full max-w-[120px] px-1 py-1 mx-auto h-auto">
-                                    <span className="text-[10px] font-bold">انتظار</span>
-                                    <span className="text-[9px] opacity-90 leading-none">Waiting</span>
-                                  </Badge>
-                                )}
-                              </TableCell>
+                      return (
+                        <>
+                          {virtualRows.map((virtualRow) => {
+                            const issue = limited[virtualRow.index]
+                            // Check if issue was modified after creation (tolerance 2 seconds)
+                            const created = new Date(issue.createdAt).getTime()
+                            // Use createdAt as fallback for updatedAt to avoid undefined error
+                            const updated = new Date(issue.updatedAt || issue.createdAt).getTime()
+                            const isModified = (updated - created) > 2000
 
-                              <TableCell className="border-x text-center">
-                                {(issue.requestId || issue.createdBy === 'branch' || /فرع/i.test(String(issue.notes || ''))) ? (
-                                  <Badge variant="outline" className="text-blue-600 border-blue-600 bg-blue-50">
-                                    <DualText k="issues.source.request" />
+                            return (
+                              <TableRow
+                                key={virtualRow.key}
+                                data-index={virtualRow.index}
+                                ref={rowVirtualizer.measureElement}
+                                style={{
+                                  position: 'absolute',
+                                  top: 0,
+                                  left: 0,
+                                  width: '100%',
+                                  transform: `translateY(${virtualRow.start}px)`,
+                                }}
+                                className={`
+                                  ${selectedIssueIds.includes(issue.id) ? "bg-blue-50/50" : ""}
+                                  ${isModified && !selectedIssueIds.includes(issue.id) ? "bg-amber-50 hover:bg-amber-100/80" : ""}
+                                `}
+                              >
+                                <TableCell className="w-[50px] border-x text-center">
+                                  <Checkbox
+                                    checked={selectedIssueIds.includes(issue.id)}
+                                    onCheckedChange={() => toggleSelectIssue(issue.id)}
+                                  />
+                                </TableCell>
+                                <TableCell className="w-[150px] border-x text-center font-bold font-mono text-blue-600" dir="ltr">
+                                  {issue.invoiceCode || issue.orderCode || `OR-OLD-${getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))}`}
+                                </TableCell>
+                                <TableCell className="w-[100px] border-x text-center">
+                                  <Badge variant={issue.invoiceCode ? "default" : "secondary"}>
+                                    {issue.invoiceCode ? "صرف (Issue)" : "طلب (Order)"}
                                   </Badge>
-                                ) : (
-                                  <Badge variant="outline" className="text-purple-600 border-purple-600 bg-purple-50">
-                                    <DualText k="issues.source.direct" />
-                                  </Badge>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-muted-foreground border-x text-center">
-                                {issue.notes || "-"}
-                              </TableCell>
-                              <TableCell className="text-center border-x">
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" className="h-8 w-8 p-0">
-                                      <span className="sr-only">Open menu</span>
-                                      <MoreHorizontal className="h-4 w-4" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end">
-                                    <DropdownMenuLabel><DualText k="common.actions" /></DropdownMenuLabel>
-                                    <DropdownMenuItem onClick={() => handlePrintAssembly(issue)}>
-                                      <Package className="mr-2 h-4 w-4" />
-                                      <span><DualText k="issues.actions.assemble" /></span>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem asChild>
-                                      <Link href={`/issues/verify?id=${issue.id}`} className="w-full cursor-pointer">
-                                        <Barcode className="mr-2 h-4 w-4" />
-                                        <span><DualText k="issues.verify" /></span>
-                                      </Link>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => handlePrintInvoice(issue)}>
-                                      <FileText className="mr-2 h-4 w-4" />
-                                      <span><DualText k="issues.actions.printIssue" /></span>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => handleExportToOdooExcel(issue)}>
-                                      <Download className="mr-2 h-4 w-4" />
-                                      <span>تصدير للأودو (Odoo Excel)</span>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => handleEditIssue(issue)}>
-                                      <Edit className="mr-2 h-4 w-4" />
-                                      <span><DualText k="common.edit" /></span>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      onClick={() => setDeliverDialogIssueId(issue.id)}
-                                      disabled={!!issue.delivered}
-                                      className={issue.delivered ? "opacity-50 cursor-not-allowed" : ""}
-                                    >
-                                      <Check className="mr-2 h-4 w-4" />
-                                      <span><DualText k="issues.status.delivered" /></span>
-                                    </DropdownMenuItem>
-                                    {!issue.delivered && (
-                                      <>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem
-                                          onClick={() => handleDeleteIssue(issue)}
-                                          className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                                        >
-                                          <Trash2 className="mr-2 h-4 w-4" />
-                                          <span><DualText k="common.delete" /></span>
-                                        </DropdownMenuItem>
-                                      </>
-                                    )}
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </TableCell>
-                            </TableRow>
-                          )
-                        })
+                                </TableCell>
+                                <TableCell className="w-[150px] border-x text-center">
+                                  <Badge variant="outline">{issue.branchName}</Badge>
+                                </TableCell>
+                                <TableCell className="w-[120px] border-x text-center">{formatEnglishNumber(issue.products.length)} <DualText k="common.product" /></TableCell>
+                                <TableCell className="w-[140px] font-semibold border-x text-center">{formatEnglishNumber(issue.totalValue.toFixed(2))} <DualText k="common.currency" /></TableCell>
+                                <TableCell className="w-[180px] border-x text-center">{formatArabicGregorianDateTime(new Date(issue.createdAt))}</TableCell>
+
+                                {/* Branch Status Column */}
+                                <TableCell className="w-[120px] border-x text-center align-middle">
+                                  {issue.branchReceived ? (
+                                    <Badge variant="outline" className="text-green-600 border-green-600 bg-green-50 flex flex-col items-center justify-center gap-0.5 w-full max-w-[120px] px-1 py-1 mx-auto h-auto">
+                                      <div className="flex items-center gap-1">
+                                        <Check className="w-3 h-3 flex-shrink-0" />
+                                        <span className="text-[10px] font-bold">تم الاستلام</span>
+                                      </div>
+                                      <span className="text-[9px] opacity-90 leading-none">Received</span>
+                                      {issue.branchReceivedAt && (
+                                        <span className="text-[8px] opacity-75 mt-0.5 font-mono dir-ltr">
+                                          {formatArabicGregorianDateTime(new Date(issue.branchReceivedAt))}
+                                        </span>
+                                      )}
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="secondary" className="bg-gray-100 text-gray-500 flex flex-col items-center justify-center gap-0.5 w-full max-w-[120px] px-1 py-1 mx-auto h-auto">
+                                      <span className="text-[10px] font-bold">قيد الانتظار</span>
+                                      <span className="text-[9px] opacity-90 leading-none">Pending</span>
+                                    </Badge>
+                                  )}
+                                </TableCell>
+
+                                {/* Warehouse Status Column */}
+                                <TableCell className="w-[120px] border-x text-center align-middle">
+                                  {issue.delivered ? (
+                                    <Badge variant="default" className="bg-green-600 hover:bg-green-700 flex flex-col items-center justify-center gap-0.5 w-full max-w-[120px] px-1 py-1 mx-auto h-auto">
+                                      <div className="flex items-center gap-1">
+                                        <Check className="w-3 h-3 flex-shrink-0 text-white" />
+                                        <span className="text-[10px] font-bold text-white">تم التسليم</span>
+                                      </div>
+                                      <span className="text-[9px] opacity-90 leading-none text-white/90">Delivered</span>
+                                      {issue.deliveredAt && (
+                                        <span className="text-[8px] opacity-80 mt-0.5 font-mono text-white/80 dir-ltr">
+                                          {formatArabicGregorianDateTime(new Date(issue.deliveredAt))}
+                                        </span>
+                                      )}
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="secondary" className="bg-orange-100 text-orange-600 flex flex-col items-center justify-center gap-0.5 w-full max-w-[120px] px-1 py-1 mx-auto h-auto">
+                                      <span className="text-[10px] font-bold">انتظار</span>
+                                      <span className="text-[9px] opacity-90 leading-none">Waiting</span>
+                                    </Badge>
+                                  )}
+                                </TableCell>
+
+                                <TableCell className="w-[120px] border-x text-center">
+                                  {(issue.requestId || issue.createdBy === 'branch' || /فرع/i.test(String(issue.notes || ''))) ? (
+                                    <Badge variant="outline" className="text-blue-600 border-blue-600 bg-blue-50">
+                                      <DualText k="issues.source.request" />
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-purple-600 border-purple-600 bg-purple-50">
+                                      <DualText k="issues.source.direct" />
+                                    </Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell className="w-[150px] text-muted-foreground border-x text-center">
+                                  {issue.notes || "-"}
+                                </TableCell>
+                                <TableCell className="w-[280px] text-center border-x">
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button variant="ghost" className="h-8 w-8 p-0">
+                                        <span className="sr-only">Open menu</span>
+                                        <MoreHorizontal className="h-4 w-4" />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      <DropdownMenuLabel><DualText k="common.actions" /></DropdownMenuLabel>
+                                      <DropdownMenuItem onClick={() => handlePrintAssembly(issue)}>
+                                        <Package className="mr-2 h-4 w-4" />
+                                        <span><DualText k="issues.actions.assemble" /></span>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem asChild>
+                                        <Link href={`/issues/verify?id=${issue.id}`} className="w-full cursor-pointer">
+                                          <Barcode className="mr-2 h-4 w-4" />
+                                          <span><DualText k="issues.verify" /></span>
+                                        </Link>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem onClick={() => handlePrintInvoice(issue)}>
+                                        <FileText className="mr-2 h-4 w-4" />
+                                        <span><DualText k="issues.actions.printIssue" /></span>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem onClick={() => handleExportToOdooExcel(issue)}>
+                                        <Download className="mr-2 h-4 w-4" />
+                                        <span>تصدير للأودو (Odoo Excel)</span>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem onClick={() => handleEditIssue(issue)}>
+                                        <Edit className="mr-2 h-4 w-4" />
+                                        <span><DualText k="common.edit" /></span>
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem
+                                        onClick={() => setDeliverDialogIssueId(issue.id)}
+                                        disabled={!!issue.delivered}
+                                        className={issue.delivered ? "opacity-50 cursor-not-allowed" : ""}
+                                      >
+                                        <Check className="mr-2 h-4 w-4" />
+                                        <span><DualText k="issues.status.delivered" /></span>
+                                      </DropdownMenuItem>
+                                      {!issue.delivered && (
+                                        <>
+                                          <DropdownMenuSeparator />
+                                          <DropdownMenuItem
+                                            onClick={() => handleDeleteIssue(issue)}
+                                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                                          >
+                                            <Trash2 className="mr-2 h-4 w-4" />
+                                            <span><DualText k="common.delete" /></span>
+                                          </DropdownMenuItem>
+                                        </>
+                                      )}
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })}
+                        </>
                       )
                     })()}
                   </TableBody>

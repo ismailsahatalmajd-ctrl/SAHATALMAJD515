@@ -213,34 +213,61 @@ export const startRealtimeSync = () => {
     // Process queue on startup
     processSyncQueue().catch(console.error);
 
-    // Periodically process queue (every 60s)
+    // Periodically process queue is wasteful for CPU (App Engine time) if empty
+    // Only process on startup and then on user action
+    /*
     if (!syncInterval) {
         syncInterval = setInterval(() => {
             processSyncQueue().catch(console.error);
         }, 60000);
     }
+    */
 
     try {
+        // --- 1. Real-time Collections (Absolute necessity) ---
         unsubscribers.push(syncCollection(COLLECTIONS.PRODUCTS, localDb.products, "products_change"));
         unsubscribers.push(syncCollection(COLLECTIONS.TRANSACTIONS, localDb.transactions, "transactions_change"));
-        unsubscribers.push(syncCollection(COLLECTIONS.CATEGORIES, localDb.categories, "categories_change"));
-        unsubscribers.push(syncCollection(COLLECTIONS.BRANCHES, localDb.branches, "branches_change"));
-        unsubscribers.push(syncCollection(COLLECTIONS.UNITS, localDb.units, "change"));
         unsubscribers.push(syncCollection(COLLECTIONS.ISSUES, localDb.issues, "issues_change"));
         unsubscribers.push(syncCollection(COLLECTIONS.RETURNS, localDb.returns, "returns_change"));
-        unsubscribers.push(syncCollection(COLLECTIONS.LOCATIONS, localDb.locations, "change"));
-        unsubscribers.push(syncCollection(COLLECTIONS.ADJUSTMENTS, localDb.inventoryAdjustments, "change"));
         unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_REQUESTS, localDb.branchRequests, "branch_requests_change"));
         unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_INVOICES, localDb.branchInvoices, "branch_invoices_change"));
-        unsubscribers.push(syncCollection(COLLECTIONS.PRODUCT_IMAGES, localDb.productImages, "product_images_change"));
 
-        // Branch Inventory System Sync
+        // --- 2. Fetch-once Collections (Optimization: only on startup) ---
+        // These don't change often enough to warrant a constant background CPU connection
+        async function fetchStaticData() {
+            try {
+                const fetchTable = async (collName: string, localTable: any, event: string) => {
+                    const q = query(collection(firestore, collName));
+                    const snapshot = await getDocs(q);
+                    const items = snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
+                    if (items.length > 0) {
+                        await localTable.bulkPut(items);
+                        // Update cache for each item (limited to start)
+                        items.forEach(it => updateStoreCache(collName, it));
+                        if (event) notify(event as any);
+                    }
+                };
+                await Promise.all([
+                    fetchTable(COLLECTIONS.CATEGORIES, localDb.categories, "categories_change"),
+                    fetchTable(COLLECTIONS.BRANCHES, localDb.branches, "branches_change"),
+                    fetchTable(COLLECTIONS.UNITS, localDb.units, "change"),
+                    fetchTable(COLLECTIONS.LOCATIONS, localDb.locations, "change"),
+                    fetchTable(COLLECTIONS.ADJUSTMENTS, localDb.inventoryAdjustments, "change"),
+                ]);
+            } catch (err) {
+                console.error("Failed to fetch static collections:", err);
+            }
+        }
+        fetchStaticData();
+
+        // ⚠️ CRITICAL OPTIMIZATION: Removed real-time sync for COLLECTIONS.PRODUCT_IMAGES.
+        // This collection can be huge and syncing thousands of images docs is extremely expensive for CPU/Time.
+        // Images are already handled lazily when products load.
+
+        // Branch Inventory System Sync - Keep critical ones real-time
         unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_INVENTORY, localDb.branchInventory, "change"));
         unsubscribers.push(syncCollection(COLLECTIONS.CONSUMPTION_RECORDS, localDb.consumptionRecords, "change"));
-        unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_ASSETS, localDb.branchAssets, "change"));
-        unsubscribers.push(syncCollection(COLLECTIONS.MAINTENANCE_REPORTS, localDb.maintenanceReports, "change"));
         unsubscribers.push(syncCollection(COLLECTIONS.ASSET_REQUESTS, localDb.assetRequests, "change"));
-        unsubscribers.push(syncCollection(COLLECTIONS.ASSET_STATUS_REPORTS, localDb.assetStatusReports, "change"));
 
     } catch (e) {
         console.error("Error starting sync:", e);

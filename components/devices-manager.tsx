@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { getDeviceId } from "@/lib/device"
 import { db as firestore } from "@/lib/firebase"
-import { collection, onSnapshot, doc, updateDoc, deleteDoc, writeBatch } from "firebase/firestore"
+import { collection, onSnapshot, doc, updateDoc, deleteDoc, writeBatch, query, where, limit } from "firebase/firestore"
 import { Laptop, Smartphone, Monitor, Trash2, ShieldAlert, RefreshCw, Eye, Database, CheckCircle, AlertCircle, Users, Activity } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { ar } from "date-fns/locale"
@@ -156,8 +156,27 @@ export function DevicesManager() {
     return <Badge variant="secondary">غير معروف</Badge>
   }
 
+  const [showAll, setShowAll] = useState(false)
+
   useEffect(() => {
-    const q = collection(firestore, "devices")
+    setLoading(true)
+    const devicesRef = collection(firestore, "devices")
+
+    // Default: Show only devices active in last 3 days to save reads
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+    let q = query(
+      devicesRef,
+      where("lastActive", ">=", threeDaysAgo.toISOString()),
+      limit(50) // Prevent massive reads if some bot attacks
+    )
+
+    // Using query constraints requires imports
+    if (showAll) {
+      q = query(devicesRef, limit(100))
+    }
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setError(null)
       const list = snapshot.docs.map(doc => ({
@@ -176,15 +195,19 @@ export function DevicesManager() {
     }, (err) => {
       console.error("Devices listener error", err)
       if (err.code === 'resource-exhausted') {
-        setError("تجاوز النظام الحد المسموح من القراءات اليومية (Quota Exceeded). يرجى المحاولة غداً.")
+        setError("تنبيه: تجاوز النظام الحد المسموح من القراءات المجانية في Firebase (Quota Exceeded). سيتم تقليل وتيرة التحديث تلقائياً.")
+      } else if (err.code === 'failed-precondition') {
+        // Most likely missing index for where("lastActive", ">=")
+        console.warn("Firestore index missing for devices query, falling back to full list")
+        setShowAll(true)
       } else {
-        setError("حدث خطأ في جلب الأجهزة.")
+        setError("حدث خطأ في جلب بيانات الأجهزة.")
       }
       setLoading(false)
     })
 
     return () => unsubscribe()
-  }, [currentDeviceId])
+  }, [currentDeviceId, showAll])
 
   // Group devices by username
   const groupedDevices = useMemo(() => {
@@ -281,6 +304,13 @@ export function DevicesManager() {
             </div>
             <div className="flex flex-wrap gap-2">
               <Button
+                variant={showAll ? 'destructive' : 'outline'}
+                size="sm"
+                onClick={() => setShowAll(!showAll)}
+              >
+                {showAll ? 'إخفاء الأجهزة القديمة' : 'إظهار كل الأجهزة'}
+              </Button>
+              <Button
                 variant={viewMode === 'list' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setViewMode('list')}
@@ -362,7 +392,7 @@ export function DevicesManager() {
                     <div className="flex-1 grid gap-3 sm:grid-cols-[auto_1fr_auto]">
                       <div className="flex items-start gap-3">
                         <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full text-slate-600 dark:text-slate-400 relative">
-                          {getIcon(device.userAgent)}
+                          {getIcon(device.userAgent || "")}
                           {isOnline && <span className="absolute top-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></span>}
                         </div>
 
@@ -383,7 +413,7 @@ export function DevicesManager() {
                       </div>
 
                       <div className="text-xs text-muted-foreground space-y-1">
-                        <div>{formatDistanceToNow(new Date(device.lastActive), { addSuffix: true, locale: ar })}</div>
+                        <div>{device.lastActive ? formatDistanceToNow(new Date(device.lastActive), { addSuffix: true, locale: ar }) : "غير معروف"}</div>
                         {device.syncStatus && (
                           <div className="flex gap-3 text-xs font-medium text-slate-600">
                             <span className="flex items-center gap-1"><Database className="w-3 h-3" /> منتجات: {device.syncStatus.productsCount}</span>
@@ -467,10 +497,10 @@ export function DevicesManager() {
                         return (
                           <div key={device.deviceId} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg text-sm">
                             <div className="flex items-center gap-3">
-                              {getIcon(device.userAgent)}
+                              {getIcon(device.userAgent || "")}
                               <div>
                                 <div className="font-mono text-xs text-muted-foreground">{device.deviceId.substring(0, 12)}...</div>
-                                <div className="text-xs">{formatDistanceToNow(new Date(device.lastActive), { addSuffix: true, locale: ar })}</div>
+                                <div className="text-xs">{device.lastActive ? formatDistanceToNow(new Date(device.lastActive), { addSuffix: true, locale: ar }) : "غير معروف"}</div>
                               </div>
                               {isCurrent && <Badge className="text-[10px]">الحالي</Badge>}
                               {isOnline && <Badge variant="outline" className="text-green-600 text-[10px]">متصل</Badge>}
@@ -500,6 +530,6 @@ export function DevicesManager() {
           )}
         </CardContent>
       </Card>
-    </div>
+    </div >
   )
 }

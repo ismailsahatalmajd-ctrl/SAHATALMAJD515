@@ -33,7 +33,7 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 let db: Firestore;
 try {
     db = initializeFirestore(app, {
-        experimentalForceLongPolling: true,
+        experimentalForceLongPolling: false, // Standard WebSockets are cheaper and more efficient
     });
 
     if (isOfflineMode) {

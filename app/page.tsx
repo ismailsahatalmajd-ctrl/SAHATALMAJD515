@@ -177,76 +177,68 @@ export default function Home() {
     return Array.from(unique).sort()
   }, [locationsData, products])
 
-  // Auto-fix quantityPerCarton = 0 for existing products
-  // Auto-Correction Background Task: Ensure DB meets consistency rules
-  // "Take its time" -> Process very slowly to avoid performance impact
-  useEffect(() => {
-    if (!products || products.length === 0) return
-
-    const ensureConsistency = async () => {
-      // 1. Fix QuantityPerCarton
-      // 2. Fix CurrentStock mismatch (Opening + Purchases - Issues)
-
-      const updates = []
-
-      for (const p of products) {
-        if (!p.id) continue
-
-        // Rule 1: QtyPerCarton default 1
-        if (!p.quantityPerCarton || p.quantityPerCarton === 0) {
-          updates.push({ id: p.id, changes: { quantityPerCarton: 1 } })
-        }
-
-        // Rule 2: Stock Consistency
-        const op = Number(p.openingStock) || 0
-        const pu = Number(p.purchases) || 0
-        const iss = Number(p.issues) || 0
-        const theoretical = op + pu - iss
-        const stored = Number(p.currentStock)
-
-        // If mismatch > 0.001 (float tolerance), schedule update
-        if (Math.abs(stored - theoretical) > 0.001) {
-          // Avoid adding duplicates if already fixing carton
-          const existing = updates.find(u => u.id === p.id)
-          if (existing) {
-            existing.changes.currentStock = theoretical
-          } else {
-            updates.push({ id: p.id, changes: { currentStock: theoretical } })
-          }
-        }
-      }
-
-      if (updates.length === 0) return
-
-      console.log(`🧹 Found ${updates.length} products needing consistency fix. Starting slow fix...`)
-
-      // Process updates slowly: 1 product every 200ms
-      // This is "Taking its time" to the extreme to satisfy user request
-      for (let i = 0; i < updates.length; i++) {
-        const u = updates[i]
-        try {
-          await db.products.update(u.id, u.changes)
-        } catch (e) { console.error('Auto-fix failed', e) }
-
-        if (i % 5 === 0) await new Promise(r => setTimeout(r, 1000)) // Wait 1 second every 5 items
-      }
-
-      console.log("✅ Background consistency check complete.")
-    }
-
-    // Start after 5 seconds to let initial load finish
-    const timer = setTimeout(ensureConsistency, 5000)
-    return () => clearTimeout(timer)
-  }, [products?.length]) // Run when product count changes (load finished)
-
-
   const [searchTerm, setSearchTerm] = useState("")
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
   const [selectedCategory, setSelectedCategory] = useState<string>("all")
   const [selectedLocation, setSelectedLocation] = useState<string>("all")
   const [selectedStockStatus, setSelectedStockStatus] = useState<StockStatus>("all")
   const [mergeDuplicates, setMergeDuplicates] = useState(false)
   const [excludeZeroStock, setExcludeZeroStock] = useState(false)
   const [tableViewMode, setTableViewMode] = useState<string>('default')
+
+  // Debounce search term to improve performance
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchTerm])
+
+  // Auto-fix quantityPerCarton = 0 for existing products
+  useEffect(() => {
+    if (!products || products.length === 0) return
+
+    const ensureConsistency = async () => {
+      const updates = []
+      // 1. Quick check for consistency needs
+      for (const p of products) {
+        if (!p.id) continue
+        const op = Number(p.openingStock) || 0
+        const pu = Number(p.purchases) || 0
+        const iss = Number(p.issues) || 0
+        const theoretical = op + pu - iss
+        const stored = Number(p.currentStock)
+
+        const needsCartonFix = !p.quantityPerCarton || p.quantityPerCarton === 0
+        const needsStockFix = Math.abs(stored - theoretical) > 0.001
+
+        if (needsCartonFix || needsStockFix) {
+          const changes: any = {}
+          if (needsCartonFix) changes.quantityPerCarton = 1
+          if (needsStockFix) changes.currentStock = theoretical
+          updates.push({ id: p.id, changes })
+        }
+      }
+
+      if (updates.length === 0) return
+
+      console.log(`🧹 Found ${updates.length} products needing consistency fix. Processing in batches...`)
+
+      // Process in smaller batches of 10 to avoid blocking the UI
+      const BATCH_SIZE = 10
+      for (let i = 0; i < updates.length; i += BATCH_SIZE) {
+        const batch = updates.slice(i, i + BATCH_SIZE)
+        await Promise.all(batch.map(u => db.products.update(u.id, u.changes).catch(() => { })))
+        // Small yield to main thread
+        await new Promise(r => setTimeout(r, 100))
+      }
+
+      console.log("✅ Background consistency check complete.")
+    }
+
+    const timer = setTimeout(ensureConsistency, 3000)
+    return () => clearTimeout(timer)
+  }, [products?.length])
 
   // Load saved view mode from localStorage
   useEffect(() => {
@@ -263,8 +255,8 @@ export default function Home() {
   const filteredProducts = useMemo(() => {
     let filtered = products || []
 
-    if (searchTerm) {
-      const lowerTerm = searchTerm.toLowerCase()
+    if (debouncedSearchTerm) {
+      const lowerTerm = debouncedSearchTerm.toLowerCase()
       filtered = filtered.filter(
         (p) =>
           String(p.productName || "").toLowerCase().includes(lowerTerm) ||
@@ -301,7 +293,7 @@ export default function Home() {
     }
 
     return filtered
-  }, [searchTerm, selectedCategory, selectedLocation, selectedStockStatus, excludeZeroStock, mergeDuplicates, products])
+  }, [debouncedSearchTerm, selectedCategory, selectedLocation, selectedStockStatus, excludeZeroStock, mergeDuplicates, products])
 
   // Sort products by productCode (ascending) by default
   const sortedFilteredProducts = useMemo(() => {

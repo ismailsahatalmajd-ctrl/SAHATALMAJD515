@@ -1,7 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks"
 import { db } from "@/lib/db"
 import { useState, useEffect, useMemo } from 'react'
-import type { Branch, Location, Product, Transaction, Category, Unit, Issue, InventoryAdjustment, Return } from "@/lib/types"
+import type { Branch, Location, Product, Transaction, Category, Unit, Issue, InventoryAdjustment, Return, ReceivingNote } from "@/lib/types"
 import type { PurchaseRequest } from "@/lib/purchase-request-types"
 import type { BranchRequest } from "@/lib/branch-request-types"
 import type { BranchInvoice } from "@/lib/branch-invoice-types"
@@ -50,15 +50,24 @@ export function useCategoriesRealtime() {
 }
 
 export function useTransactionsRealtime() {
-    // Show newest transactions first
+    // Large limit to ensure stats are accurate and history is visible
     const table = useMemo(() => db.transactions.toCollection().reverse(), [])
-    return useDexieTableProgressive(table, 50)
+    return useDexieTableProgressive(table, 5000)
+}
+
+// Internal hook for summaries that need ALL records without limit
+function useTransactionsFull() {
+    return useLiveQuery(() => db.transactions.toArray()) || []
+}
+
+function useProductsFull() {
+    return useLiveQuery(() => db.products.toArray()) || []
 }
 
 export function usePurchasesRealtime() {
-    // transactions where type is 'purchase', reversed to show newest first (assuming id is time-based)
+    // Large limit to show full history immediately
     const table = useMemo(() => db.transactions.where('type').equals('purchase').reverse(), [])
-    return useDexieTableProgressive(table, 50)
+    return useDexieTableProgressive<Transaction>(table, 5000)
 }
 
 export function usePurchaseRequestsRealtime() {
@@ -95,16 +104,21 @@ export function useAdjustmentsRealtime() {
     return useDexieTable(db.inventoryAdjustments)
 }
 
+export function useReceivingNotesRealtime() {
+    const table = useMemo(() => db.receivingNotes.toCollection().reverse(), [])
+    return useDexieTableProgressive<ReceivingNote>(table, 20)
+}
+
 export function useLocationsRealtime() {
     return useDexieTable<Location>(db.locations)
 }
 
 export function useFinancialSummaryRealtime() {
-    const { data: products } = useProductsRealtime()
-    const { data: transactions } = useTransactionsRealtime()
+    const products = useProductsFull()
+    const transactions = useTransactionsFull()
 
     const summary = useMemo(() => {
-        if (!products || !transactions) {
+        if (!products.length && !transactions.length) {
             return {
                 totalPurchases: 0,
                 totalSales: 0,
@@ -124,7 +138,7 @@ export function useFinancialSummaryRealtime() {
         })
 
         products.forEach((p: any) => {
-            totalInventoryValue += ((p.currentStock || 0) * (p.averagePrice || 0))
+            totalInventoryValue += ((Number(p.currentStock) || 0) * (Number(p.averagePrice || p.price) || 0))
         })
 
         return {

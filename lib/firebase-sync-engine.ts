@@ -68,6 +68,7 @@ function updateStoreCache(table: string, record: any) {
         'branchInvoices': 'branchInvoices',
         'inventoryAdjustments': 'adjustments',
         'purchaseRequests': 'purchaseRequests',
+        'receivingNotes': 'receivingNotes',
     }
 
     const key = map[table]
@@ -92,6 +93,7 @@ function updateStoreCache(table: string, record: any) {
         'returns': 'returns_change',
         'branchRequests': 'branch_requests_change',
         'branchInvoices': 'branch_invoices_change',
+        'receivingNotes': 'receiving_notes_change' as any,
     }
     if (eventMap[table]) notify(eventMap[table])
 }
@@ -147,7 +149,8 @@ export const COLLECTIONS = {
     MAINTENANCE_REPORTS: 'maintenanceReports',
     ASSET_REQUESTS: 'assetRequests',
     ASSET_STATUS_REPORTS: 'assetStatusReports',
-    AUDIT_LOGS: 'auditLogs'
+    AUDIT_LOGS: 'auditLogs',
+    SUPPLIERS: 'suppliers'
 };
 
 let unsubscribers: Function[] = [];
@@ -780,5 +783,36 @@ export const syncProductImagesBatch = async (images: { productId: string, data: 
                 }
             }
         }
+    }
+}
+
+export async function syncReceivingNote(note: any) {
+    if (!firestore) return;
+    try {
+        await setDoc(doc(firestore, "receiving_notes", note.id), {
+            ...note,
+            updatedAt: new Date().toISOString()
+        }, { merge: true });
+    } catch (e) {
+        console.error("ReceivingNote Sync Error:", e);
+        throw e;
+    }
+}
+
+export const syncSupplier = (r: any) => syncRecord(COLLECTIONS.SUPPLIERS, r);
+export const deleteSupplierApi = (id: string) => deleteRecord(COLLECTIONS.SUPPLIERS, id);
+
+
+export async function deleteAllReceivingNotesApi(ids: string[]) {
+    if (!firestore) return;
+    try {
+        const batch = writeBatch(firestore);
+        ids.forEach(id => {
+            batch.delete(doc(firestore, "receiving_notes", id));
+        });
+        await batch.commit();
+    } catch (e) {
+        console.error("ReceivingNotes Batch Delete Error:", e);
+        throw e;
     }
 }

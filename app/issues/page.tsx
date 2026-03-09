@@ -40,10 +40,15 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import * as XLSX from 'xlsx'
+import {
+  exportMergedIssuesExcel,
+  exportDetailedBranchesExcel,
+  exportMatrixIssuesExcel
+} from "@/lib/issues-excel-generator"
 
 export default function IssuesPage() {
   const settings = useInvoiceSettings()
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const { toast } = useToast()
   const { user } = useAuth()
 
@@ -922,16 +927,43 @@ export default function IssuesPage() {
                         <Package className="ml-2 h-4 w-4" />
                         <span>تجميع / Assemble ({selectedIssueIds.length})</span>
                       </Button>
-                      <Button
-                        variant="secondary"
-                        onClick={() => {
-                          const toExport = filteredIssues.filter(i => selectedIssueIds.includes(i.id))
-                          handleExportToOdooExcel(toExport)
-                        }}
-                      >
-                        <Download className="ml-2 h-4 w-4" />
-                        <span>تصدير للأودو ({selectedIssueIds.length})</span>
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" className="border-green-600 text-green-700 hover:bg-green-50">
+                            <Download className="ml-2 h-4 w-4" />
+                            <span>تصدير إكسل / Excel ({selectedIssueIds.length})</span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-64">
+                          <DropdownMenuLabel>خيارات التصدير / Export Options</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => {
+                            const toExport = issues.filter(i => selectedIssueIds.includes(i.id))
+                            exportMergedIssuesExcel(toExport, products)
+                          }}>
+                            تصدير مدمج (Merged Report)
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => {
+                            const toExport = issues.filter(i => selectedIssueIds.includes(i.id))
+                            exportDetailedBranchesExcel(toExport, products)
+                          }}>
+                            تصدير مفصل فروع (Detailed Sheets)
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => {
+                            const toExport = issues.filter(i => selectedIssueIds.includes(i.id))
+                            exportMatrixIssuesExcel(toExport, products)
+                          }}>
+                            مصفوفة الاستهلاك (Consumption Matrix)
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => {
+                            const toExport = filteredIssues.filter(i => selectedIssueIds.includes(i.id))
+                            handleExportToOdooExcel(toExport)
+                          }}>
+                            تصدير للأودو (Odoo Format)
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </>
                   )}
                 </div>
@@ -943,31 +975,31 @@ export default function IssuesPage() {
                 className="rounded-md border overflow-auto"
                 style={{ maxHeight: '600px' }}
               >
-                <Table className="table-fixed">
+                <Table className="w-full" style={{ minWidth: '1580px' }}>
                   <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
-                    <TableRow>
-                      <TableHead className="w-[50px] border-x text-center">
+                    <TableRow className="flex w-full">
+                      <TableHead className="w-[50px] shrink-0 border-x text-center flex items-center justify-center">
                         <Checkbox
                           checked={selectedIssueIds.length > 0 && selectedIssueIds.length === (issuesLimit === "all" ? filteredIssues.length : Math.min(filteredIssues.length, Number(issuesLimit)))}
                           onCheckedChange={handleSelectAll}
                         />
                       </TableHead>
 
-                      <TableHead className="w-[150px] border-x text-center font-bold text-blue-600"><DualText k="issues.table.issues.columns.id" /></TableHead>
-                      <TableHead className="w-[100px] border-x text-center font-bold">نوع العملية (Type)</TableHead>
-                      <TableHead className="w-[150px] border-x text-center"><DualText k="issues.table.issues.columns.branch" /></TableHead>
-                      <TableHead className="w-[120px] border-x text-center"><DualText k="issues.table.issues.columns.productsCount" /></TableHead>
-                      <TableHead className="w-[140px] border-x text-center"><DualText k="issues.table.issues.columns.total" /></TableHead>
-                      <TableHead className="w-[180px] border-x text-center"><DualText k="issues.table.issues.columns.date" /></TableHead>
-                      <TableHead className="w-[120px] border-x text-center text-xs text-muted-foreground font-bold">
+                      <TableHead className="w-[150px] shrink-0 border-x text-center font-bold text-blue-600 flex items-center justify-center"><DualText k="issues.table.issues.columns.id" /></TableHead>
+                      <TableHead className="w-[100px] shrink-0 border-x text-center font-bold flex items-center justify-center">نوع العملية (Type)</TableHead>
+                      <TableHead className="w-[200px] shrink-0 border-x text-center flex items-center justify-center"><DualText k="issues.table.issues.columns.branch" /></TableHead>
+                      <TableHead className="w-[120px] shrink-0 border-x text-center flex items-center justify-center"><DualText k="issues.table.issues.columns.productsCount" /></TableHead>
+                      <TableHead className="w-[140px] shrink-0 border-x text-center flex items-center justify-center"><DualText k="issues.table.issues.columns.total" /></TableHead>
+                      <TableHead className="w-[180px] shrink-0 border-x text-center flex items-center justify-center"><DualText k="issues.table.issues.columns.date" /></TableHead>
+                      <TableHead className="w-[120px] shrink-0 border-x text-center text-xs text-muted-foreground font-bold flex items-center justify-center">
                         Branch Received / استلام الفرع
                       </TableHead>
-                      <TableHead className="w-[120px] border-x text-center text-xs text-muted-foreground font-bold">
+                      <TableHead className="w-[120px] shrink-0 border-x text-center text-xs text-muted-foreground font-bold flex items-center justify-center">
                         Warehouse Delivered / تسليم المستودع
                       </TableHead>
-                      <TableHead className="w-[120px] border-x text-center"><DualText k="issues.table.issues.columns.source" /></TableHead>
-                      <TableHead className="w-[150px] border-x text-center"><DualText k="issues.table.issues.columns.notes" /></TableHead>
-                      <TableHead className="text-center w-[280px] border-x"><DualText k="issues.table.issues.columns.actions" /></TableHead>
+                      <TableHead className="w-[120px] shrink-0 border-x text-center flex items-center justify-center"><DualText k="issues.table.issues.columns.source" /></TableHead>
+                      <TableHead className="w-[150px] shrink-0 border-x text-center flex items-center justify-center"><DualText k="issues.table.issues.columns.notes" /></TableHead>
+                      <TableHead className="text-center w-[280px] shrink-0 border-x flex items-center justify-center"><DualText k="issues.table.issues.columns.actions" /></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}>
@@ -1022,38 +1054,47 @@ export default function IssuesPage() {
                                 style={{
                                   position: 'absolute',
                                   top: 0,
-                                  left: 0,
+                                  [lang === 'ar' ? 'right' : 'left']: 0,
                                   width: '100%',
                                   transform: `translateY(${virtualRow.start}px)`,
                                 }}
                                 className={`
+                                  flex w-full items-stretch
                                   ${selectedIssueIds.includes(issue.id) ? "bg-blue-50/50" : ""}
                                   ${isModified && !selectedIssueIds.includes(issue.id) ? "bg-amber-50 hover:bg-amber-100/80" : ""}
                                 `}
                               >
-                                <TableCell className="w-[50px] border-x text-center">
+                                <TableCell className="w-[50px] shrink-0 border-x text-center flex items-center justify-center">
                                   <Checkbox
                                     checked={selectedIssueIds.includes(issue.id)}
                                     onCheckedChange={() => toggleSelectIssue(issue.id)}
                                   />
                                 </TableCell>
-                                <TableCell className="w-[150px] border-x text-center font-bold font-mono text-blue-600" dir="ltr">
-                                  {issue.invoiceCode || issue.orderCode || `OR-OLD-${getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))}`}
+                                <TableCell className="w-[150px] shrink-0 border-x text-center font-semibold font-mono text-blue-600 flex items-center justify-center text-[11px] px-1" dir="ltr">
+                                  <span className="break-all leading-tight">{issue.invoiceCode || issue.orderCode || `OR-OLD-${getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))}`}</span>
                                 </TableCell>
-                                <TableCell className="w-[100px] border-x text-center">
+                                <TableCell className="w-[100px] shrink-0 border-x text-center flex items-center justify-center">
                                   <Badge variant={issue.invoiceCode ? "default" : "secondary"}>
                                     {issue.invoiceCode ? "صرف (Issue)" : "طلب (Order)"}
                                   </Badge>
                                 </TableCell>
-                                <TableCell className="w-[150px] border-x text-center">
-                                  <Badge variant="outline">{issue.branchName}</Badge>
+                                <TableCell className="w-[200px] shrink-0 border-x text-center flex items-center justify-center px-1">
+                                  <Badge variant="outline" className="text-[10px] px-2 py-0.5 font-bold leading-tight whitespace-normal text-center break-words max-w-full">
+                                    {issue.branchName}
+                                  </Badge>
                                 </TableCell>
-                                <TableCell className="w-[120px] border-x text-center">{formatEnglishNumber(issue.products.length)} <DualText k="common.product" /></TableCell>
-                                <TableCell className="w-[140px] font-semibold border-x text-center">{formatEnglishNumber(issue.totalValue.toFixed(2))} <DualText k="common.currency" /></TableCell>
-                                <TableCell className="w-[180px] border-x text-center">{formatArabicGregorianDateTime(new Date(issue.createdAt))}</TableCell>
+                                <TableCell className="w-[120px] shrink-0 border-x text-center flex flex-col items-center justify-center py-1 leading-tight">
+                                  <span className="font-bold text-sm">{formatEnglishNumber(issue.products.length)}</span>
+                                  <span className="text-[10px]"><DualText k="common.product" /></span>
+                                </TableCell>
+                                <TableCell className="w-[140px] shrink-0 font-bold border-x text-center flex flex-col items-center justify-center text-[11px] leading-tight">
+                                  <span>{formatEnglishNumber(issue.totalValue.toFixed(2))}</span>
+                                  <span className="text-[9px] opacity-70"><DualText k="common.currency" /></span>
+                                </TableCell>
+                                <TableCell className="w-[180px] shrink-0 border-x text-center flex items-center justify-center">{formatArabicGregorianDateTime(new Date(issue.createdAt))}</TableCell>
 
                                 {/* Branch Status Column */}
-                                <TableCell className="w-[120px] border-x text-center align-middle">
+                                <TableCell className="w-[120px] shrink-0 border-x text-center flex items-center justify-center">
                                   {issue.branchReceived ? (
                                     <Badge variant="outline" className="text-green-600 border-green-600 bg-green-50 flex flex-col items-center justify-center gap-0.5 w-full max-w-[120px] px-1 py-1 mx-auto h-auto">
                                       <div className="flex items-center gap-1">
@@ -1076,7 +1117,7 @@ export default function IssuesPage() {
                                 </TableCell>
 
                                 {/* Warehouse Status Column */}
-                                <TableCell className="w-[120px] border-x text-center align-middle">
+                                <TableCell className="w-[120px] shrink-0 border-x text-center flex items-center justify-center">
                                   {issue.delivered ? (
                                     <Badge variant="default" className="bg-green-600 hover:bg-green-700 flex flex-col items-center justify-center gap-0.5 w-full max-w-[120px] px-1 py-1 mx-auto h-auto">
                                       <div className="flex items-center gap-1">
@@ -1098,7 +1139,7 @@ export default function IssuesPage() {
                                   )}
                                 </TableCell>
 
-                                <TableCell className="w-[120px] border-x text-center">
+                                <TableCell className="w-[120px] shrink-0 border-x text-center flex items-center justify-center">
                                   {(issue.requestId || issue.createdBy === 'branch' || /فرع/i.test(String(issue.notes || ''))) ? (
                                     <Badge variant="outline" className="text-blue-600 border-blue-600 bg-blue-50">
                                       <DualText k="issues.source.request" />
@@ -1109,10 +1150,10 @@ export default function IssuesPage() {
                                     </Badge>
                                   )}
                                 </TableCell>
-                                <TableCell className="w-[150px] text-muted-foreground border-x text-center">
+                                <TableCell className="w-[150px] shrink-0 text-muted-foreground border-x text-center flex items-center justify-center">
                                   {issue.notes || "-"}
                                 </TableCell>
-                                <TableCell className="w-[280px] text-center border-x">
+                                <TableCell className="w-[280px] shrink-0 text-center border-x flex items-center justify-center">
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                       <Button variant="ghost" className="h-8 w-8 p-0">

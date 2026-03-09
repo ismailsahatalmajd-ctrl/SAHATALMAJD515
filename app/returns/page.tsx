@@ -208,18 +208,18 @@ export default function ReturnsPage() {
       // تجهيز البيانات
       const payload: Omit<Return, "id" | "createdAt"> = {
         sourceType,
-        issueId: sourceType === "issue" ? selectedIssueId : undefined,
-        sourceTransactionId: sourceType === "purchase" ? "multiple" : undefined,
+        issueId: sourceType === "issue" ? selectedIssueId : "",
+        sourceTransactionId: sourceType === "purchase" ? "multiple" : "",
         branchId: selectedIssue?.branchId ?? "main",
         branchName: selectedIssue?.branchName ?? "الرئيسي",
         products: returnItems,
         totalValue: totalValue,
         reason: t(reasonKey, reasonKey),
-        refundMethod: sourceType === "purchase" ? (refundMethod as Return["refundMethod"]) : undefined,
-        status: "pending", // سيتم تغييره للموافقة تلقائياً
-        customerPhone: customerPhone || undefined,
-        originalInvoiceNumber: originalInvoiceNumber || undefined,
-        responsibleName: responsibleName || undefined,
+        refundMethod: sourceType === "purchase" ? (refundMethod as Return["refundMethod"]) : "cash", // Fallback to cash or omit
+        status: "pending",
+        customerPhone: customerPhone || "",
+        originalInvoiceNumber: originalInvoiceNumber || "",
+        responsibleName: responsibleName || "",
       }
 
       if (user) {
@@ -238,17 +238,42 @@ export default function ReturnsPage() {
             const snap = await getDoc(pRef);
             const data = snap?.data() as any || {};
 
+            const isPurchaseReturn = sourceType === 'purchase';
             const qty = Number((p as any).quantityBase || p.quantity || 0);
-            const oldReturns = Number(data.returns || 0);
-            const newReturns = oldReturns + qty;
+            const price = Number(p.unitPrice || 0);
+            const totalItemValue = p.totalPrice || (price * qty);
 
-            // Update the product with new returns count
-            await updateDoc(pRef, {
-              returns: newReturns,
-              returnsValue: (Number(data.returnsValue || 0)) + (p.totalPrice || (p.unitPrice * qty)),
-              currentStock: (Number(data.openingStock || 0)) + (Number(data.purchases || 0)) + newReturns - (Number(data.issues || 0)),
+            const updates: any = {
               updatedAt: new Date().toISOString()
-            });
+            };
+
+            if (isPurchaseReturn) {
+              // Outbound to Supplier
+              updates.purchases = (Number(data.purchases || 0)) - qty;
+            } else {
+              // Inbound from Branch
+              updates.returns = (Number(data.returns || 0)) + qty;
+              updates.returnsValue = (Number(data.returnsValue || 0)) + totalItemValue;
+            }
+
+            // Recalculate stock using updated values or existing data
+            const finalPurchases = updates.purchases !== undefined ? updates.purchases : (Number(data.purchases || 0));
+            const finalReturns = updates.returns !== undefined ? updates.returns : (Number(data.returns || 0));
+            const finalIssues = Number(data.issues || 0);
+            const finalOpening = Number(data.openingStock || 0);
+
+            updates.currentStock = finalOpening + finalPurchases + finalReturns - finalIssues;
+
+            // Update value and average price
+            const oldStockValue = Number(data.currentStockValue ?? (Number(data.currentStock || 0) * (data.averagePrice || 0)));
+            const valueAdj = isPurchaseReturn ? -totalItemValue : totalItemValue;
+            updates.currentStockValue = Math.max(0, oldStockValue + valueAdj);
+
+            if (updates.currentStock > 0) {
+              updates.averagePrice = updates.currentStockValue / updates.currentStock;
+            }
+
+            await updateDoc(pRef, updates);
           }
         }
       } else {
@@ -344,17 +369,18 @@ export default function ReturnsPage() {
           const prevValue = Number(data.currentStockValue ?? (oldStock * prevAvg));
           const qty = Number((p as any).quantityBase || p.quantity || 0);
           const addValue = Number(p.unitPrice || prevAvg) * qty;
-          const newIssues = Math.max(0, Number(data.issues || 0) - qty);
-          const newStock = (Number(data.openingStock || 0) + Number(data.purchases || 0) - newIssues);
+
+          const newReturns = Number(data.returns || 0) + qty;
+          const newStock = (Number(data.openingStock || 0) + Number(data.purchases || 0) + newReturns - Number(data.issues || 0));
           const newValue = Math.max(0, prevValue + addValue);
-          const newAvg = newStock > 0 ? (newValue / newStock) : Number(p.unitPrice || prevAvg);
+          const newAvg = newStock > 0 ? (newValue / newStock) : prevAvg;
 
           await updateDoc(productRef, {
             currentStock: newStock,
             currentStockValue: newValue,
             averagePrice: newAvg,
-            issues: newIssues,
-            issuesValue: Math.max(0, Number(data.issuesValue || 0) - Number(p.totalPrice || (p.unitPrice || prevAvg) * qty)),
+            returns: newReturns,
+            returnsValue: Number(data.returnsValue || 0) + addValue,
             updatedAt: new Date().toISOString()
           }).catch(console.error);
         }

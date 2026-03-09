@@ -65,10 +65,51 @@ export interface Transaction {
   totalAmount: number
   notes?: string
   supplierName?: string
+  supplierInvoiceNumber?: string
   createdAt: string
-  createdBy?: string
+  lastActivity?: string
   updatedAt?: string
   lastModifiedBy?: string
+}
+
+export interface ReceivingNoteItem {
+  id: string
+  productId?: string
+  productCode?: string
+  productName: string
+  unit: string
+  quantity: number
+  price?: number
+  total?: number
+  notes?: string
+  image?: string
+}
+
+export interface ReceivingNote {
+  id: string
+  noteNumber: string
+  receivingCompany: string
+  supplierName: string
+  items: ReceivingNoteItem[]
+  receiverName: string
+  receiverSignature?: string
+  driverName: string
+  driverSignature?: string
+  stampImage?: string
+  createdAt: string
+  updatedAt: string
+  createdBy?: string
+  lastModifiedBy?: string
+}
+
+export interface Supplier {
+  id: string
+  name: string
+  phone?: string
+  address?: string
+  contactPerson?: string
+  createdAt: string
+  updatedAt: string
 }
 
 export interface InventoryAdjustment {
@@ -244,7 +285,7 @@ export interface Location {
   id: string
   name: string
   description?: string
-  createdAt: string
+  createdAt?: string
 }
 
 export interface Issue {
@@ -266,13 +307,17 @@ export interface Issue {
   delivered?: boolean
   deliveredAt?: string
   deliveredBy?: string
+  // حالة الشحن
+  shipped?: boolean
+  shippedAt?: string
+  shippedBy?: string
   // Branch receipt confirmation (independent of stock deduction)
   branchReceived?: boolean
   branchReceivedAt?: string
   // Linked branch request ID
   requestId?: string
   // حالة العملية (اختياري): مسودة/قيد التنفيذ/تم التسليم
-  status?: "draft" | "pending" | "delivered"
+  status?: "draft" | "pending" | "delivered" | "shipped"
   updatedAt?: string
   lastModifiedBy?: string
 }

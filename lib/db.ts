@@ -18,7 +18,10 @@ import type {
   BranchAsset,
   MaintenanceReport,
   AssetRequest,
-  AssetStatusReport
+  AssetStatusReport,
+  BranchRequestDraft,
+  ReceivingNote,
+  Supplier
 } from './types';
 import type { BranchInvoice } from './branch-invoice-types';
 import type { BranchRequest } from './branch-request-types';
@@ -38,10 +41,11 @@ export class InventoryDatabase extends Dexie {
   verificationLogs!: Table<VerificationLog>;
   inventoryAdjustments!: Table<InventoryAdjustment>;
   branchInvoices!: Table<BranchInvoice>;
-  branchInvoices!: Table<BranchInvoice>;
   branchRequests!: Table<BranchRequest>;
   branchRequestDrafts!: Table<BranchRequestDraft>; // New table
   purchaseRequests!: Table<PurchaseRequest>;
+  receivingNotes!: Table<ReceivingNote>;
+  suppliers!: Table<Supplier>;
   settings!: Table<{ key: string; value: any }>;
   auditLogs!: Table<AuditLogEntry>;
   notifications!: Table<any>;
@@ -110,9 +114,18 @@ export class InventoryDatabase extends Dexie {
       assetStatusReports: 'id, branchId, generatedAt'
     });
 
-    // Version 6: Branch Request Drafts
     this.version(6).stores({
       branchRequestDrafts: 'id, branchId, updatedAt'
+    });
+
+    // Version 7: Receiving Notes
+    this.version(7).stores({
+      receivingNotes: 'id, noteNumber, supplierName, createdAt'
+    });
+
+    // Version 8: Suppliers
+    this.version(8).stores({
+      suppliers: 'id, name, createdAt'
     });
   }
 }
@@ -145,9 +158,9 @@ if (typeof window === 'undefined') {
     'products', 'categories', 'transactions', 'branches', 'units',
     'issues', 'returns', 'locations', 'issueDrafts', 'purchaseOrders',
     'verificationLogs', 'inventoryAdjustments', 'branchInvoices',
-    'branchRequests', 'branchRequestDrafts', 'purchaseRequests', 'settings', 'auditLogs',
+    'branchRequests', 'branchRequestDrafts', 'purchaseRequests', 'receivingNotes', 'settings', 'auditLogs',
     'notifications', 'backups', 'imageCache', 'syncQueue', 'conflictLogs',
-    'changeLogs', 'userSessions', 'userPreferences', 'productImages'
+    'changeLogs', 'userSessions', 'userPreferences', 'productImages', 'suppliers'
   ];
 
   tables.forEach(table => {
@@ -193,9 +206,9 @@ if (typeof window === 'undefined') {
       'products', 'categories', 'transactions', 'branches', 'units',
       'issues', 'returns', 'locations', 'issueDrafts', 'purchaseOrders',
       'verificationLogs', 'inventoryAdjustments', 'branchInvoices',
-      'branchRequests', 'branchRequestDrafts', 'purchaseRequests', 'settings', 'auditLogs',
+      'branchRequests', 'branchRequestDrafts', 'purchaseRequests', 'receivingNotes', 'settings', 'auditLogs',
       'notifications', 'backups', 'imageCache', 'syncQueue', 'conflictLogs',
-      'changeLogs', 'userSessions', 'userPreferences', 'productImages'
+      'changeLogs', 'userSessions', 'userPreferences', 'productImages', 'suppliers'
     ];
 
     tables.forEach(table => {

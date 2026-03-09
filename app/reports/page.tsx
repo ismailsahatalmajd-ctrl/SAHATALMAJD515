@@ -284,11 +284,14 @@ export default function ReportsPage() {
         const product = allProducts.find(prod => prod.id === p.productId)
         const cost = product?.averagePrice || product?.price || 0
         const qty = p.quantityBase || p.quantity
+        const isSupplierReturn = r.sourceType === 'purchase'
+        const multi = isSupplierReturn ? -1 : 1
+
         return {
           name: product?.productName || "Unknown Product",
-          quantity: qty,
+          quantity: qty * multi,
           price: cost,
-          total: qty * cost
+          total: qty * cost * multi
         }
       })
 

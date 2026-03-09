@@ -11,6 +11,8 @@ import type {
   IssueDraft,
   PurchaseOrder,
   VerificationLog,
+  ReceivingNote,
+  Supplier
 } from "./types"
 import type { BranchInvoice } from './branch-invoice-types'
 import type { BranchRequest } from './branch-request-types'
@@ -38,6 +40,8 @@ export class DataStore {
     branchRequests: BranchRequest[]
     branchRequestDrafts: BranchRequestDraft[]
     purchaseRequests: PurchaseRequest[]
+    receivingNotes: ReceivingNote[]
+    suppliers: Supplier[]
   } = {
       products: [],
       categories: [],
@@ -55,6 +59,8 @@ export class DataStore {
       branchRequests: [],
       branchRequestDrafts: [],
       purchaseRequests: [],
+      receivingNotes: [],
+      suppliers: [],
     }
 
   initPromise: Promise<void> | null = null
@@ -106,6 +112,8 @@ export class DataStore {
           { name: "branchRequests", label: "طلبات الفروع", query: db.branchRequests },
           { name: "branchRequestDrafts", label: "مسودات الطلبات", query: db.branchRequestDrafts },
           { name: "purchaseRequests", label: "طلبات الشراء", query: db.purchaseRequests },
+          { name: "receivingNotes", label: "سندات الاستلام", query: db.receivingNotes },
+          { name: "suppliers", label: "الموردين", query: db.suppliers },
         ]
 
         let completed = 0;
@@ -157,6 +165,8 @@ export class DataStore {
         this.cache.branchRequests = (results[13] as BranchRequest[]) || []
         this.cache.branchRequestDrafts = (results[14] as BranchRequestDraft[]) || []
         this.cache.purchaseRequests = (results[15] as PurchaseRequest[]) || []
+        this.cache.receivingNotes = (results[16] as ReceivingNote[]) || []
+        this.cache.suppliers = (results[17] as Supplier[]) || []
 
         broadcastProgress(100, "اكتمل التحميل");
         console.log("DataStore: Initialization complete");
@@ -220,6 +230,7 @@ export function updateStoreCache(table: string, record: any) {
     'branch_requests': 'branchRequests',
     'branch_invoices': 'branchInvoices',
     'inventory_adjustments': 'adjustments',
+    'suppliers': 'suppliers',
   }
 
   const key = map[table]
@@ -263,6 +274,8 @@ export function removeFromStoreCache(table: string, id: string) {
     'branch_requests': 'branchRequests',
     'branch_invoices': 'branchInvoices',
     'inventory_adjustments': 'adjustments',
+    'suppliers': 'suppliers',
+    'receiving_notes': 'receivingNotes'
   }
 
   const key = map[table]

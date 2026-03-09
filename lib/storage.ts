@@ -13,6 +13,10 @@ import type {
   PurchaseOrder,
   PurchaseOrderItem,
   VerificationLog,
+  ReceivingNote,
+  Supplier,
+  ReceivingNoteItem,
+  AuditLogEntry
 } from "./types"
 export type { PurchaseOrder, PurchaseOrderItem }
 import type { BranchInvoice } from './branch-invoice-types'
@@ -42,7 +46,9 @@ import {
   syncProductImageToCloud,
   deleteProductImageFromCloud,
   startRealtimeSync,
-  stopRealtimeSync
+  stopRealtimeSync,
+  syncReceivingNote,
+  deleteAllReceivingNotesApi
 } from './firebase-sync-engine'
 
 // Monthly Closing
@@ -84,26 +90,32 @@ export async function syncAllFromServer() {
 }
 
 export function clearAppCache() {
-  store.cache = {
-    products: [],
-    categories: [],
-    transactions: [],
-    branches: [],
-    units: [],
-    issues: [],
-    returns: [],
-    locations: [],
-    issueDrafts: [],
-    purchaseOrders: [],
-    adjustments: [],
-    verificationLogs: [],
-    branchInvoices: [],
-    branchRequests: [],
-    branchRequestDrafts: [],
-    purchaseRequests: []
+  try {
+    store.cache = {
+      products: [],
+      categories: [],
+      transactions: [],
+      branches: [],
+      units: [],
+      issues: [],
+      returns: [],
+      locations: [],
+      issueDrafts: [],
+      purchaseOrders: [],
+      adjustments: [],
+      verificationLogs: [],
+      branchInvoices: [],
+      branchRequests: [],
+      branchRequestDrafts: [],
+      purchaseRequests: [],
+      receivingNotes: [],
+      suppliers: [],
+    }
+    notify('change')
+    reloadFromDb().catch(console.error)
+  } catch (e) {
+    console.error("Cache Clear Error:", e);
   }
-  notify('change')
-  reloadFromDb().catch(console.error)
 }
 
 export async function factoryReset() {
@@ -209,7 +221,8 @@ export async function factoryReset() {
       purchaseRequests: [],
       notifications: [],
       productImages: [],
-      changeLogs: []
+      changeLogs: [],
+      suppliers: []
     } as any
 
     notify('products_change')
@@ -370,11 +383,9 @@ export async function addProduct(product: Omit<Product, "id" | "createdAt" | "up
     // DB Write
     await db.products.put(newProduct);
 
-    // Sync - AWAIT it to ensure it reaches cloud or throws
-    try {
-      await syncProduct(newProduct);
-    } catch (syncErr) {
-      console.error("Sync Error for new product:", syncErr);
+    // Sync - Fire and forget for faster UI (Sync engine handles retry/queue)
+    if (typeof window !== 'undefined') {
+      syncProduct(newProduct).catch(e => console.error("Background sync error:", e))
     }
 
     notify("products_change")
@@ -567,6 +578,9 @@ export function saveCategories(categories: Category[]): void {
 
 export async function addCategory(category: Omit<Category, "id">): Promise<Category> {
   const categories = getCategories()
+  const exists = categories.find(c => c.name.trim().toLowerCase() === category.name.trim().toLowerCase())
+  if (exists) return exists
+
   const newCategory: Category = { ...category, id: generateId() }
   categories.push(newCategory)
   store.cache.categories = categories
@@ -644,10 +658,9 @@ export async function addTransaction(transaction: Omit<Transaction, "id" | "crea
   store.cache.transactions.push(newTransaction)
   await db.transactions.put(newTransaction)
 
-  try {
-    if (typeof window !== 'undefined') await syncTransaction(newTransaction)
-  } catch (e) {
-    console.error("Sync Error addTransaction:", e)
+  // Sync - Background task
+  if (typeof window !== 'undefined') {
+    syncTransaction(newTransaction).catch(e => console.error("Sync Error addTransaction:", e))
   }
 
   // Update product quantities - FETCH FROM DB
@@ -734,7 +747,7 @@ export async function addTransaction(transaction: Omit<Transaction, "id" | "crea
       product.lastActivity = new Date().toISOString()
 
       await db.products.put(product)
-      if (typeof window !== 'undefined') await syncProduct(product)
+      if (typeof window !== 'undefined') syncProduct(product).catch(e => console.error("Prod sync error:", e))
 
       store.cache.products = store.cache.products.map(p => p.id === product.id ? product : p)
       notify('products_change')
@@ -757,6 +770,9 @@ export function saveLocations(locations: Location[]) {
 
 export async function addLocation(location: Omit<Location, "id">): Promise<Location> {
   const locations = getLocations()
+  const exists = locations.find(l => l.name.trim().toLowerCase() === location.name.trim().toLowerCase())
+  if (exists) return exists
+
   const newLocation = { ...location, id: generateId() }
   locations.push(newLocation)
   store.cache.locations = locations
@@ -798,6 +814,9 @@ export function saveUnits(units: Unit[]) {
 
 export async function addUnit(unit: Omit<Unit, "id">): Promise<Unit> {
   const units = getUnits()
+  const exists = units.find(u => u.name.trim().toLowerCase() === unit.name.trim().toLowerCase())
+  if (exists) return exists
+
   const newUnit = { ...unit, id: generateId() }
   units.push(newUnit)
   store.cache.units = units
@@ -1437,12 +1456,19 @@ export async function approveReturn(returnId: string, approvedBy: string): Promi
         const prevAvg = Number(p.averagePrice || p.price || 0)
         const prevValue = Number(p.currentStockValue ?? (oldStock * prevAvg))
         const isInvoiceReturn = (ret.sourceType === 'issue' && rp.unitPrice && rp.unitPrice > 0) || Boolean(ret.originalInvoiceNumber)
+        const isSupplierReturn = ret.sourceType === 'purchase'
         const unitPriceToUse = isInvoiceReturn ? Number(rp.unitPrice || prevAvg) : prevAvg
-        const addValue = unitPriceToUse * qtyToRestore
+        const multiplier = isSupplierReturn ? -1 : 1
+        const addValue = unitPriceToUse * qtyToRestore * multiplier
 
-        // Internal Return: Increase 'returns' (Inbound)
-        p.returns = (p.returns || 0) + qtyToRestore
-        p.returnsValue = (p.returnsValue || 0) + (rp.totalPrice || unitPriceToUse * qtyToRestore)
+        if (isSupplierReturn) {
+          // Outbound Return to Supplier: Decrease purchases
+          p.purchases = (p.purchases || 0) - qtyToRestore
+        } else {
+          // Internal Return: Increase 'returns' (Inbound)
+          p.returns = (p.returns || 0) + qtyToRestore
+          p.returnsValue = (p.returnsValue || 0) + (rp.totalPrice || unitPriceToUse * qtyToRestore)
+        }
 
         // New stock after return
         p.currentStock = (p.openingStock || 0) + (p.purchases || 0) + (p.returns || 0) - (p.issues || 0)
@@ -1450,7 +1476,7 @@ export async function approveReturn(returnId: string, approvedBy: string): Promi
 
         // Recalculate value and average price using weighted method
         const newValue = Math.max(0, prevValue + addValue)
-        const newAvg = newStock > 0 ? (newValue / newStock) : unitPriceToUse
+        const newAvg = newStock > 0 ? (newValue / newStock) : prevAvg
 
         p.currentStockValue = newValue
         p.averagePrice = newAvg
@@ -1744,3 +1770,116 @@ export async function deleteBranchRequestDraft(id: string): Promise<void> {
   store.cache.branchRequestDrafts = filtered
   await db.branchRequestDrafts.delete(id)
 }
+
+// Goods Receiving Notes (GRN)
+export function getReceivingNotes(): ReceivingNote[] {
+  return store.cache.receivingNotes || []
+}
+
+export async function saveReceivingNote(note: ReceivingNote): Promise<void> {
+  const notes = getReceivingNotes()
+  const idx = notes.findIndex(n => n.id === note.id)
+  if (idx >= 0) {
+    notes[idx] = note
+  } else {
+    notes.push(note)
+  }
+  store.cache.receivingNotes = notes
+
+  // Local Save
+  await db.receivingNotes.put(note)
+
+  // Cloud Sync (Best effort)
+  await syncReceivingNote(note).catch(console.error)
+
+  notify("receiving_notes_change" as any)
+}
+
+export async function deleteReceivingNote(id: string): Promise<void> {
+  const notes = getReceivingNotes()
+  store.cache.receivingNotes = notes.filter(n => n.id !== id)
+
+  // Local delete
+  await db.receivingNotes.delete(id)
+
+  // Cloud delete (Best effort)
+  await deleteAllReceivingNotesApi([id]).catch(console.error)
+
+  notify("receiving_notes_change" as any)
+}
+
+export function generateReceivingNoteNumber(): string {
+  const notes = getReceivingNotes()
+  const now = new Date()
+  const year = now.getFullYear()
+  const yearStr = year.toString()
+  const count = notes.filter(n => n.createdAt && n.createdAt.startsWith(yearStr)).length + 1
+  return `GRN-${year}-${count.toString().padStart(4, '0')}`
+}
+
+// Suppliers
+export function getSuppliers(): Supplier[] {
+  return store.cache.suppliers || []
+}
+
+export async function addSupplier(supplier: Omit<Supplier, "id" | "createdAt" | "updatedAt">): Promise<Supplier> {
+  const suppliers = getSuppliers()
+  const exists = suppliers.find(s => s.name.trim().toLowerCase() === supplier.name.trim().toLowerCase())
+  if (exists) return exists
+
+  const newSupplier: Supplier = {
+    ...supplier,
+    id: generateId(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }
+
+  suppliers.push(newSupplier)
+  store.cache.suppliers = suppliers
+
+  // Save to DB
+  await db.suppliers.put(newSupplier)
+
+  // Cloud Sync (Assuming a general sync function exists or naming it syncSupplier)
+  const { syncSupplier } = await import('./firebase-sync-engine')
+  await syncSupplier(newSupplier).catch(console.error)
+
+  return newSupplier
+}
+
+export async function deleteSupplier(id: string): Promise<void> {
+  const suppliers = getSuppliers()
+  store.cache.suppliers = suppliers.filter(s => s.id !== id)
+  await db.suppliers.delete(id)
+
+  const { deleteSupplierApi } = await import('./firebase-sync-engine')
+  await deleteSupplierApi(id).catch(console.error)
+}
+
+export async function deleteTransaction(id: string): Promise<void> {
+  const transactions = getTransactions()
+  store.cache.transactions = transactions.filter(t => t.id !== id)
+  await db.transactions.delete(id)
+
+  const { deleteRecord, COLLECTIONS } = await import('./firebase-sync-engine')
+  await deleteRecord(COLLECTIONS.TRANSACTIONS, id).catch(console.error)
+  notify('transactions_change')
+}
+
+export function generateNextItemNumber(): string {
+  const products = getProducts()
+  if (products.length === 0) return "1001"
+
+  const numbers = products
+    .map(p => {
+      const num = parseInt(p.itemNumber || "")
+      return isNaN(num) ? 0 : num
+    })
+    .filter(n => n > 0)
+
+  if (numbers.length === 0) return "1001"
+
+  const max = Math.max(...numbers)
+  return (max + 1).toString()
+}
+

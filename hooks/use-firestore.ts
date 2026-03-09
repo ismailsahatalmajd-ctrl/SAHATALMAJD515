@@ -28,7 +28,7 @@ function useCollection<T>(collectionName: string) {
                 (snapshot) => {
                     const items: T[] = []
                     snapshot.forEach((doc) => {
-                        items.push(doc.data() as T)
+                        items.push({ id: doc.id, ...doc.data() } as T)
                     })
                     setData(items)
                     setLoading(false)

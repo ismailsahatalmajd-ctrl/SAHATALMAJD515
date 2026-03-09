@@ -98,7 +98,14 @@ export async function generateAssemblyPDF(
       if (assemblySettings.sortByItemNumber) {
         v.sort((a, b) => (a.itemNumber || "").localeCompare(b.itemNumber || "", undefined, { numeric: true }));
       }
-      return { branchName: k, products: v };
+
+      // Map current stock to each detailed item
+      const mappedV = v.map(item => ({
+        ...item,
+        currentStock: dbProductsMap.get(item.productId)?.currentStock || 0
+      }))
+
+      return { branchName: k, products: mappedV };
     });
   }
 

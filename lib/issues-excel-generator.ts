@@ -25,19 +25,20 @@ export async function exportMergedIssuesExcel(issues: Issue[], products: Product
 
     // Header Row
     const headers = [
-        'م',
-        'كود المنتج',
-        'رقم المنتج',
-        'اسم المنتج',
-        'الوحدة',
-        'التصنيف',
-        'الكمية',
-        'سعر الوحدة',
-        'الإجمالي',
-        'المخزون قبل',
-        'المخزون بعد',
-        'الفرع',
-        'التاريخ'
+        'م / #',
+        'كود المنتج / Product Code',
+        'رقم المنتج / Item Number',
+        'اسم المنتج / Product Name',
+        'الوحدة / Unit',
+        'التصنيف / Category',
+        'الكمية / Qty',
+        'سعر الوحدة / Unit Price',
+        'الإجمالي / Total',
+        'المخزون قبل / Stock Before',
+        'المخزون بعد / Stock After',
+        'المخزون الحالي / Current Stock',
+        'الفرع / Branch',
+        'التاريخ / Date'
     ];
 
     const headerRow = worksheet.addRow(headers);
@@ -52,32 +53,62 @@ export async function exportMergedIssuesExcel(issues: Issue[], products: Product
     let rowIndex = 1;
     let grandTotal = 0;
 
-    // We need to flatten the issues to individual product lines
+    // Group issues by product
+    const acc = new Map<string, any>();
+
     issues.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()).forEach(issue => {
         issue.products.forEach(ip => {
             const product = products.find(p => p.id === ip.productId);
-            const stockBefore = Number(ip.currentStock || (product?.currentStock || 0) + ip.quantity);
-            const stockAfter = stockBefore - ip.quantity;
-            const total = ip.totalPrice || (ip.quantity * ip.unitPrice);
-            grandTotal += total;
+            const key = ip.productId;
 
-            const rowData = [
-                rowIndex++,
-                ip.productCode || product?.productCode || '',
-                product?.itemNumber || '',
-                ip.productName || product?.productName || '',
-                ip.unit || product?.unit || 'قطعة',
-                product?.category || '',
-                ip.quantity,
-                ip.unitPrice,
-                total,
-                stockBefore,
-                stockAfter,
-                issue.branchName,
-                formatArabicGregorianDateTime(new Date(issue.createdAt))
-            ];
-            worksheet.addRow(rowData);
+            const existing = acc.get(key);
+            const total = ip.totalPrice || (ip.quantity * ip.unitPrice);
+
+            if (existing) {
+                existing.quantity += ip.quantity;
+                existing.total += total;
+                existing.stockBefore += ip.quantity; // Summing total withdrawn to calculate initial virtual stock
+            } else {
+                const stockBefore = Number(ip.currentStock || (product?.currentStock || 0) + ip.quantity);
+                acc.set(key, {
+                    productCode: ip.productCode || product?.productCode || '',
+                    itemNumber: product?.itemNumber || '',
+                    productName: ip.productName || product?.productName || '',
+                    unit: ip.unit || product?.unit || 'قطعة',
+                    category: product?.category || '',
+                    quantity: ip.quantity,
+                    total: total,
+                    stockBefore: stockBefore,
+                    currentStock: product?.currentStock || 0 // Current actual stock
+                });
+            }
         });
+    });
+
+
+
+    Array.from(acc.values()).forEach(item => {
+        grandTotal += item.total;
+        const avgUnitPrice = item.quantity > 0 ? (item.total / item.quantity) : 0;
+        const stockAfter = item.stockBefore - item.quantity;
+
+        const rowData = [
+            rowIndex++,
+            item.productCode,
+            item.itemNumber,
+            item.productName,
+            item.unit,
+            item.category,
+            item.quantity,
+            avgUnitPrice, // Average price
+            item.total,
+            item.stockBefore,
+            stockAfter,
+            item.currentStock, // Current actual stock
+            'الكل', // Merged branches
+            formatArabicGregorianDateTime(new Date()) // Export date
+        ];
+        worksheet.addRow(rowData);
     });
 
     // Grand Total Row

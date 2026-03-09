@@ -102,9 +102,11 @@ export async function generateIssuePDF(issue: Issue) {
       --text-header: ${settings.template === 'modern' ? '#1e40af' : (settings.template === 'thermal' ? '#000' : '#fff')};
     }
 
+    @page { margin: 5mm 10mm; }
+
     body { 
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      padding: ${settings.template === 'thermal' ? '10px' : '40px'};
+      padding: ${settings.template === 'thermal' ? '5px' : '5px 15px 15px 15px'};
       background: white;
       width: ${settings.template === 'thermal' ? '80mm' : 'auto'};
       margin: ${settings.template === 'thermal' ? '0 auto' : '0'};
@@ -112,33 +114,35 @@ export async function generateIssuePDF(issue: Issue) {
 
     /* Template: Classic (Restored Original - Perfect Match) */
     ${settings.template === 'classic' ? `
-      .header { text-align: center; margin-bottom: 20px; border-bottom: 1px solid #3b82f6; padding-bottom: 20px; }
-      .header h1 { color: #2563eb; font-size: 28px; margin-bottom: 5px; }
-      .header p { color: #3b82f6; font-size: 16px; margin: 2px 0; }
+      .header { text-align: center; margin-bottom: 5px; border-bottom: 1px solid #3b82f6; padding-bottom: 5px; }
+      .header h1 { color: #2563eb; font-size: 22px; margin-bottom: 2px; }
+      .header p { color: #3b82f6; font-size: 13px; margin: 1px 0; }
       
-      .info-section { display: flex; justify-content: space-between; gap: 20px; margin-bottom: 30px; }
-      .info-box { flex: 1; padding: 20px; background: #f9fafb; border-radius: 12px; border-right: 4px solid #2563eb; position: relative; }
-      .info-box h3 { font-size: 14px; margin-bottom: 10px; color: #4b5563; text-align: left; opacity: 0.8; }
-      .info-box p { font-size: 14px; margin: 6px 0; line-height: 1.6; }
+      .info-section { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+      .info-box { flex: 1; padding: 10px; background: #f9fafb; border-radius: 8px; border-right: 4px solid #2563eb; position: relative; }
+      .info-box h3 { font-size: 13px; margin-bottom: 5px; color: #4b5563; text-align: left; opacity: 0.8; line-height: 1; }
+      .info-box p { font-size: 13px; margin: 3px 0; line-height: 1.2; }
       .info-box strong { color: #1f2937; }
 
-      table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
-      th { background: #2563eb; color: white; padding: 12px 8px; font-weight: bold; border: 1px solid #2563eb; }
-      td { padding: 10px 8px; border-bottom: 1px solid #e5e7eb; text-align: center; }
+      table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 12px; }
+      th { background: #2563eb; color: white; padding: 6px 4px; font-weight: bold; border: 1px solid #2563eb; font-size: 11px; }
+      td { padding: 4px 4px; border-bottom: 1px solid #e5e7eb; text-align: center; line-height: 1.1; }
       
-      .product-image { width: 45px; height: 45px; object-fit: cover; border-radius: 4px; border: 1px solid #f3f4f6; }
-      .no-image { width: 45px; height: 45px; background: #f3f4f6; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #9ca3af; border-radius: 4px; margin: 0 auto; }
+      .product-image { width: 35px; height: 35px; object-fit: cover; border-radius: 4px; border: 1px solid #f3f4f6; }
+      .no-image { width: 35px; height: 35px; background: #f3f4f6; display: flex; align-items: center; justify-content: center; font-size: 8px; color: #9ca3af; border-radius: 4px; margin: 0 auto; }
       
-      .total-section { margin-top: 40px; text-align: right; }
-      .total-row { display: flex; justify-content: flex-end; align-items: center; gap: 15px; margin-bottom: 8px; font-size: 14px; color: #4b5563; }
-      .total-row.grand { margin-top: 20px; border-top: 1px solid #e5e7eb; padding-top: 15px; }
-      .total-row.grand span:last-child { font-size: 24px; font-weight: bold; color: #2563eb; }
-      .total-label { font-weight: bold; min-width: 200px; }
+      .total-section { margin-top: 15px; text-align: left; direction: ltr; }
+      .stats-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; color: #4b5563; }
+      .stat-item { display: flex; align-items: center; gap: 8px; }
+      .total-row { display: flex; justify-content: flex-start; align-items: center; gap: 10px; margin-bottom: 4px; font-size: 13px; color: #4b5563; }
+      .total-row.grand { margin-top: 10px; border-top: 1px solid #e5e7eb; padding-top: 10px; }
+      .total-row.grand span:last-child { font-size: 18px; font-weight: bold; color: #2563eb; }
+      .total-label { font-weight: bold; min-width: auto; text-align: right; }
 
-      .signatures-section { margin-top: 50px; display: flex; justify-content: space-between; gap: 20px; border-top: 1px solid #e5e7eb; padding-top: 20px; }
+      .signatures-section { margin-top: 20px; display: flex; justify-content: space-between; gap: 20px; border-top: 1px solid #e5e7eb; padding-top: 10px; }
       .sig-box { flex: 1; text-align: center; }
-      .sig-line { margin-top: 40px; border-top: 1px dashed #9ca3af; width: 80%; margin-left: auto; margin-right: auto; }
-      .sig-label { font-size: 12px; color: #4b5563; margin-top: 5px; }
+      .sig-line { margin-top: 25px; border-top: 1px dashed #9ca3af; width: 70%; margin-left: auto; margin-right: auto; }
+      .sig-label { font-size: 11px; color: #4b5563; margin-top: 3px; }
     ` : ''}
 
     /* Template: Modern */
@@ -180,9 +184,8 @@ export async function generateIssuePDF(issue: Issue) {
 </head>
 <body>
   <div class="header">
-    <h1>فاتورة صرف منتجات</h1>
-    <p>Products Issue Invoice</p>
-    ${settings.headerText ? `<p style="white-space: pre-line; margin-top: 5px;">${settings.headerText}</p>` : `<p>مستودع ساحة المجد</p><p>Sahat Almajd Warehouse</p>`}
+    <h1>فاتورة صرف منتجات / Products Issue Invoice</h1>
+    ${settings.headerText ? `<p style="white-space: pre-line; margin-top: 5px;">${settings.headerText}</p>` : `<p>مستودع ساحة المجد / Sahat Almajd Warehouse</p>`}
   </div>
 
   <div class="info-section">
@@ -208,15 +211,15 @@ export async function generateIssuePDF(issue: Issue) {
   <table>
     <thead>
       <tr>
-        <th style="width: 50px">#</th>
-        <th>الصورة<br>Image</th>
-        <th>كود المنتج<br>Product Code</th>
-        <th>اسم المنتج<br>Product Name</th>
-        ${settings.showUnit ? `<th>الوحدة<br>Unit</th>` : `<th>الوحدة<br>Unit</th>`}
-        ${settings.showQuantity ? `<th>الكمية<br>Quantity</th>` : `<th>الكمية<br>Quantity</th>`}
-        ${settings.showPrice ? `<th>سعر الوحدة<br>Unit Price</th>` : ''}
-        ${settings.showTotal ? `<th>الإجمالي<br>Total</th>` : ''}
-        ${settings.showNotes ? `<th>الملاحظات<br>Notes</th>` : ''}
+        <th style="width: 30px; white-space: nowrap;">#</th>
+        <th style="width: 80px; white-space: nowrap;">الصورة / <span style="font-size:9px">Image</span></th>
+        <th style="white-space: nowrap;">كود المنتج / <span style="font-size:9px">Product Code</span></th>
+        <th style="width: 40%">اسم المنتج / <span style="font-size:9px">Product Name</span></th>
+        ${settings.showUnit ? `<th>الوحدة / <span style="font-size:9px">Unit</span></th>` : ''}
+        ${settings.showQuantity ? `<th>الكمية / <span style="font-size:9px">Qty</span></th>` : ''}
+        ${settings.showPrice ? `<th>سعر الوحدة / <span style="font-size:9px">Price</span></th>` : ''}
+        ${settings.showTotal ? `<th>الإجمالي / <span style="font-size:9px">Total</span></th>` : ''}
+        ${settings.showNotes ? `<th>الملاحظات / <span style="font-size:9px">Notes</span></th>` : ''}
       </tr>
     </thead>
     <tbody>
@@ -236,17 +239,17 @@ export async function generateIssuePDF(issue: Issue) {
           <td>${index + 1}</td>
           <td>
             ${product.resolvedImage
-              ? `<img src="${product.resolvedImage}" alt="${product.productName}" class="product-image" />`
+              ? `<img src="${product.resolvedImage}" alt="" class="product-image" />`
               : '<div class="no-image">لا صورة</div>'
             }
           </td>
-          <td>${product.productCode}</td>
-          <td><strong>${product.productName}</strong></td>
-          ${settings.showUnit ? `<td>${unit || "-"}</td>` : `<td>${unit || "-"}</td>`}
-          ${settings.showQuantity ? `<td class="qty-cell">${formatEnglishNumber(product.quantity)}</td>` : `<td class="qty-cell">${formatEnglishNumber(product.quantity)}</td>`}
-          ${settings.showPrice ? `<td>${formatEnglishNumber(product.unitPrice.toFixed(2))} ريال</td>` : ''}
-          ${settings.showTotal ? `<td><strong>${formatEnglishNumber(product.totalPrice.toFixed(2))} ريال</strong></td>` : ''}
-          ${settings.showNotes ? `<td style="text-align:right; font-size:11px; color:#555;">${(product as any).notes || "—"}</td>` : ''}
+          <td style="font-size: 10px; font-family: monospace;">${product.productCode}</td>
+          <td style="text-align: right;"><strong>${product.productName}</strong></td>
+          ${settings.showUnit ? `<td>${unit || "-"}</td>` : ''}
+          ${settings.showQuantity ? `<td class="qty-cell">${formatEnglishNumber(product.quantity)}</td>` : ''}
+          ${settings.showPrice ? `<td>${formatEnglishNumber(product.unitPrice.toFixed(2))}</td>` : ''}
+          ${settings.showTotal ? `<td><strong>${formatEnglishNumber(product.totalPrice.toFixed(2))}</strong></td>` : ''}
+          ${settings.showNotes ? `<td style="text-align:right; font-size:10px; color:#555;">${(product as any).notes || "—"}</td>` : ''}
         </tr>
       `
         },
@@ -255,20 +258,22 @@ export async function generateIssuePDF(issue: Issue) {
     </tbody>
   </table>
 
-  <div class="total-section">
-    <div class="total-row">
-      <span class="total-label">عدد الأصناف / Items Count:</span>
-      <span>${formatEnglishNumber(issue.products.length)}</span>
+  <div class="total-section" style="direction: rtl;">
+    <div class="stats-row" style="margin-bottom: 10px;">
+      <div class="stat-item" style="display: flex; gap: 5px; align-items: center;">
+        <span class="total-label" style="text-align: right; font-weight: bold; min-width: auto; margin-left: 5px;">عدد الأصناف / Items Count:</span>
+        <span style="font-weight: normal;">${formatEnglishNumber(issue.products.length)}</span>
+      </div>
+      ${settings.showQuantity ? `
+      <div class="stat-item" style="display: flex; gap: 5px; align-items: center;">
+        <span class="total-label" style="text-align: right; font-weight: bold; min-width: auto; margin-left: 5px;">إجمالي الكميات / Total Quantity:</span>
+        <span style="font-weight: normal;">${formatEnglishNumber(issue.products.reduce((sum, p) => sum + p.quantity, 0))}</span>
+      </div>
+      ` : ''}
     </div>
-    ${settings.showQuantity ? `
-    <div class="total-row">
-      <span class="total-label">إجمالي الكميات / Total Quantity:</span>
-      <span>${formatEnglishNumber(issue.products.reduce((sum, p) => sum + p.quantity, 0))}</span>
-    </div>
-    ` : ''}
     ${settings.showTotal ? `
-    <div class="total-row grand">
-      <span class="total-label" style="font-size: 20px; color: #2563eb;">الإجمالي الكلي / Grand Total:</span>
+    <div class="total-row grand" style="display: flex; justify-content: flex-start; gap: 10px;">
+      <span class="total-label" style="font-size: 20px; color: #2563eb; min-width: auto; margin-left:10px;">الإجمالي الكلي / Grand Total:</span>
       <span>${formatEnglishNumber(issue.totalValue.toFixed(2))} ريال</span>
     </div>
     ` : ''}

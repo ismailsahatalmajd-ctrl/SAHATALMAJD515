@@ -1,6 +1,6 @@
 "use client"
 
-import { Package, BarChart3, Receipt, ShoppingCart, Building2, Barcode, ChevronLeft, Settings, LogOut, Menu, Tag, Wrench, Server } from "lucide-react"
+import { Package, BarChart3, Receipt, ShoppingCart, Building2, Barcode, ChevronLeft, Settings, LogOut, Menu, Tag, Wrench, Server, Users } from "lucide-react"
 import Link from "next/link"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import Image from "next/image"
@@ -41,6 +41,7 @@ export function Header() {
     { href: "/scanner", key: "nav.scanner", label: t("nav.scanner"), icon: Barcode },
     { href: "/label-designer", key: "nav.labelDesigner", label: "مصمم الملصقات", icon: Tag },
     { href: "/admin/assets", key: "nav.assets", label: "إدارة الأصول", icon: Wrench },
+    { href: "/employees/overtime", key: "hr.title", label: t("hr.title"), icon: Users },
     { href: "/admin/system", key: "nav.system", label: "موارد النظام", icon: Server },
     { href: "/settings", key: "common.settings", label: t("common.settings"), icon: Settings },
   ]
@@ -126,10 +127,10 @@ export function Header() {
                 <Package className="h-8 w-8 text-primary" />
               ) : (
                 <Image
-                  src="/sahat-almajd-logo.svg"
+                  src={pathname === '/employees/overtime' ? "/hr-overtime-logo.png" : "/sahat-almajd-logo.svg"}
                   alt="Sahat Almajid"
-                  width={48}
-                  height={48}
+                  width={pathname === '/employees/overtime' ? 64 : 48}
+                  height={pathname === '/employees/overtime' ? 64 : 48}
                   className="rounded object-contain"
                   onError={() => setLogoError(true)}
                   priority

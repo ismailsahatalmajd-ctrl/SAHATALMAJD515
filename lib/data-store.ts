@@ -12,7 +12,10 @@ import type {
   PurchaseOrder,
   VerificationLog,
   ReceivingNote,
-  Supplier
+  Supplier,
+  Employee,
+  OvertimeReason,
+  OvertimeEntry
 } from "./types"
 import type { BranchInvoice } from './branch-invoice-types'
 import type { BranchRequest } from './branch-request-types'
@@ -42,6 +45,9 @@ export class DataStore {
     purchaseRequests: PurchaseRequest[]
     receivingNotes: ReceivingNote[]
     suppliers: Supplier[]
+    employees: Employee[]
+    overtimeReasons: OvertimeReason[]
+    overtimeEntries: OvertimeEntry[]
   } = {
       products: [],
       categories: [],
@@ -61,6 +67,9 @@ export class DataStore {
       purchaseRequests: [],
       receivingNotes: [],
       suppliers: [],
+      employees: [],
+      overtimeReasons: [],
+      overtimeEntries: [],
     }
 
   initPromise: Promise<void> | null = null
@@ -114,6 +123,9 @@ export class DataStore {
           { name: "purchaseRequests", label: "طلبات الشراء", query: db.purchaseRequests },
           { name: "receivingNotes", label: "سندات الاستلام", query: db.receivingNotes },
           { name: "suppliers", label: "الموردين", query: db.suppliers },
+          { name: "employees", label: "الموظفين", query: db.employees },
+          { name: "overtimeReasons", label: "أسباب الساعات الإضافية", query: db.overtimeReasons },
+          { name: "overtimeEntries", label: "سجلات الساعات الإضافية", query: db.overtimeEntries },
         ]
 
         let completed = 0;
@@ -167,6 +179,9 @@ export class DataStore {
         this.cache.purchaseRequests = (results[15] as PurchaseRequest[]) || []
         this.cache.receivingNotes = (results[16] as ReceivingNote[]) || []
         this.cache.suppliers = (results[17] as Supplier[]) || []
+        this.cache.employees = (results[18] as Employee[]) || []
+        this.cache.overtimeReasons = (results[19] as OvertimeReason[]) || []
+        this.cache.overtimeEntries = (results[20] as OvertimeEntry[]) || []
 
         broadcastProgress(100, "اكتمل التحميل");
         console.log("DataStore: Initialization complete");
@@ -231,6 +246,9 @@ export function updateStoreCache(table: string, record: any) {
     'branch_invoices': 'branchInvoices',
     'inventory_adjustments': 'adjustments',
     'suppliers': 'suppliers',
+    'employees': 'employees',
+    'overtime_reasons': 'overtimeReasons',
+    'overtime_entries': 'overtimeEntries',
   }
 
   const key = map[table]
@@ -275,7 +293,10 @@ export function removeFromStoreCache(table: string, id: string) {
     'branch_invoices': 'branchInvoices',
     'inventory_adjustments': 'adjustments',
     'suppliers': 'suppliers',
-    'receiving_notes': 'receivingNotes'
+    'receiving_notes': 'receivingNotes',
+    'employees': 'employees',
+    'overtime_reasons': 'overtimeReasons',
+    'overtime_entries': 'overtimeEntries',
   }
 
   const key = map[table]

@@ -233,7 +233,7 @@ export default function IssuesPage() {
 
   const handleDeleteIssue = async (issue: Issue) => {
     const invoiceNum = getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))
-    if (confirm(`${t("common.delete")} ${t("issues.invoiceNumber")} ${invoiceNum}?`)) {
+    if (confirm(`${t("common.delete")} ${t("issues.invoiceNumber")} ${invoiceNum} (${issue.branchName})?`)) {
       const success = await deleteIssue(issue.id)
       if (success) {
         toast({

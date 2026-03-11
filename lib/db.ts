@@ -21,7 +21,10 @@ import type {
   AssetStatusReport,
   BranchRequestDraft,
   ReceivingNote,
-  Supplier
+  Supplier,
+  Employee,
+  OvertimeReason,
+  OvertimeEntry
 } from './types';
 import type { BranchInvoice } from './branch-invoice-types';
 import type { BranchRequest } from './branch-request-types';
@@ -63,6 +66,11 @@ export class InventoryDatabase extends Dexie {
   maintenanceReports!: Table<MaintenanceReport>;
   assetRequests!: Table<AssetRequest>;
   assetStatusReports!: Table<AssetStatusReport>;
+
+  // HR & Employee System
+  employees!: Table<Employee>;
+  overtimeReasons!: Table<OvertimeReason>;
+  overtimeEntries!: Table<OvertimeEntry>;
 
   constructor() {
     super('InventoryDB');
@@ -127,6 +135,13 @@ export class InventoryDatabase extends Dexie {
     this.version(8).stores({
       suppliers: 'id, name, createdAt'
     });
+
+    // Version 9: HR System
+    this.version(9).stores({
+      employees: 'id, name, department, createdAt',
+      overtimeReasons: 'id, name, createdAt',
+      overtimeEntries: 'id, employeeId, date, status, createdAt'
+    });
   }
 }
 
@@ -160,7 +175,8 @@ if (typeof window === 'undefined') {
     'verificationLogs', 'inventoryAdjustments', 'branchInvoices',
     'branchRequests', 'branchRequestDrafts', 'purchaseRequests', 'receivingNotes', 'settings', 'auditLogs',
     'notifications', 'backups', 'imageCache', 'syncQueue', 'conflictLogs',
-    'changeLogs', 'userSessions', 'userPreferences', 'productImages', 'suppliers'
+    'changeLogs', 'userSessions', 'userPreferences', 'productImages', 'suppliers',
+    'employees', 'overtimeReasons', 'overtimeEntries'
   ];
 
   tables.forEach(table => {
@@ -208,7 +224,8 @@ if (typeof window === 'undefined') {
       'verificationLogs', 'inventoryAdjustments', 'branchInvoices',
       'branchRequests', 'branchRequestDrafts', 'purchaseRequests', 'receivingNotes', 'settings', 'auditLogs',
       'notifications', 'backups', 'imageCache', 'syncQueue', 'conflictLogs',
-      'changeLogs', 'userSessions', 'userPreferences', 'productImages', 'suppliers'
+      'changeLogs', 'userSessions', 'userPreferences', 'productImages', 'suppliers',
+      'employees', 'overtimeReasons', 'overtimeEntries'
     ];
 
     tables.forEach(table => {

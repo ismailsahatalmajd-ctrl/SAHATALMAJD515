@@ -1550,8 +1550,32 @@ export const dict: Dict = {
   "issues.invoice.pdfTitle": { ar: "فاتورة إجمالية للمنتجات المصروفة", en: "Total Issued Products Invoice" },
 
   // Bulk Delete
-  "home.bulkDelete.confirm": { ar: "هل أنت متأكد من حذف {count} منتجات؟ لا يمكن التراجع عن هذا الإجراء.", en: "Are you sure you want to delete {count} products? This action cannot be undone." },
   "home.bulkDelete.success": { ar: "تم حذف المنتجات المختارة بنجاح", en: "Selected products deleted successfully" },
+
+  // HR & Employees
+  "hr.title": { ar: "شؤون الموظفين", en: "HR & Employees" },
+  "hr.overtime.title": { ar: "الساعات الإضافية", en: "Overtime Management" },
+  "hr.overtime.subtitle": { ar: "تسجيل ومتابعة ساعات العمل الإضافية للموظفين", en: "Record and track employee overtime hours" },
+  "hr.employee.name": { ar: "اسم الموظف", en: "Employee Name" },
+  "hr.employee.select": { ar: "اختر موظفاً...", en: "Select employee..." },
+  "hr.employee.add": { ar: "إضافة موظف جديد", en: "Add New Employee" },
+  "hr.employee.department": { ar: "القسم", en: "Department" },
+  "hr.employee.success": { ar: "تم حفظ الموظف الجديد بنجاح", en: "New employee saved successfully" },
+  "hr.overtime.date": { ar: "التاريخ", en: "Date" },
+  "hr.overtime.from": { ar: "من الساعة", en: "From Time" },
+  "hr.overtime.to": { ar: "إلى الساعة", en: "To Time" },
+  "hr.overtime.reason": { ar: "السبب", en: "Reason" },
+  "hr.overtime.reason.select": { ar: "اختر السبب...", en: "Select reason..." },
+  "hr.overtime.reason.add": { ar: "إضافة سبب جديد", en: "Add New Reason" },
+  "hr.overtime.reason.success": { ar: "تم حفظ السبب الجديد بنجاح", en: "New reason saved successfully" },
+  "hr.overtime.totalHours": { ar: "إجمالي الساعات", en: "Total Hours" },
+  "hr.overtime.save": { ar: "حفظ السجل", en: "Save Record" },
+  "hr.overtime.success": { ar: "تم تسجيل الساعات الإضافية بنجاح", en: "Overtime hours recorded successfully" },
+  "hr.overtime.history": { ar: "سجل الساعات الإضافية", en: "Overtime History" },
+  "hr.overtime.report": { ar: "تقرير الساعات", en: "Hours Report" },
+  "hr.overtime.report.monthly": { ar: "تقرير شهر {month}", en: "{month} Report" },
+  "hr.overtime.calculation": { ar: "حساب الساعات", en: "Calculate Hours" },
+  "hr.overtime.totalForEmployee": { ar: "إجمالي الساعات لـ {name}", en: "Total hours for {name}" },
 }
 
 export function translate(key: string, lang: Lang, fallback?: string) {

@@ -16,7 +16,10 @@ import type {
   ReceivingNote,
   Supplier,
   ReceivingNoteItem,
-  AuditLogEntry
+  AuditLogEntry,
+  Employee,
+  OvertimeReason,
+  OvertimeEntry
 } from "./types"
 export type { PurchaseOrder, PurchaseOrderItem }
 import type { BranchInvoice } from './branch-invoice-types'
@@ -110,6 +113,9 @@ export function clearAppCache() {
       purchaseRequests: [],
       receivingNotes: [],
       suppliers: [],
+      employees: [],
+      overtimeReasons: [],
+      overtimeEntries: [],
     }
     notify('change')
     reloadFromDb().catch(console.error)
@@ -198,7 +204,10 @@ export async function factoryReset() {
       db.changeLogs.clear(),
       db.syncQueue.clear(),
       db.conflictLogs.clear(),
-      db.imageCache.clear()
+      db.imageCache.clear(),
+      db.employees.clear(),
+      db.overtimeReasons.clear(),
+      db.overtimeEntries.clear()
     ])
 
     // 2. Clear Local Cache in Memory
@@ -222,7 +231,10 @@ export async function factoryReset() {
       notifications: [],
       productImages: [],
       changeLogs: [],
-      suppliers: []
+      suppliers: [],
+      employees: [],
+      overtimeReasons: [],
+      overtimeEntries: []
     } as any
 
     notify('products_change')
@@ -1883,3 +1895,78 @@ export function generateNextItemNumber(): string {
   return (max + 1).toString()
 }
 
+
+// ============================================
+// Employee & HR Management Functions
+// ============================================
+
+export async function addEmployee(employee: Omit<Employee, "id" | "createdAt">) {
+  const newEmployee: Employee = {
+    ...employee,
+    id: generateId(),
+    createdAt: new Date().toISOString()
+  }
+  await db.employees.add(newEmployee)
+  updateStoreCache('employees', newEmployee)
+  return newEmployee
+}
+
+export async function updateEmployee(id: string, updates: Partial<Employee>) {
+  const updated = { ...updates, updatedAt: new Date().toISOString() }
+  await db.employees.update(id, updated)
+  const employee = await db.employees.get(id)
+  if (employee) updateStoreCache('employees', employee)
+  return employee
+}
+
+export async function deleteEmployee(id: string) {
+  await db.employees.delete(id)
+  removeFromStoreCache('employees', id)
+}
+
+export async function addOvertimeReason(name: string) {
+  const newReason: OvertimeReason = {
+    id: generateId(),
+    name,
+    createdAt: new Date().toISOString()
+  }
+  await db.overtimeReasons.add(newReason)
+  updateStoreCache('overtime_reasons', newReason)
+  return newReason
+}
+
+export async function addOvertimeEntry(entry: Omit<OvertimeEntry, "id" | "createdAt">) {
+  const newEntry: OvertimeEntry = {
+    ...entry,
+    id: generateId(),
+    createdAt: new Date().toISOString()
+  }
+  await db.overtimeEntries.add(newEntry)
+  updateStoreCache('overtime_entries', newEntry)
+  return newEntry
+}
+
+export async function updateOvertimeEntry(id: string, updates: Partial<OvertimeEntry>) {
+  const updated = { ...updates, updatedAt: new Date().toISOString() }
+  await db.overtimeEntries.update(id, updated)
+  const entry = await db.overtimeEntries.get(id)
+  if (entry) updateStoreCache('overtime_entries', entry)
+  return entry
+}
+
+export async function deleteOvertimeEntry(id: string) {
+  await db.overtimeEntries.delete(id)
+  removeFromStoreCache('overtime_entries', id)
+}
+
+export function getEmployees() {
+  return store.cache.employees || []
+}
+
+export function getOvertimeReasons() {
+  return store.cache.overtimeReasons || []
+}
+
+export function getOvertimeEntries() {
+  return store.cache.overtimeEntries || []
+}

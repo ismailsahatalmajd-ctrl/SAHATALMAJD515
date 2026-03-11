@@ -189,9 +189,12 @@ export interface Permissions {
   'branch_requests.view': boolean;
   'branch_requests.approve': boolean;
 
-  // User Management (Admin)
   'users.view': boolean;
   'users.manage': boolean;
+
+  // HR & Employees
+  'hr.view': boolean;
+  'hr.manage': boolean;
 
   // System & Settings
   'system.settings': boolean; // Was settings.edit
@@ -615,4 +618,42 @@ export interface AssetStatusReport {
   generatedBy: string
   generatedAt: string
   notes?: string
+}
+
+// ============================================
+// Employee & HR Management Types
+// ============================================
+
+export interface Employee {
+  id: string
+  name: string
+  department?: string
+  position?: string
+  createdAt: string
+  updatedAt?: string
+}
+
+export interface OvertimeReason {
+  id: string
+  name: string
+  createdAt: string
+}
+
+export interface OvertimeEntry {
+  id: string
+  employeeIds: string[]
+  employeeNames: string[]
+  department?: string
+  date: string
+  fromTime: string
+  toTime: string
+  totalHours: number // Hours per person
+  grandTotalHours: number // Total hours for the group (hours * count)
+  reasons: string[]
+  status: 'pending' | 'approved' | 'rejected'
+  createdAt: string
+  updatedAt?: string
+  approvedBy?: string
+  approvalNotes?: string
+  branchId?: string
 }

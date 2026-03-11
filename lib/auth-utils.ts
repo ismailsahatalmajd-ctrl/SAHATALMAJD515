@@ -25,6 +25,8 @@ export const DEFAULT_PERMISSIONS: Record<UserRole, Partial<Permissions>> = {
         'branch_requests.approve': true,
         'users.view': true,
         'users.manage': true,
+        'hr.view': true,
+        'hr.manage': true,
         'system.settings': true,
         'system.backup': true,
         'system.logs': true,
@@ -53,6 +55,8 @@ export const DEFAULT_PERMISSIONS: Record<UserRole, Partial<Permissions>> = {
         'branch_requests.approve': true,
         'users.view': false,
         'users.manage': false,
+        'hr.view': true,
+        'hr.manage': true,
         'system.settings': false,
         'system.backup': false,
         'system.logs': false,
@@ -166,6 +170,7 @@ export function canAccessPage(user: User | null, path: string): boolean {
     if (path.startsWith('/issues') || path.startsWith('/purchases') || path.startsWith('/returns')) return hasPermission(user, 'page.transactions');
     if (path.startsWith('/reports')) return hasPermission(user, 'page.reports');
     if (path.startsWith('/branches') || path.startsWith('/branch-requests')) return hasPermission(user, 'page.branches');
+    if (path.startsWith('/employees')) return hasPermission(user, 'hr.view');
     if (path === '/dashboard') return hasPermission(user, 'page.dashboard');
 
     return true; // Public or un-protected pages

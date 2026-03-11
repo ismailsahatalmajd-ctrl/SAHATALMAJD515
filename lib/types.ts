@@ -657,3 +657,18 @@ export interface OvertimeEntry {
   approvalNotes?: string
   branchId?: string
 }
+
+export interface AbsenceRecord {
+  id: string
+  employeeId: string
+  employeeName: string
+  date: string
+  type: 'absence' | 'leave' | 'official_event' // غياب، إجازة، مناسبة رسمية
+  category: string // بعذر، بدون عذر، مرضية، عيد، إلخ
+  notes?: string
+  status: 'pending' | 'approved' | 'rejected'
+  createdAt: string
+  updatedAt?: string
+  approvedBy?: string
+  branchId?: string
+}

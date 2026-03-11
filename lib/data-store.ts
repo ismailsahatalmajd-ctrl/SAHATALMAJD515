@@ -15,7 +15,8 @@ import type {
   Supplier,
   Employee,
   OvertimeReason,
-  OvertimeEntry
+  OvertimeEntry,
+  AbsenceRecord
 } from "./types"
 import type { BranchInvoice } from './branch-invoice-types'
 import type { BranchRequest } from './branch-request-types'
@@ -48,6 +49,7 @@ export class DataStore {
     employees: Employee[]
     overtimeReasons: OvertimeReason[]
     overtimeEntries: OvertimeEntry[]
+    absenceRecords: AbsenceRecord[]
   } = {
       products: [],
       categories: [],
@@ -70,6 +72,7 @@ export class DataStore {
       employees: [],
       overtimeReasons: [],
       overtimeEntries: [],
+      absenceRecords: [],
     }
 
   initPromise: Promise<void> | null = null
@@ -126,6 +129,7 @@ export class DataStore {
           { name: "employees", label: "الموظفين", query: db.employees },
           { name: "overtimeReasons", label: "أسباب الساعات الإضافية", query: db.overtimeReasons },
           { name: "overtimeEntries", label: "سجلات الساعات الإضافية", query: db.overtimeEntries },
+          { name: "absenceRecords", label: "سجلات الغياب والاجازات", query: db.absenceRecords },
         ]
 
         let completed = 0;
@@ -182,6 +186,7 @@ export class DataStore {
         this.cache.employees = (results[18] as Employee[]) || []
         this.cache.overtimeReasons = (results[19] as OvertimeReason[]) || []
         this.cache.overtimeEntries = (results[20] as OvertimeEntry[]) || []
+        this.cache.absenceRecords = (results[21] as AbsenceRecord[]) || []
 
         broadcastProgress(100, "اكتمل التحميل");
         console.log("DataStore: Initialization complete");
@@ -247,8 +252,9 @@ export function updateStoreCache(table: string, record: any) {
     'inventory_adjustments': 'adjustments',
     'suppliers': 'suppliers',
     'employees': 'employees',
-    'overtime_reasons': 'overtimeReasons',
-    'overtime_entries': 'overtimeEntries',
+    'overtimeReasons': 'overtimeReasons',
+    'overtimeEntries': 'overtimeEntries',
+    'absenceRecords': 'absenceRecords',
   }
 
   const key = map[table]
@@ -273,6 +279,10 @@ export function updateStoreCache(table: string, record: any) {
     'returns': 'returns_change',
     'branch_requests': 'branch_requests_change',
     'branch_invoices': 'branch_invoices_change',
+    'employees': 'employees_change' as any,
+    'overtimeReasons': 'overtime_reasons_change' as any,
+    'overtimeEntries': 'overtime_entries_change' as any,
+    'absenceRecords': 'absence_records_change' as any,
   }
   if (eventMap[table]) notify(eventMap[table])
 }
@@ -295,8 +305,9 @@ export function removeFromStoreCache(table: string, id: string) {
     'suppliers': 'suppliers',
     'receiving_notes': 'receivingNotes',
     'employees': 'employees',
-    'overtime_reasons': 'overtimeReasons',
-    'overtime_entries': 'overtimeEntries',
+    'overtimeReasons': 'overtimeReasons',
+    'overtimeEntries': 'overtimeEntries',
+    'absenceRecords': 'absenceRecords',
   }
 
   const key = map[table]

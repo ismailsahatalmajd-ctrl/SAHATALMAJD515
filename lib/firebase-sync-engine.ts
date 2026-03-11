@@ -69,6 +69,10 @@ function updateStoreCache(table: string, record: any) {
         'inventoryAdjustments': 'adjustments',
         'purchaseRequests': 'purchaseRequests',
         'receivingNotes': 'receivingNotes',
+        'employees': 'employees',
+        'overtimeReasons': 'overtimeReasons',
+        'overtimeEntries': 'overtimeEntries',
+        'absenceRecords': 'absenceRecords'
     }
 
     const key = map[table]
@@ -94,6 +98,10 @@ function updateStoreCache(table: string, record: any) {
         'branchRequests': 'branch_requests_change',
         'branchInvoices': 'branch_invoices_change',
         'receivingNotes': 'receiving_notes_change' as any,
+        'employees': 'employees_change' as any,
+        'overtimeReasons': 'overtime_reasons_change' as any,
+        'overtimeEntries': 'overtime_entries_change' as any,
+        'absenceRecords': 'absence_records_change' as any,
     }
     if (eventMap[table]) notify(eventMap[table])
 }
@@ -114,6 +122,10 @@ function removeFromStoreCache(table: string, id: string) {
         'branchInvoices': 'branchInvoices',
         'inventoryAdjustments': 'adjustments',
         'purchaseRequests': 'purchaseRequests',
+        'employees': 'employees',
+        'overtimeReasons': 'overtimeReasons',
+        'overtimeEntries': 'overtimeEntries',
+        'absenceRecords': 'absenceRecords'
     }
 
     const key = map[table]
@@ -150,7 +162,11 @@ export const COLLECTIONS = {
     ASSET_REQUESTS: 'assetRequests',
     ASSET_STATUS_REPORTS: 'assetStatusReports',
     AUDIT_LOGS: 'auditLogs',
-    SUPPLIERS: 'suppliers'
+    SUPPLIERS: 'suppliers',
+    EMPLOYEES: 'employees',
+    OVERTIME_REASONS: 'overtimeReasons',
+    OVERTIME_ENTRIES: 'overtimeEntries',
+    ABSENCE_RECORDS: 'absenceRecords'
 };
 
 let unsubscribers: Function[] = [];
@@ -234,6 +250,10 @@ export const startRealtimeSync = () => {
         unsubscribers.push(syncCollection(COLLECTIONS.RETURNS, localDb.returns, "returns_change"));
         unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_REQUESTS, localDb.branchRequests, "branch_requests_change"));
         unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_INVOICES, localDb.branchInvoices, "branch_invoices_change"));
+        unsubscribers.push(syncCollection(COLLECTIONS.EMPLOYEES, localDb.employees, "employees_change" as any));
+        unsubscribers.push(syncCollection(COLLECTIONS.OVERTIME_REASONS, localDb.overtimeReasons, "overtime_reasons_change" as any));
+        unsubscribers.push(syncCollection(COLLECTIONS.OVERTIME_ENTRIES, localDb.overtimeEntries, "overtime_entries_change" as any));
+        unsubscribers.push(syncCollection(COLLECTIONS.ABSENCE_RECORDS, localDb.absenceRecords as any, "absence_records_change" as any));
 
         // --- 2. Fetch-once Collections (Optimization: only on startup) ---
         // These don't change often enough to warrant a constant background CPU connection
@@ -816,3 +836,12 @@ export async function deleteAllReceivingNotesApi(ids: string[]) {
         throw e;
     }
 }
+
+// HR Sync Aliases
+export const syncEmployee = (r: any) => syncRecord(COLLECTIONS.EMPLOYEES, r);
+export const deleteEmployeeApi = (id: string) => deleteRecord(COLLECTIONS.EMPLOYEES, id);
+export const syncOvertimeReason = (r: any) => syncRecord(COLLECTIONS.OVERTIME_REASONS, r);
+export const syncOvertimeEntry = (r: any) => syncRecord(COLLECTIONS.OVERTIME_ENTRIES, r);
+export const deleteOvertimeEntryApi = (id: string) => deleteRecord(COLLECTIONS.OVERTIME_ENTRIES, id);
+export const syncAbsenceRecord = (r: any) => syncRecord(COLLECTIONS.ABSENCE_RECORDS, r);
+export const deleteAbsenceRecordApi = (id: string) => deleteRecord(COLLECTIONS.ABSENCE_RECORDS, id);

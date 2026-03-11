@@ -1576,7 +1576,27 @@ export const dict: Dict = {
   "hr.overtime.report.monthly": { ar: "تقرير شهر {month}", en: "{month} Report" },
   "hr.overtime.calculation": { ar: "حساب الساعات", en: "Calculate Hours" },
   "hr.overtime.totalForEmployee": { ar: "إجمالي الساعات لـ {name}", en: "Total hours for {name}" },
-}
+  
+  // HR Attendance & Leaves
+  "hr.attendance.title": { ar: "نظام الغياب والإجازات", en: "Attendance & Leaves" },
+  "hr.attendance.subtitle": { ar: "متابعة غياب وحضور الموظفين والإجازات الرسمية", en: "Track employee attendance and official leaves" },
+  "hr.attendance.type": { ar: "نوع السجل", en: "Record Type" },
+  "hr.attendance.type.absence": { ar: "غياب", en: "Absence" },
+  "hr.attendance.type.leave": { ar: "إجازة", en: "Leave" },
+  "hr.attendance.type.official": { ar: "مناسبة رسمية", en: "Official Event" },
+  "hr.attendance.category": { ar: "الفئة", en: "Category" },
+  "hr.attendance.category.excused": { ar: "بعذر", en: "Excused" },
+  "hr.attendance.category.unexcused": { ar: "بدون عذر", en: "Unexcused" },
+  "hr.attendance.category.sick": { ar: "مرضي", en: "Sick Leave" },
+  "hr.attendance.category.official": { ar: "إجازة رسمية", en: "Official Leave" },
+  "hr.attendance.category.eid": { ar: "عيد", en: "Eid" },
+  "hr.attendance.category.national": { ar: "يوم وطني", en: "National Day" },
+  "hr.attendance.save": { ar: "حفظ سجل الحضور", en: "Save Attendance" },
+  "hr.attendance.success": { ar: "تم تسجيل الحضور بنجاح", en: "Attendance recorded successfully" },
+  "hr.attendance.absences": { ar: "الغيابات", en: "Absences" },
+  "hr.attendance.leaves": { ar: "الإجازات", en: "Leaves" },
+  "hr.attendance.stats": { ar: "إحصائيات الشهر", en: "Monthly Stats" },
+};
 
 export function translate(key: string, lang: Lang, fallback?: string) {
   const entry = dict[key]

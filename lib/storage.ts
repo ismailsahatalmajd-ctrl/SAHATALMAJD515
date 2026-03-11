@@ -19,7 +19,8 @@ import type {
   AuditLogEntry,
   Employee,
   OvertimeReason,
-  OvertimeEntry
+  OvertimeEntry,
+  AbsenceRecord
 } from "./types"
 export type { PurchaseOrder, PurchaseOrderItem }
 import type { BranchInvoice } from './branch-invoice-types'
@@ -51,7 +52,14 @@ import {
   startRealtimeSync,
   stopRealtimeSync,
   syncReceivingNote,
-  deleteAllReceivingNotesApi
+  deleteAllReceivingNotesApi,
+  syncEmployee,
+  deleteEmployeeApi,
+  syncOvertimeReason,
+  syncOvertimeEntry,
+  deleteOvertimeEntryApi,
+  syncAbsenceRecord,
+  deleteAbsenceRecordApi
 } from './firebase-sync-engine'
 
 // Monthly Closing
@@ -116,6 +124,7 @@ export function clearAppCache() {
       employees: [],
       overtimeReasons: [],
       overtimeEntries: [],
+      absenceRecords: [],
     }
     notify('change')
     reloadFromDb().catch(console.error)
@@ -207,7 +216,8 @@ export async function factoryReset() {
       db.imageCache.clear(),
       db.employees.clear(),
       db.overtimeReasons.clear(),
-      db.overtimeEntries.clear()
+      db.overtimeEntries.clear(),
+      db.absenceRecords.clear()
     ])
 
     // 2. Clear Local Cache in Memory
@@ -234,7 +244,8 @@ export async function factoryReset() {
       suppliers: [],
       employees: [],
       overtimeReasons: [],
-      overtimeEntries: []
+      overtimeEntries: [],
+      absenceRecords: [],
     } as any
 
     notify('products_change')
@@ -1908,6 +1919,7 @@ export async function addEmployee(employee: Omit<Employee, "id" | "createdAt">) 
   }
   await db.employees.add(newEmployee)
   updateStoreCache('employees', newEmployee)
+  if (typeof window !== 'undefined') syncEmployee(newEmployee).catch(console.error)
   return newEmployee
 }
 
@@ -1915,13 +1927,17 @@ export async function updateEmployee(id: string, updates: Partial<Employee>) {
   const updated = { ...updates, updatedAt: new Date().toISOString() }
   await db.employees.update(id, updated)
   const employee = await db.employees.get(id)
-  if (employee) updateStoreCache('employees', employee)
+  if (employee) {
+    updateStoreCache('employees', employee)
+    if (typeof window !== 'undefined') syncEmployee(employee).catch(console.error)
+  }
   return employee
 }
 
 export async function deleteEmployee(id: string) {
   await db.employees.delete(id)
   removeFromStoreCache('employees', id)
+  if (typeof window !== 'undefined') deleteEmployeeApi(id).catch(console.error)
 }
 
 export async function addOvertimeReason(name: string) {
@@ -1931,7 +1947,8 @@ export async function addOvertimeReason(name: string) {
     createdAt: new Date().toISOString()
   }
   await db.overtimeReasons.add(newReason)
-  updateStoreCache('overtime_reasons', newReason)
+  updateStoreCache('overtimeReasons', newReason)
+  if (typeof window !== 'undefined') syncOvertimeReason(newReason).catch(console.error)
   return newReason
 }
 
@@ -1942,7 +1959,8 @@ export async function addOvertimeEntry(entry: Omit<OvertimeEntry, "id" | "create
     createdAt: new Date().toISOString()
   }
   await db.overtimeEntries.add(newEntry)
-  updateStoreCache('overtime_entries', newEntry)
+  updateStoreCache('overtimeEntries', newEntry)
+  if (typeof window !== 'undefined') syncOvertimeEntry(newEntry).catch(console.error)
   return newEntry
 }
 
@@ -1950,13 +1968,17 @@ export async function updateOvertimeEntry(id: string, updates: Partial<OvertimeE
   const updated = { ...updates, updatedAt: new Date().toISOString() }
   await db.overtimeEntries.update(id, updated)
   const entry = await db.overtimeEntries.get(id)
-  if (entry) updateStoreCache('overtime_entries', entry)
+  if (entry) {
+    updateStoreCache('overtimeEntries', entry)
+    if (typeof window !== 'undefined') syncOvertimeEntry(entry).catch(console.error)
+  }
   return entry
 }
 
 export async function deleteOvertimeEntry(id: string) {
   await db.overtimeEntries.delete(id)
-  removeFromStoreCache('overtime_entries', id)
+  removeFromStoreCache('overtimeEntries', id)
+  if (typeof window !== 'undefined') deleteOvertimeEntryApi(id).catch(console.error)
 }
 
 export function getEmployees() {
@@ -1969,4 +1991,39 @@ export function getOvertimeReasons() {
 
 export function getOvertimeEntries() {
   return store.cache.overtimeEntries || []
+}
+
+// Attendance Functions
+export async function addAbsenceRecord(record: Omit<AbsenceRecord, "id" | "createdAt" | "status">) {
+  const newRecord: AbsenceRecord = {
+    ...record,
+    id: generateId(),
+    status: 'pending',
+    createdAt: new Date().toISOString()
+  }
+  await db.absenceRecords.add(newRecord)
+  updateStoreCache('absenceRecords', newRecord)
+  if (typeof window !== 'undefined') syncAbsenceRecord(newRecord).catch(console.error)
+  return newRecord
+}
+
+export async function updateAbsenceRecord(id: string, updates: Partial<AbsenceRecord>) {
+  const updated = { ...updates, updatedAt: new Date().toISOString() }
+  await db.absenceRecords.update(id, updated)
+  const record = await db.absenceRecords.get(id)
+  if (record) {
+    updateStoreCache('absenceRecords', record)
+    if (typeof window !== 'undefined') syncAbsenceRecord(record).catch(console.error)
+  }
+  return record
+}
+
+export async function deleteAbsenceRecord(id: string) {
+  await db.absenceRecords.delete(id)
+  removeFromStoreCache('absenceRecords', id)
+  if (typeof window !== 'undefined') deleteAbsenceRecordApi(id).catch(console.error)
+}
+
+export function getAbsenceRecords() {
+  return store.cache.absenceRecords || []
 }

@@ -24,7 +24,8 @@ import type {
   Supplier,
   Employee,
   OvertimeReason,
-  OvertimeEntry
+  OvertimeEntry,
+  AbsenceRecord
 } from './types';
 import type { BranchInvoice } from './branch-invoice-types';
 import type { BranchRequest } from './branch-request-types';
@@ -71,6 +72,7 @@ export class InventoryDatabase extends Dexie {
   employees!: Table<Employee>;
   overtimeReasons!: Table<OvertimeReason>;
   overtimeEntries!: Table<OvertimeEntry>;
+  absenceRecords!: Table<AbsenceRecord>;
 
   constructor() {
     super('InventoryDB');
@@ -141,6 +143,11 @@ export class InventoryDatabase extends Dexie {
       employees: 'id, name, department, createdAt',
       overtimeReasons: 'id, name, createdAt',
       overtimeEntries: 'id, employeeId, date, status, createdAt'
+    });
+    
+    // Version 10: Attendance System
+    this.version(10).stores({
+      absenceRecords: 'id, employeeId, date, type, category, status, createdAt'
     });
   }
 }
@@ -225,7 +232,7 @@ if (typeof window === 'undefined') {
       'branchRequests', 'branchRequestDrafts', 'purchaseRequests', 'receivingNotes', 'settings', 'auditLogs',
       'notifications', 'backups', 'imageCache', 'syncQueue', 'conflictLogs',
       'changeLogs', 'userSessions', 'userPreferences', 'productImages', 'suppliers',
-      'employees', 'overtimeReasons', 'overtimeEntries'
+      'employees', 'overtimeReasons', 'overtimeEntries', 'absenceRecords'
     ];
 
     tables.forEach(table => {

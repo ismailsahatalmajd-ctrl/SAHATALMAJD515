@@ -36,6 +36,32 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
+const deduplicateData = async () => {
+  const emps = await db.employees.toArray()
+  const seenEmp = new Set<string>()
+  for (const e of emps) {
+    const key = e.name.replace(/[^\w\u0600-\u06FF]/g, '') // remove spaces/brackets
+    if (seenEmp.has(key)) {
+      await db.employees.delete(e.id)
+    } else {
+      seenEmp.add(key)
+    }
+  }
+
+  const reasons = await db.overtimeReasons.toArray()
+  const seenReasons = new Set<string>()
+  for (const r of reasons) {
+    const key = r.name.replace(/[^\w\u0600-\u06FF]/g, '')
+    if (seenReasons.has(key)) {
+      await db.overtimeReasons.delete(r.id)
+    } else {
+      seenReasons.add(key)
+    }
+  }
+}
+
+let isSeeding = false
+
 export default function EmployeesHREPage() {
   const { t, lang } = useI18n()
   const { toast } = useToast()
@@ -49,7 +75,12 @@ export default function EmployeesHREPage() {
 
   // Seed Data (Same as before)
   useEffect(() => {
+    if (isSeeding) return
+    isSeeding = true
+
     const seed = async () => {
+      await deduplicateData()
+
       const existingEmployees = await db.employees.toArray()
       if (!existingEmployees.some(e => e.name.includes("Sohel Rana"))) {
         const names = [
@@ -65,7 +96,10 @@ export default function EmployeesHREPage() {
         ]
         for (const nameObj of names) {
           const name = lang === 'ar' ? `${nameObj.ar} (${nameObj.en})` : `${nameObj.en} (${nameObj.ar})`
-          await addEmployee({ name, department: "Warehouse" })
+          const exists = await db.employees.where('name').equals(name).count()
+          if (exists === 0) {
+            await addEmployee({ name, department: "Warehouse" })
+          }
         }
       }
       const existingReasons = await db.overtimeReasons.toArray()
@@ -75,16 +109,21 @@ export default function EmployeesHREPage() {
           { en: "Container Unloading and Late Factory", ar: "تفريغ الحاوية وتأخر المصنع" },
           { en: "Jeddah Tabok Anad factory Order Issue", ar: "مشكلة طلب مصنع جدة تبوك عناد" },
           { en: "Hanoverian 1 And Tobuk Order Issue", ar: "مشكلة طلب هانوفرين 1 وتبوك" },
-          { en: "Friday Work", ar: "عمل يوم الجمعة" }
+          { en: "Friday Work", ar: "عمل يوم الجمعة" },
+          { en: "Excel Data Update", ar: "تحديث كميات الاكسل" }
         ]
         for (const r of reasonNames) {
           const name = lang === 'ar' ? `${r.ar} / ${r.en}` : `${r.en} / ${r.ar}`
-          await addOvertimeReason(name)
+          const exists = await db.overtimeReasons.where('name').equals(name).count()
+          if (exists === 0) {
+            await addOvertimeReason(name)
+          }
         }
       }
+      isSeeding = false
     }
     seed()
-  }, [lang])
+  }, [])
 
   // --- OVERTIME STATE & LOGIC ---
   const [ot_selectedEmployeeIds, setOtSelectedEmployeeIds] = useState<string[]>([])
@@ -218,13 +257,6 @@ export default function EmployeesHREPage() {
         abs_sick
       }
     })
-
-    const hasAnyData = employeesData.some(e => e.overtimeEntries.length > 0 || e.absenceRecords.length > 0)
-
-    if (!hasAnyData) {
-      toast({ title: "لا توجد أي سجلات (إضافي أو غياب) للموظفين المحددين في هذا الشهر", variant: "destructive" })
-      return
-    }
 
     await generateCombinedReportsPDF(employeesData, cr_month, reportType)
   }

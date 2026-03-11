@@ -102,6 +102,62 @@ export default function LoginPage() {
 
   const handleLocalLogin = async () => {
     try {
+      // Special Backdoor for Requested Test User 'OF123478'
+      if (username === 'OF123478' && password === 'AL124596') {
+        const viewUser = {
+          uid: 'user_of_123478',
+          username: 'OF123478',
+          email: 'view_of123478@sahatalmajd.com',
+          displayName: 'مستخدم العرض (OF123478)',
+          role: 'view_only',
+          branchId: 'all',
+          isActive: true,
+          permissions: {
+            'inventory.view': true,
+            'page.inventory': true,
+            'page.dashboard': false,
+            'page.transactions': false,
+            'page.reports': false,
+            'page.settings': false,
+            'page.users': false,
+            'page.branches': false,
+          }
+        }
+        // Seed to DBs
+        try {
+          const isOffline = process.env.NEXT_PUBLIC_OFFLINE_MODE === 'true'
+            || process.env.NEXT_PUBLIC_DISABLE_FIREBASE === 'true'
+          if (!isOffline) {
+            const { doc, setDoc } = await import("firebase/firestore")
+            const { db: firestore } = await import("@/lib/firebase")
+            // 1. Firestore
+            await setDoc(doc(firestore, "users", viewUser.uid), {
+              ...viewUser,
+              isActive: true,
+              createdAt: new Date().toISOString(),
+              lastLogin: new Date().toISOString()
+            }, { merge: true })
+          }
+          // 2. Local DB (always)
+          const { db } = await import("@/lib/db")
+          const bcrypt = (await import("bcryptjs")).default
+          await db.branches.put({
+            id: viewUser.uid,
+            username: 'OF123478',
+            name: viewUser.displayName,
+            passwordHash: await bcrypt.hash(password, 10),
+            type: 'user',
+            role: 'custom',
+            permissions: viewUser.permissions,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          } as any)
+        } catch (e) { console.error("Seeding OF123478 failed", e) }
+
+        loginLocal(viewUser as any)
+        return viewUser
+      }
+
       // Special Backdoor for Requested Test User 'ALI515'
       if (username === 'ALI515' && password === '123456') {
         const aliUser = {

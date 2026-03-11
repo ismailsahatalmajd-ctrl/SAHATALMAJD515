@@ -116,6 +116,33 @@ export const DEFAULT_PERMISSIONS: Record<UserRole, Partial<Permissions>> = {
         'page.branches': true,
     },
     custom: {}, // Completely manual
+    admin: {
+        'inventory.view': true,
+        'inventory.add': true,
+        'inventory.edit': true,
+        'inventory.delete': true,
+        'inventory.adjust': true,
+        'transactions.purchase': true,
+        'transactions.issue': true,
+        'transactions.return': true,
+        'transactions.approve': true,
+        'branches.view': true,
+        'branches.manage': true,
+        'page.dashboard': true,
+        'page.inventory': true,
+        'page.transactions': true,
+        'page.reports': true,
+        'page.settings': true,
+        'page.users': true,
+        'page.branches': true,
+    },
+    branch: {
+        'inventory.view': true,
+        'transactions.issue': true,
+        'transactions.return': true,
+        'page.dashboard': true,
+        'page.inventory': true,
+    },
 }
 
 /**
@@ -162,6 +189,10 @@ export function hasPermission(user: User | null | undefined, permission: keyof P
  */
 export function canAccessPage(user: User | null, path: string): boolean {
     if (!user) return false;
+    
+    // Restrictions are now handled via granular permissions on the client side
+    // and standard role-based access here.
+
     if (user.role === 'owner') return true;
 
     if (path.startsWith('/settings/users')) return hasPermission(user, 'page.users');
@@ -172,6 +203,7 @@ export function canAccessPage(user: User | null, path: string): boolean {
     if (path.startsWith('/branches') || path.startsWith('/branch-requests')) return hasPermission(user, 'page.branches');
     if (path.startsWith('/employees')) return hasPermission(user, 'hr.view');
     if (path === '/dashboard') return hasPermission(user, 'page.dashboard');
+    if (path.startsWith('/history') || path.startsWith('/scanner') || path.startsWith('/label-designer') || path.startsWith('/admin')) return (user.role as any) === 'owner' || (user.role as any) === 'manager' || (user.role as any) === 'admin';
 
     return true; // Public or un-protected pages
 }
@@ -183,4 +215,6 @@ export const ROLE_LABELS: Record<UserRole, { ar: string, en: string }> = {
     staff: { ar: 'موظف', en: 'Staff' },
     view_only: { ar: 'عرض فقط', en: 'View Only' },
     custom: { ar: 'مخصص', en: 'Custom' },
+    admin: { ar: 'مسؤول نظام', en: 'Admin' },
+    branch: { ar: 'فرع', en: 'Branch' },
 }

@@ -23,12 +23,14 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 
 import { BranchDashboard } from "@/components/branch-dashboard"
 import { useAuth } from "@/components/auth-provider"
+import { useGranularPermissions } from "@/hooks/use-granular-permissions"
 
 export default function BranchRequestsPage() {
     const router = useRouter()
     const { t } = useI18n()
     const { toast } = useToast()
     const { user, loading: authLoading } = useAuth()
+    const { shouldShow } = useGranularPermissions()
 
     // Real-time data hook
     const { data: realtimeRequests, loading: realtimeLoading } = useBranchRequestsRealtime()
@@ -148,9 +150,11 @@ export default function BranchRequestsPage() {
                         <RotateCcw className="h-4 w-4" />
                         <DualText k="sync.hardReset" />
                     </Button>
-                    <Button variant="outline" onClick={() => router.push("/")}>
-                        <DualText k="common.back" fallback="العودة" />
-                    </Button>
+                    {shouldShow('global.backButton') && (
+                        <Button variant="outline" onClick={() => router.push("/")}>
+                            <DualText k="common.back" fallback="العودة" />
+                        </Button>
+                    )}
                 </div>
             </div>
 

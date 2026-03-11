@@ -20,11 +20,13 @@ import type { VerificationLog } from "@/lib/types"
 import { getSafeImageSrc } from "@/lib/utils"
 import { DualText } from "@/components/ui/dual-text"
 import { useI18n } from "@/components/language-provider"
+import { useGranularPermissions } from "@/hooks/use-granular-permissions"
 
 export default function VerificationLogDetailsClient() {
   const router = useRouter()
   const params = useParams()
   const { lang } = useI18n()
+  const { shouldShow } = useGranularPermissions()
   const [log, setLog] = useState<VerificationLog | null>(null)
   const [loading, setLoading] = useState(true)
   
@@ -57,10 +59,12 @@ export default function VerificationLogDetailsClient() {
         <Header />
         <div className="container mx-auto px-4 py-6 text-center">
           <p className="text-destructive font-medium mb-4"><DualText k="issues.verify.toast.notFound" fallback="Not Found" /></p>
-          <Button onClick={() => router.back()}>
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            <DualText k="common.back" fallback="Back" />
-          </Button>
+          {shouldShow('global.backButton') && (
+            <Button onClick={() => router.back()}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              <DualText k="common.back" fallback="Back" />
+            </Button>
+          )}
         </div>
       </div>
     )
@@ -73,9 +77,11 @@ export default function VerificationLogDetailsClient() {
       <div className="container mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => router.back()}>
-              <ArrowLeft className={`h-6 w-6 ${lang === 'ar' ? 'rotate-180' : ''}`} />
-            </Button>
+            {shouldShow('global.backButton') && (
+              <Button variant="ghost" size="icon" onClick={() => router.back()}>
+                <ArrowLeft className={`h-6 w-6 ${lang === 'ar' ? 'rotate-180' : ''}`} />
+              </Button>
+            )}
             <div>
               <h1 className="text-2xl font-bold flex items-center gap-2">
                 <DualText k="issues.verify.details" fallback="Verification Details" />

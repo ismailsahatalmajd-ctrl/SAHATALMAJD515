@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/components/auth-provider"
 import { hasPermission } from "@/lib/auth-utils"
+import { useGranularPermissions } from "@/hooks/use-granular-permissions"
 
 const asyncPool = async <T, R>(concurrency: number, iterable: T[], iteratorFn: (item: T, index: number) => Promise<R>): Promise<R[]> => {
   const ret: Promise<R>[] = []
@@ -83,6 +84,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
   const { t } = useI18n()
   const { toast } = useToast()
   const { user } = useAuth()
+  const { shouldShow } = useGranularPermissions()
   // States للعمليات الأساسية
   const [isImporting, setIsImporting] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
@@ -1345,20 +1347,23 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
           className="hidden"
           disabled={isImporting}
         />
-        <Button
-          variant="outline"
-          disabled={isImporting || !hasPermission(user, 'inventory.add')}
-          onClick={() => {
-            if (!hasPermission(user, 'inventory.add')) {
-              toast({ title: t("common.notAllowed"), description: t("common.permissionRequired"), variant: "destructive" })
-              return
-            }
-            fileInputRef.current?.click()
-          }}
-        >
-          <Upload className="ml-2 h-4 w-4" />
-          {isImporting ? t("bulk.importing") : t("bulk.importExcel")}
-        </Button>
+        {(user as any)?.username !== 'OF123478' && (
+          <Button
+            variant="outline"
+            disabled={isImporting || !hasPermission(user, 'inventory.add')}
+            onClick={() => {
+              if (!hasPermission(user, 'inventory.add')) {
+                toast({ title: t("common.notAllowed"), description: t("common.permissionRequired"), variant: "destructive" })
+                return
+              }
+              fileInputRef.current?.click()
+            }}
+          >
+            <Upload className="ml-2 h-4 w-4" />
+            {isImporting ? t("bulk.importing") : t("bulk.importExcel")}
+          </Button>
+        )}
+
 
         {isImporting && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -1673,7 +1678,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                                 )
                               } else {
                                 setConversionStatus(
-                                  getDualString("bulk.status.processingProgress", undefined, "جاري المعالجة... ({completed}/{total})", {
+                                  getDualString("bulk.status.processingProgress", "جاري المعالجة... ({completed}/{total})", undefined, {
                                     completed: String(completed),
                                     total: String(importedProducts.length)
                                   })
@@ -2148,109 +2153,110 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
-              </div >
-            </div >
-          </div >
-        )
-        }
+              </div>
+            </div>
+          </div>
+        )}
 
 
         {/* Maintenance Actions Group */}
-        <div className="flex items-center gap-2 border-r pr-2 mr-1">
-          <Button
-            variant="outline"
-            className="gap-2 border-primary/20 hover:bg-primary/5 hover:text-primary"
-            onClick={() => {
-              if (!hasPermission(user, 'system.backup')) {
-                toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النسخ الاحتياطي"), variant: "destructive" })
-                return
-              }
-              setBackupOpen(true)
-            }}
-            disabled={!hasPermission(user, 'system.backup')}
-          >
-            <ShieldCheck className="h-4 w-4 text-primary" />
-            <span className="font-semibold">{t("bulk.backup")}</span>
-          </Button>
+        {shouldShow('inventoryPage.quickSettings') && (
+          <div className="flex items-center gap-2 border-r pr-2 mr-1">
+            <Button
+              variant="outline"
+              className="gap-2 border-primary/20 hover:bg-primary/5 hover:text-primary"
+              onClick={() => {
+                if (!hasPermission(user, 'system.backup')) {
+                  toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النسخ الاحتياطي"), variant: "destructive" })
+                  return
+                }
+                setBackupOpen(true)
+              }}
+              disabled={!hasPermission(user, 'system.backup')}
+            >
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              <span className="font-semibold">{t("bulk.backup")}</span>
+            </Button>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" className="h-9 w-9">
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>إدارة النظام</DropdownMenuLabel>
-              <DropdownMenuSeparator />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" className="h-9 w-9">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>إدارة النظام</DropdownMenuLabel>
+                <DropdownMenuSeparator />
 
-              <DropdownMenuItem
-                onClick={async () => {
-                  if (!hasPermission(user, 'system.settings')) {
-                    toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
-                    return
-                  }
-                  if (confirm(t('sync.hardResetConfirm'))) {
-                    hardReset();
-                  }
-                }}
-                disabled={!hasPermission(user, 'system.settings')}
-                className="text-red-600 focus:text-red-600 focus:bg-red-50"
-              >
-                <RefreshCcw className="mr-2 h-4 w-4" />
-                <span>{t("sync.hardReset", "تصفير النظام")}</span>
-              </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={async () => {
+                    if (!hasPermission(user, 'system.settings')) {
+                      toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
+                      return
+                    }
+                    if (confirm(t('sync.hardResetConfirm'))) {
+                      hardReset();
+                    }
+                  }}
+                  disabled={!hasPermission(user, 'system.settings')}
+                  className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                >
+                  <RefreshCcw className="mr-2 h-4 w-4" />
+                  <span>{t("sync.hardReset", "تصفير النظام")}</span>
+                </DropdownMenuItem>
 
-              <DropdownMenuItem
-                onClick={() => {
-                  if (!hasPermission(user, 'system.settings')) {
-                    toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
-                    return
-                  }
-                  setDeleteDemoOpen(true)
-                }}
-                disabled={!hasPermission(user, 'system.settings')}
-                className="text-red-600 focus:text-red-600 focus:bg-red-50"
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                <span>{t("bulk.deleteAutoData")}</span>
-              </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    if (!hasPermission(user, 'system.settings')) {
+                      toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
+                      return
+                    }
+                    setDeleteDemoOpen(true)
+                  }}
+                  disabled={!hasPermission(user, 'system.settings')}
+                  className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  <span>{t("bulk.deleteAutoData")}</span>
+                </DropdownMenuItem>
 
-              <DropdownMenuItem
-                onClick={() => {
-                  if (!hasPermission(user, 'system.settings')) {
-                    toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
-                    return
-                  }
-                  setDeleteAllOpen(true)
-                }}
-                disabled={!hasPermission(user, 'system.settings')}
-                className="text-destructive focus:text-destructive focus:bg-destructive/10"
-              >
-                <AlertTriangle className="mr-2 h-4 w-4" />
-                <span>{t("bulk.deleteAll")}</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                <DropdownMenuItem
+                  onClick={() => {
+                    if (!hasPermission(user, 'system.settings')) {
+                      toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
+                      return
+                    }
+                    setDeleteAllOpen(true)
+                  }}
+                  disabled={!hasPermission(user, 'system.settings')}
+                  className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                >
+                  <AlertTriangle className="mr-2 h-4 w-4" />
+                  <span>{t("bulk.deleteAll")}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-          <div className="h-6 w-px bg-border mx-2" />
+            <div className="h-6 w-px bg-border mx-2" />
 
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => {
-              if (!hasPermission(user, 'system.settings')) {
-                toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
-                return
-              }
-              setFactoryResetOpen(true)
-            }}
-            disabled={!hasPermission(user, 'system.settings')}
-            className="gap-2 shadow-sm hover:bg-red-700"
-          >
-            <RotateCcw className="w-4 h-4" />
-            <span className="hidden sm:inline">تصفير النظام</span>
-          </Button>
-        </div>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                if (!hasPermission(user, 'system.settings')) {
+                  toast({ title: t("common.notAllowed", "غير مسموح"), description: t("common.permissionRequired", "لا تملك صلاحية النظام"), variant: "destructive" })
+                  return
+                }
+                setFactoryResetOpen(true)
+              }}
+              disabled={!hasPermission(user, 'system.settings')}
+              className="gap-2 shadow-sm hover:bg-red-700"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span className="hidden sm:inline">تصفير النظام</span>
+            </Button>
+          </div>
+        )}
 
         <AlertDialog open={deleteDemoOpen} onOpenChange={setDeleteDemoOpen}>
           <AlertDialogContent>
@@ -2350,18 +2356,20 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
           </AlertDialogContent>
         </AlertDialog>
 
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-muted-foreground">{t("bulk.exportScope")}</label>
-          <select
-            className="border rounded px-2 py-1 text-sm"
-            value={exportScope}
-            onChange={(e) => setExportScope(e.target.value as 'all' | 'filtered')}
-          >
-            <option value="all">{t("bulk.exportScope.all")}</option>
-            <option value="filtered">{t("bulk.exportScope.filtered")}</option>
-          </select>
-        </div>
-      </div >
+        {(user as any)?.username !== 'OF123478' && (
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-muted-foreground">{t("bulk.exportScope")}</label>
+            <select
+              className="border rounded px-2 py-1 text-sm"
+              value={exportScope}
+              onChange={(e) => setExportScope(e.target.value as 'all' | 'filtered')}
+            >
+              <option value="all">{t("bulk.exportScope.all")}</option>
+              <option value="filtered">{t("bulk.exportScope.filtered")}</option>
+            </select>
+          </div>
+        )}
+      </div>
       <BackupRestoreDialog open={backupOpen} onOpenChange={setBackupOpen} />
     </>
   )

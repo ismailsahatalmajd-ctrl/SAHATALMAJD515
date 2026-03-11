@@ -50,6 +50,7 @@ import { useAuth } from "@/components/auth-provider"
 import { hasPermission } from "@/lib/auth-utils"
 import { TABLE_VIEW_MODES, type TableViewMode, getColumnsForView, calculateTurnoverRate, getStockStatus as getTableStockStatus } from "@/lib/table-view-modes"
 import { LowStockSettingsDialog } from "./low-stock-settings-dialog"
+import { useGranularPermissions } from "@/hooks/use-granular-permissions"
 
 const THRESHOLDS_KEY = 'turnover-thresholds'
 
@@ -106,12 +107,13 @@ export function ProductsTable({
 }: ProductsTableProps) {
   const { t } = useI18n()
   const { user } = useAuth()
+  const { shouldShow } = useGranularPermissions()
   const isRTL = t("common.dir") === "rtl"
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null)
-  const [sortColumn, setSortColumn] = useState<SortColumn>("turnoverRate")
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
+  const [sortColumn, setSortColumn] = useState<SortColumn>("itemNumber")
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc")
   const [imageUploadId, setImageUploadId] = useState<string | null>(null)
   const [uploadingImageId, setUploadingImageId] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState<number>(0)
@@ -439,7 +441,7 @@ export function ProductsTable({
     cartonDimensions: false,
     openingStock: true,
     purchases: true,
-    returns: true,
+    returns: false,
     issues: true,
     inventoryCount: true,
     currentStock: true,
@@ -448,14 +450,14 @@ export function ProductsTable({
     averagePrice: true,
     currentStockValue: true,
     issuesValue: true,
-    feedIssuesValue: true, // If feed exists? No, keep standard
-    purchasesValue: true,
-    returnsValue: true,
+    feedIssuesValue: false,
+    purchasesValue: false,
+    returnsValue: false,
     turnoverRate: true,
     status: true,
-    stockStatus: true,
-    minStockLimit: true, // Needed for 'All' view
-    lastActivity: true,
+    stockStatus: false,
+    minStockLimit: false,
+    lastActivity: false,
   })
   const [columnsLoaded, setColumnsLoaded] = useState(false)
   const [showLowStockSettings, setShowLowStockSettings] = useState(false)
@@ -1029,105 +1031,111 @@ export function ProductsTable({
               <Filter className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">{t("common.filter")}</span>
             </div>
-            <Input
-              className="w-[150px] sm:w-[200px] h-8"
-              placeholder={t("products.search.placeholder")}
-              value={internalSearchTerm}
-              onChange={handleSearchChange}
-            />
-            <Select value={turnoverFilter} onValueChange={(v: any) => setTurnoverFilter(v)}>
-              <SelectTrigger className="w-full sm:w-[130px] h-8">
-                <SelectValue placeholder={t("products.turnover.filter.placeholder")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all"><DualText k="products.turnover.filter.all" /></SelectItem>
-                <SelectItem value="fast"><DualText k="products.turnover.filter.fast" /></SelectItem>
-                <SelectItem value="normal"><DualText k="products.turnover.filter.normal" /></SelectItem>
-                <SelectItem value="slow"><DualText k="products.turnover.filter.slow" /></SelectItem>
-                <SelectItem value="stagnant"><DualText k="products.turnover.filter.stagnant" /></SelectItem>
-                <SelectItem value="new"><DualText k="products.turnover.filter.new" /></SelectItem>
-              </SelectContent>
-            </Select>
-
-            {/* Moved Category Filter */}
-            {onCategoryChange && (
-              <Select value={selectedCategory} onValueChange={onCategoryChange}>
-                <SelectTrigger className="w-[130px] h-8">
-                  <Filter className="ml-2 h-3 w-3" />
-                  <SelectValue placeholder={t("common.category")} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all"><DualText k="branches.report.filters.allCategories" /></SelectItem>
-                  {categories.map((cat) => (
-                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            {shouldShow('inventoryPage.search') && (
+              <Input
+                className="w-[150px] sm:w-[200px] h-8"
+                placeholder={t("products.search.placeholder")}
+                value={internalSearchTerm}
+                onChange={handleSearchChange}
+              />
             )}
+            {shouldShow('inventoryPage.filters') && (
+              <>
+                <Select value={turnoverFilter} onValueChange={(v: any) => setTurnoverFilter(v)}>
+                  <SelectTrigger className="w-full sm:w-[130px] h-8">
+                    <SelectValue placeholder={t("products.turnover.filter.placeholder")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all"><DualText k="products.turnover.filter.all" /></SelectItem>
+                    <SelectItem value="fast"><DualText k="products.turnover.filter.fast" /></SelectItem>
+                    <SelectItem value="normal"><DualText k="products.turnover.filter.normal" /></SelectItem>
+                    <SelectItem value="slow"><DualText k="products.turnover.filter.slow" /></SelectItem>
+                    <SelectItem value="stagnant"><DualText k="products.turnover.filter.stagnant" /></SelectItem>
+                    <SelectItem value="new"><DualText k="products.turnover.filter.new" /></SelectItem>
+                  </SelectContent>
+                </Select>
 
-            {/* Stock Level Filter (New) */}
-            <Select value={stockLevelFilter} onValueChange={(v: any) => setStockLevelFilter(v)}>
-              <SelectTrigger className="w-[130px] h-8">
-                <Filter className="ml-2 h-3 w-3" />
-                <SelectValue placeholder={t("products.stockStatus.placeholder")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all"><DualText k="products.stockStatus.all" /></SelectItem>
-                <SelectItem value="available"><DualText k="products.stockStatus.available" /></SelectItem>
-                <SelectItem value="low"><DualText k="products.stockStatus.low" /></SelectItem>
-                <SelectItem value="out"><DualText k="products.stockStatus.out" /></SelectItem>
-              </SelectContent>
-            </Select>
+                {/* Moved Category Filter */}
+                {onCategoryChange && (
+                  <Select value={selectedCategory} onValueChange={onCategoryChange}>
+                    <SelectTrigger className="w-[130px] h-8">
+                      <Filter className="ml-2 h-3 w-3" />
+                      <SelectValue placeholder={t("common.category")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all"><DualText k="branches.report.filters.allCategories" /></SelectItem>
+                      {categories.map((cat) => (
+                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
 
-            {/* Moved Location Filter */}
-            {onLocationChange && (
-              <Select value={selectedLocation} onValueChange={onLocationChange}>
-                <SelectTrigger className="w-[130px] h-8">
-                  <Filter className="ml-2 h-3 w-3" />
-                  <SelectValue placeholder={t("common.location")} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all"><DualText k="reports.filters.allLocations" /></SelectItem>
-                  {locations.map((loc) => (
-                    <SelectItem key={loc} value={loc}>{loc}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                {/* Stock Level Filter (New) */}
+                <Select value={stockLevelFilter} onValueChange={(v: any) => setStockLevelFilter(v)}>
+                  <SelectTrigger className="w-[130px] h-8">
+                    <Filter className="ml-2 h-3 w-3" />
+                    <SelectValue placeholder={t("products.stockStatus.placeholder")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all"><DualText k="products.stockStatus.all" /></SelectItem>
+                    <SelectItem value="available"><DualText k="products.stockStatus.available" /></SelectItem>
+                    <SelectItem value="low"><DualText k="products.stockStatus.low" /></SelectItem>
+                    <SelectItem value="out"><DualText k="products.stockStatus.out" /></SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {/* Moved Location Filter */}
+                {onLocationChange && (
+                  <Select value={selectedLocation} onValueChange={onLocationChange}>
+                    <SelectTrigger className="w-[130px] h-8">
+                      <Filter className="ml-2 h-3 w-3" />
+                      <SelectValue placeholder={t("common.location")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all"><DualText k="reports.filters.allLocations" /></SelectItem>
+                      {locations.map((loc) => (
+                        <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+
+                {/* Reset Button */}
+                {(effectiveSearchTerm || turnoverFilter !== 'all' || stockLevelFilter !== 'all' || selectedCategory !== 'all' || selectedLocation !== 'all') && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2 lg:px-3"
+                    onClick={() => {
+                      if (onSearchChange) onSearchChange("")
+                      else setLocalSearchTerm("")
+                      setTurnoverFilter("all")
+                      setStockLevelFilter("all")
+                      if (onReset) onReset()
+                    }}
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    <span className="sr-only lg:not-sr-only"><DualText k="common.reset" /></span>
+                  </Button>
+                )}
+
+                {/* New Filters */}
+                <div className="flex items-center gap-4 px-2 bg-muted/20 p-1 rounded-md border">
+                  <div className="flex items-center gap-2">
+                    <Checkbox id="excludeZero" checked={excludeZeroStock} onCheckedChange={(c) => setExcludeZeroStock(!!c)} />
+                    <label htmlFor="excludeZero" className="text-sm cursor-pointer select-none"><DualText k="home.filters.excludeZero" /></label>
+                  </div>
+
+                  <div className="h-4 w-px bg-border" />
+
+                  <div className="flex items-center gap-2">
+                    <Checkbox id="mergeIdentical" checked={mergeIdentical} onCheckedChange={(c) => setMergeIdentical(!!c)} />
+                    <label htmlFor="mergeIdentical" className="text-sm cursor-pointer select-none"><DualText k="home.filters.mergeDuplicates" /></label>
+                  </div>
+                </div>
+              </>
             )}
-
-            {/* Reset Button */}
-            {(effectiveSearchTerm || turnoverFilter !== 'all' || stockLevelFilter !== 'all' || selectedCategory !== 'all' || selectedLocation !== 'all') && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 px-2 lg:px-3"
-                onClick={() => {
-                  if (onSearchChange) onSearchChange("")
-                  else setLocalSearchTerm("")
-                  setTurnoverFilter("all")
-                  setStockLevelFilter("all")
-                  if (onReset) onReset()
-                }}
-              >
-                <RotateCcw className="mr-2 h-4 w-4" />
-                <span className="sr-only lg:not-sr-only"><DualText k="common.reset" /></span>
-              </Button>
-            )}
-
-            {/* New Filters */}
-            <div className="flex items-center gap-4 px-2 bg-muted/20 p-1 rounded-md border">
-              <div className="flex items-center gap-2">
-                <Checkbox id="excludeZero" checked={excludeZeroStock} onCheckedChange={(c) => setExcludeZeroStock(!!c)} />
-                <label htmlFor="excludeZero" className="text-sm cursor-pointer select-none"><DualText k="home.filters.excludeZero" /></label>
-              </div>
-
-              <div className="h-4 w-px bg-border" />
-
-              <div className="flex items-center gap-2">
-                <Checkbox id="mergeIdentical" checked={mergeIdentical} onCheckedChange={(c) => setMergeIdentical(!!c)} />
-                <label htmlFor="mergeIdentical" className="text-sm cursor-pointer select-none"><DualText k="home.filters.mergeDuplicates" /></label>
-              </div>
-            </div>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1149,7 +1157,7 @@ export function ProductsTable({
             </DropdownMenu>
             <Button variant="outline" size="sm" onClick={showAllColumns}><DualText k="common.showAll" /></Button>
             <Button variant="ghost" size="sm" onClick={hideAllColumns}><DualText k="common.hideAll" /></Button>
-            {selectedIds.size > 0 && (
+            {selectedIds.size > 0 && shouldShow('inventoryPage.bulkOperations') && (
               <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
                 <Button
                   variant="default"
@@ -1244,7 +1252,7 @@ export function ProductsTable({
 
             {/* Bulk Delete Button */}
             {
-              selectedIds.size > 0 && (
+              selectedIds.size > 0 && shouldShow('inventoryPage.bulkOperations') && (
                 <Button
                   variant="destructive"
                   size="sm"
@@ -1257,32 +1265,40 @@ export function ProductsTable({
               )
             }
 
-            <Button variant="outline" size="sm" onClick={exportExcel} disabled={
-              exportMode === 'filtered' ? sortedProducts.length === 0 :
-                (exportMode === 'selected' ? selectedIds.size === 0 : products.length === 0)
-            }>
-              <Download className="ml-2 h-4 w-4" />
-              <DualText k="products.export.excel" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={exportDimensionsCSV} disabled={
-              exportMode === 'filtered' ? sortedProducts.length === 0 :
-                (exportMode === 'selected' ? selectedIds.size === 0 : products.length === 0)
-            }>
-              <Download className="ml-2 h-4 w-4" />
-              <DualText k="products.export.dimensionsCsv" />
-            </Button>
-            <Button variant="outline" size="sm" className="h-8 gap-1" onClick={() => setShowLowStockSettings(true)} disabled={!hasPermission(user, 'system.settings')}>
-              <Settings2 className="h-3.5 w-3.5" />
-              <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
-                Low Stock / تنبيهات المخزون
-              </span>
-            </Button>
-            <Button variant="outline" size="sm" className="h-8 gap-1" onClick={() => setShowTurnoverSettings(true)} disabled={!hasPermission(user, 'system.settings')}>
-              <Settings2 className="h-3.5 w-3.5" />
-              <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
-                Turnover / معدل الدوران
-              </span>
-            </Button>
+            {shouldShow('inventoryPage.tableActions.exportExcel') && (
+              <Button variant="outline" size="sm" onClick={exportExcel} disabled={
+                exportMode === 'filtered' ? sortedProducts.length === 0 :
+                  (exportMode === 'selected' ? selectedIds.size === 0 : products.length === 0)
+              }>
+                <Download className="ml-2 h-4 w-4" />
+                <DualText k="products.export.excel" />
+              </Button>
+            )}
+            {shouldShow('inventoryPage.tableActions.exportExcel') && (
+              <Button variant="outline" size="sm" onClick={exportDimensionsCSV} disabled={
+                exportMode === 'filtered' ? sortedProducts.length === 0 :
+                  (exportMode === 'selected' ? selectedIds.size === 0 : products.length === 0)
+              }>
+                <Download className="ml-2 h-4 w-4" />
+                <DualText k="products.export.dimensionsCsv" />
+              </Button>
+            )}
+            {shouldShow('inventoryPage.quickSettings') && (
+              <Button variant="outline" size="sm" className="h-8 gap-1" onClick={() => setShowLowStockSettings(true)} disabled={!hasPermission(user, 'system.settings')}>
+                <Settings2 className="h-3.5 w-3.5" />
+                <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
+                  Low Stock / تنبيهات المخزون
+                </span>
+              </Button>
+            )}
+            {shouldShow('inventoryPage.quickSettings') && (
+              <Button variant="outline" size="sm" className="h-8 gap-1" onClick={() => setShowTurnoverSettings(true)} disabled={!hasPermission(user, 'system.settings')}>
+                <Settings2 className="h-3.5 w-3.5" />
+                <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
+                  Turnover / معدل الدوران
+                </span>
+              </Button>
+            )}
           </div >
         </div >
 
@@ -1305,8 +1321,9 @@ export function ProductsTable({
                 {(() => {
                   const viewColumns = getColumnsForView(viewMode)
                   return Object.keys(visibleColumns).map(key => {
-                    if (viewMode !== 'default' && !viewColumns.includes(key)) return null
-                    if (viewMode === 'default' && !(visibleColumns as any)[key]) return null
+                    if (!viewColumns.includes(key)) return null
+                    if (!(visibleColumns as any)[key]) return null
+                    if (!shouldShow(`inventoryPage.columns.${key}`)) return null
 
                     const width = columnWidths[key]
                     return (
@@ -1331,8 +1348,9 @@ export function ProductsTable({
                     )
                   })
                 })()}
-                <th className={`text-center p-2 border bg-card whitespace-nowrap sticky z-40 ${isRTL ? "left-0 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]" : "right-0 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]"}`}>{t("products.columns.actions")}</th>
-              </tr >
+                {hasPermission(user, 'inventory.edit') && shouldShow('inventoryPage.columns.actions') && (
+                  <th className={`text-center p-2 border bg-card whitespace-nowrap sticky z-40 ${isRTL ? "left-0 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]" : "right-0 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]"}`}>{t("products.columns.actions")}</th>
+                )}              </tr >
             </thead >
             <tbody className="text-sm">
               {sortedProducts.length === 0 ? (
@@ -1384,10 +1402,9 @@ export function ProductsTable({
 
                             // Let's check if this key is in the viewColumns
                             // If viewMode is NOT default, strict filtering.
-                            if (viewMode !== 'default' && !viewColumns.includes(key)) return null
-
-                            // If viewMode is default, we use the visibleColumns toggles (which users might have tweaked)
-                            if (viewMode === 'default' && !(visibleColumns as any)[key]) return null
+                            if (!viewColumns.includes(key)) return null
+                            if (!(visibleColumns as any)[key]) return null
+                            if (!shouldShow(`inventoryPage.columns.${key}`)) return null
 
                             // For non-default views, we might still want to respect if a column is technically "available"
                             // But simplified: Just check if key is in viewColumns.
@@ -1608,16 +1625,18 @@ export function ProductsTable({
                               </td>
                             )
                           })}
-                          <td className={`p-2 text-center border align-middle sticky bg-inherit z-10 ${isRTL ? "left-0 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]" : "right-0 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]"}`}>
-                            <div className="flex items-center gap-1 justify-center">
-                              <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-blue-50 hover:text-blue-600" onClick={() => onEdit(product)} disabled={!hasPermission(user, 'inventory.edit')}>
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-red-50 hover:text-red-600" onClick={() => setDeleteId(product.id)} disabled={!hasPermission(user, 'inventory.delete')}>
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </td>
+                          {shouldShow('inventoryPage.columns.actions') && (
+                            <td className={`p-2 text-center border align-middle sticky bg-inherit z-10 ${isRTL ? "left-0 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]" : "right-0 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]"}`}>
+                                <div className="flex items-center gap-1 justify-center">
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-blue-50 hover:text-blue-600" onClick={() => onEdit(product)} disabled={!hasPermission(user, 'inventory.edit')}>
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-red-50 hover:text-red-600" onClick={() => setDeleteId(product.id)} disabled={!hasPermission(user, 'inventory.delete')}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                            </td>
+                          )}
                         </tr>
                       )
                     })}
@@ -1635,7 +1654,7 @@ export function ProductsTable({
         </div >
       </div >
 
-      {(() => {
+      {shouldShow('inventoryPage.statsCards') && (() => {
         const totalFiltered = filteredProducts.length
         const statusKeys: Array<"fast" | "normal" | "slow" | "stagnant" | "new"> = ["fast", "normal", "slow", "stagnant", "new"]
         const statusMeta: Record<string, { titleKey: string; bg: string; border: string; text: string; hintKey: string }> = {

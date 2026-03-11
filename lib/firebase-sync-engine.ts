@@ -166,8 +166,15 @@ export const COLLECTIONS = {
     EMPLOYEES: 'employees',
     OVERTIME_REASONS: 'overtimeReasons',
     OVERTIME_ENTRIES: 'overtimeEntries',
-    ABSENCE_RECORDS: 'absenceRecords'
+    ABSENCE_RECORDS: 'absenceRecords',
+    GRANULAR_PERMISSIONS: 'granularPermissions'
 };
+
+const notifyGranularUpdate = (userId: string) => {
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('granular_permissions_updated', { detail: { userId } }));
+    }
+}
 
 let unsubscribers: Function[] = [];
 let isSyncing = false;
@@ -200,6 +207,10 @@ const syncCollection = (
                     const record = { ...data, id: localId };
                     await localTable.put(record);
                     updateStoreCache(collectionName, record);
+                    
+                    if (collectionName === "granularPermissions") {
+                        notifyGranularUpdate(localId);
+                    }
                 }
                 if (change.type === "removed") {
                     await localTable.delete(localId);
@@ -254,6 +265,7 @@ export const startRealtimeSync = () => {
         unsubscribers.push(syncCollection(COLLECTIONS.OVERTIME_REASONS, localDb.overtimeReasons, "overtime_reasons_change" as any));
         unsubscribers.push(syncCollection(COLLECTIONS.OVERTIME_ENTRIES, localDb.overtimeEntries, "overtime_entries_change" as any));
         unsubscribers.push(syncCollection(COLLECTIONS.ABSENCE_RECORDS, localDb.absenceRecords as any, "absence_records_change" as any));
+        unsubscribers.push(syncCollection(COLLECTIONS.GRANULAR_PERMISSIONS, localDb.userPreferences as any, "granular_permissions_updated"));
 
         // --- 2. Fetch-once Collections (Optimization: only on startup) ---
         // These don't change often enough to warrant a constant background CPU connection

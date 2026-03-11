@@ -63,6 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                             const fullProfile: UserProfile = {
                                 uid: firebaseUser.uid,
                                 email: firebaseUser.email || "",
+                                username: firestoreData.username || undefined,
                                 displayName: firestoreData.displayName || firebaseUser.displayName || "User",
                                 photoURL: firebaseUser.photoURL || undefined,
                                 role: firestoreData.role || 'staff',

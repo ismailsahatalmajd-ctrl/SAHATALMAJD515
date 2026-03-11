@@ -30,6 +30,7 @@ import { ProductCodingSettings } from "@/components/product-coding-settings"
 import { BarcodeSettingsTab } from "@/components/barcode-settings-tab"
 import { updateSettings as updateGlobalSettings, getSettings as getGlobalSettings } from "@/lib/settings-store"
 import { Protect } from "@/components/protect"
+import { GranularUserControls } from "@/components/granular-user-controls"
 
 export default function SettingsPage() {
   const { lang } = useI18n()
@@ -515,6 +516,7 @@ export default function SettingsPage() {
               <TabsTrigger value="devices">الأجهزة</TabsTrigger>
               <TabsTrigger value="barcode">الباركود</TabsTrigger>
               <TabsTrigger value="sync">الربط السحابي</TabsTrigger>
+              <TabsTrigger value="granular">تحكم المستخدم المقيد</TabsTrigger>
             </TabsList>
           </div>
 
@@ -642,6 +644,10 @@ export default function SettingsPage() {
                 <ConflictsManager />
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="granular">
+            <GranularUserControls />
           </TabsContent>
 
           <TabsContent value="devices">

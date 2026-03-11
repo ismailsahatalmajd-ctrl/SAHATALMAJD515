@@ -167,7 +167,7 @@ export interface Branch {
 // Auth & Permissions Types
 // ============================================
 
-export type UserRole = 'owner' | 'manager' | 'supervisor' | 'staff' | 'view_only' | 'custom';
+export type UserRole = 'owner' | 'manager' | 'supervisor' | 'staff' | 'view_only' | 'custom' | 'admin' | 'branch';
 
 export interface Permissions {
   // Inventory

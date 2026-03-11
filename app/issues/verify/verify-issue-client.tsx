@@ -26,6 +26,7 @@ import type { Issue, VerificationItem } from "@/lib/types"
 import { getNumericInvoiceNumber, getSafeImageSrc } from "@/lib/utils"
 import { DualText } from "@/components/ui/dual-text"
 import { useI18n } from "@/components/language-provider"
+import { useGranularPermissions } from "@/hooks/use-granular-permissions"
 
 import { ProductImage } from "@/components/product-image"
 
@@ -34,6 +35,7 @@ export default function VerifyIssueClient() {
   const searchParams = useSearchParams()
   const { toast } = useToast()
   const { t, lang } = useI18n()
+  const { shouldShow } = useGranularPermissions()
   const [issue, setIssue] = useState<Issue | null>(null)
   const [scannedItems, setScannedItems] = useState<Map<string, number>>(new Map())
   const [inputCode, setInputCode] = useState("")
@@ -175,9 +177,11 @@ export default function VerifyIssueClient() {
       <div className="container mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => router.back()}>
-              <ArrowLeft className={`h-6 w-6 ${lang === 'ar' ? 'rotate-180' : ''}`} />
-            </Button>
+            {shouldShow('global.backButton') && (
+              <Button variant="ghost" size="icon" onClick={() => router.back()}>
+                <ArrowLeft className={`h-6 w-6 ${lang === 'ar' ? 'rotate-180' : ''}`} />
+              </Button>
+            )}
             <div>
               <h1 className="text-2xl font-bold flex items-center gap-2">
                 <DualText k="issues.verify.title" />

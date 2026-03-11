@@ -27,12 +27,14 @@ import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { useAuth } from "@/components/auth-provider"
+import { useGranularPermissions } from "@/hooks/use-granular-permissions"
 
 export default function DashboardPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const settings = useInvoiceSettings()
   const { user, loading: authLoading, logout } = useAuth()
+  const { shouldShow } = useGranularPermissions()
 
   const [branchId, setBranchId] = useState<string>("")
   const [mounted, setMounted] = useState(false)
@@ -163,7 +165,7 @@ export default function DashboardPage() {
   async function confirmIssue(id: string) {
     if (!confirm("Confirm receipt? / هل أنت متأكد من استلام هذه الشحنة؟")) return
 
-    const updated = setIssueDelivered(id, "branch")
+    const updated = await setIssueDelivered(id, "branch")
     if (updated) {
       toast({ title: "Receipt Confirmed / تم تأكيد الاستلام", description: "Status updated successfully / تم تحديث حالة الشحنة بنجاح" })
       setLastUpdate(Date.now())
@@ -329,24 +331,28 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader><CardTitle>Branch Info / معلومات الفرع</CardTitle></CardHeader>
-          <CardContent className="text-sm space-y-1">
-            <div>ID / المعرف: {branch.id}</div>
-            <div>Name / الاسم: {branch.name}</div>
-            {branch.address && <div>Address / العنوان: {branch.address}</div>}
-            {branch.phone && <div>Phone / الهاتف: {branch.phone}</div>}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle>Statistics / إحصائيات</CardTitle></CardHeader>
-          <CardContent className="text-sm grid grid-cols-2 gap-3">
-            <div>Requests / طلبات: {requests.length}</div>
-            <div>Issues / صرفيات: {issues.length}</div>
-            <div>Invoices / فواتير: {invoices.length}</div>
-            <div>Available Products / منتجات متاحة: {products.length}</div>
-          </CardContent>
-        </Card>
+        {shouldShow('dashboardPage.info') && (
+          <Card>
+            <CardHeader><CardTitle>Branch Info / معلومات الفرع</CardTitle></CardHeader>
+            <CardContent className="text-sm space-y-1">
+              <div>ID / المعرف: {branch.id}</div>
+              <div>Name / الاسم: {branch.name}</div>
+              {branch.address && <div>Address / العنوان: {branch.address}</div>}
+              {branch.phone && <div>Phone / الهاتف: {branch.phone}</div>}
+            </CardContent>
+          </Card>
+        )}
+        {shouldShow('dashboardPage.stats') && (
+          <Card>
+            <CardHeader><CardTitle>Statistics / إحصائيات</CardTitle></CardHeader>
+            <CardContent className="text-sm grid grid-cols-2 gap-3">
+              <div>Requests / طلبات: {requests.length}</div>
+              <div>Issues / صرفيات: {issues.length}</div>
+              <div>Invoices / فواتير: {invoices.length}</div>
+              <div>Available Products / منتجات متاحة: {products.length}</div>
+            </CardContent>
+          </Card>
+        )}
         <Card>
           <CardHeader><CardTitle>Custom Lists / قوائم مخصصة</CardTitle></CardHeader>
           <CardContent className="text-sm">Custom lists and settings can be configured here. / يمكن تخصيص قوائم وإعدادات خاصة لكل فرع هنا.</CardContent>
@@ -358,8 +364,8 @@ export default function DashboardPage() {
         <CardContent className="space-y-4">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="invoice">Order System / نظام الطلبات</TabsTrigger>
-              <TabsTrigger value="request">Return System / نظام المرتجعات</TabsTrigger>
+              {shouldShow('dashboardPage.orderSystem') && <TabsTrigger value="invoice">Order System / نظام الطلبات</TabsTrigger>}
+              {shouldShow('dashboardPage.returnSystem') && <TabsTrigger value="request">Return System / نظام المرتجعات</TabsTrigger>}
             </TabsList>
 
             <div className="mt-4 space-y-4">
@@ -398,11 +404,13 @@ export default function DashboardPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex justify-end">
-                  <Button variant="default" className="px-4" onClick={() => document.getElementById("branch-cart")?.scrollIntoView({ behavior: "smooth" })}>
-                    <ShoppingCart className="w-4 h-4 ml-2" /> Cart / السلة <span className="ml-2 rounded bg-blue-600 text-white px-2">{cart.length}</span>
-                  </Button>
-                </div>
+                {shouldShow('dashboardPage.cart') && (
+                  <div className="flex justify-end">
+                    <Button variant="default" className="px-4" onClick={() => document.getElementById("branch-cart")?.scrollIntoView({ behavior: "smooth" })}>
+                      <ShoppingCart className="w-4 h-4 ml-2" /> Cart / السلة <span className="ml-2 rounded bg-blue-600 text-white px-2">{cart.length}</span>
+                    </Button>
+                  </div>
+                )}
               </div>
 
               <div className="overflow-auto border rounded max-h-[300px]">
@@ -432,172 +440,178 @@ export default function DashboardPage() {
                 </Table>
               </div>
 
-              <div id="branch-cart" className="border p-4 rounded bg-slate-50">
-                <h2 className="text-base font-semibold mb-2">{activeTab === 'request' ? (requestType === 'return' ? 'Return Cart / سلة المرتجع' : 'Order Cart / سلة الطلب') : 'Order Cart / سلة الطلب'}</h2>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name / الاسم</TableHead>
-                      <TableHead>Code / الكود</TableHead>
-                      <TableHead>Image / الصورة</TableHead>
-                      {settings.showUnit && <TableHead>Unit / الوحدة</TableHead>}
-                      <TableHead>Quantity / الكمية</TableHead>
-                      {activeTab === 'request' && requestType === 'return' && <TableHead>Return Reason / سبب الارجاع</TableHead>}
-                      <TableHead>Delete / حذف</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {cart.map((it, idx) => (
-                      <TableRow key={it.productId + String(idx)}>
-                        <TableCell>{it.productName}</TableCell>
-                        <TableCell>{it.productCode || "-"}</TableCell>
-                        <TableCell>{it.image ? <img src={it.image} alt={it.productName} className="w-10 h-10 object-cover" /> : "-"}</TableCell>
-                        {settings.showUnit && <TableCell>{it.unit || "-"}</TableCell>}
-                        <TableCell>
-                          <Input type="number" value={it.quantity} onChange={(e) => updateQty(idx, Number(e.target.value))} className="w-24" />
-                        </TableCell>
-                        {activeTab === 'request' && requestType === 'return' && (
-                          <TableCell>
-                            <Input
-                              placeholder="Reason... / السبب..."
-                              value={it.returnReason || ""}
-                              onChange={(e) => updateReturnReason(idx, e.target.value)}
-                              className="w-40"
-                            />
-                          </TableCell>
-                        )}
-                        <TableCell>
-                          <Button variant="destructive" size="sm" onClick={() => removeItem(idx)}>Delete / حذف</Button>
-                        </TableCell>
+              {shouldShow('dashboardPage.cart') && (
+                <div id="branch-cart" className="border p-4 rounded bg-slate-50">
+                  <h2 className="text-base font-semibold mb-2">{activeTab === 'request' ? (requestType === 'return' ? 'Return Cart / سلة المرتجع' : 'Order Cart / سلة الطلب') : 'Order Cart / سلة الطلب'}</h2>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name / الاسم</TableHead>
+                        <TableHead>Code / الكود</TableHead>
+                        <TableHead>Image / الصورة</TableHead>
+                        {settings.showUnit && <TableHead>Unit / الوحدة</TableHead>}
+                        <TableHead>Quantity / الكمية</TableHead>
+                        {activeTab === 'request' && requestType === 'return' && <TableHead>Return Reason / سبب الارجاع</TableHead>}
+                        <TableHead>Delete / حذف</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {cart.map((it, idx) => (
+                        <TableRow key={it.productId + String(idx)}>
+                          <TableCell>{it.productName}</TableCell>
+                          <TableCell>{it.productCode || "-"}</TableCell>
+                          <TableCell>{it.image ? <img src={it.image} alt={it.productName} className="w-10 h-10 object-cover" /> : "-"}</TableCell>
+                          {settings.showUnit && <TableCell>{it.unit || "-"}</TableCell>}
+                          <TableCell>
+                            <Input type="number" value={it.quantity} onChange={(e) => updateQty(idx, Number(e.target.value))} className="w-24" />
+                          </TableCell>
+                          {activeTab === 'request' && requestType === 'return' && (
+                            <TableCell>
+                              <Input
+                                placeholder="Reason... / السبب..."
+                                value={it.returnReason || ""}
+                                onChange={(e) => updateReturnReason(idx, e.target.value)}
+                                className="w-40"
+                              />
+                            </TableCell>
+                          )}
+                          <TableCell>
+                            <Button variant="destructive" size="sm" onClick={() => removeItem(idx)}>Delete / حذف</Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
 
-                <div className="mt-4 pt-4 border-t">
-                  <TabsContent value="invoice">
-                    <div className="flex justify-between items-center">
-                      <Button onClick={submitInvoice}>Create Invoice / إنشاء فاتورة</Button>
-                    </div>
-                  </TabsContent>
-                  <TabsContent value="request">
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <Label>Request Type / نوع الطلب</Label>
-                          <Select value={requestType} onValueChange={(v: any) => setRequestType(v)}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="return">Return Request (to Warehouse) / طلب مرتجع (إلى المستودع)</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <Label>Notes / ملاحظات</Label>
-                          <Textarea value={requestNotes} onChange={e => setRequestNotes(e.target.value)} placeholder="Additional Notes... / ملاحظات إضافية..." />
-                        </div>
+                  <div className="mt-4 pt-4 border-t">
+                    <TabsContent value="invoice">
+                      <div className="flex justify-between items-center">
+                        <Button onClick={submitInvoice}>Create Invoice / إنشاء فاتورة</Button>
                       </div>
-                      <Button onClick={submitRequest} className="w-full">Submit Request / إرسال الطلب</Button>
-                    </div>
-                  </TabsContent>
+                    </TabsContent>
+                    <TabsContent value="request">
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <Label>Request Type / نوع الطلب</Label>
+                            <Select value={requestType} onValueChange={(v: any) => setRequestType(v)}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="return">Return Request (to Warehouse) / طلب مرتجع (إلى المستودع)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label>Notes / ملاحظات</Label>
+                            <Textarea value={requestNotes} onChange={e => setRequestNotes(e.target.value)} placeholder="Additional Notes... / ملاحظات إضافية..." />
+                          </div>
+                        </div>
+                        <Button onClick={submitRequest} className="w-full">Submit Request / إرسال الطلب</Button>
+                      </div>
+                    </TabsContent>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </Tabs>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="flex flex-row justify-between items-center">
-          <CardTitle>Tracking & Logs / المتابعة والسجلات</CardTitle>
-          <Button variant="ghost" size="sm" onClick={handleFactoryResetBranchRequests} className="text-red-500 hover:text-red-700 hover:bg-red-50">
-            <LogOut className="w-4 h-4 ml-2" /> Clear History / حذف السجل
-          </Button>
-        </CardHeader>
-        <CardContent>
-          <Tabs defaultValue="requests">
-            <TabsList>
-              <TabsTrigger value="requests">My Requests / طلباتي</TabsTrigger>
-              <TabsTrigger value="incoming">Incoming (For Receipt) / الوارد (للاستلام)</TabsTrigger>
-              <TabsTrigger value="invoices">Invoices Log / سجل الفواتير</TabsTrigger>
-            </TabsList>
-            <TabsContent value="requests" className="space-y-4 pt-4">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Request No / رقم الطلب</TableHead>
-                    <TableHead>Type / النوع</TableHead>
-                    <TableHead>Status / الحالة</TableHead>
-                    <TableHead>Date / التاريخ</TableHead>
-                    <TableHead>Notes / ملاحظات</TableHead>
-                    <TableHead>Print / طباعة</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {requests.length === 0 ? <TableRow><TableCell colSpan={6} className="text-center">No Requests / لا توجد طلبات</TableCell></TableRow> :
-                    requests.map(r => (
-                      <TableRow key={r.id}>
-                        <TableCell>{r.requestNumber || r.id.slice(0, 8)}</TableCell>
-                        <TableCell>
-                          <Badge variant={r.type === 'return' ? 'destructive' : 'default'}>
-                            {r.type === 'return' ? 'Return / مرتجع' : 'Supply / توريد'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={r.status === 'approved' ? 'default' : r.status === 'cancelled' ? 'destructive' : 'secondary'}>
-                            {r.status === 'submitted' ? 'Pending / قيد المراجعة' : r.status === 'approved' ? 'Approved / مقبول' : r.status === 'cancelled' ? 'Rejected / مرفوض' : r.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{new Date(r.createdAt).toLocaleDateString('ar-SA')}</TableCell>
-                        <TableCell>{r.notes}</TableCell>
-                        <TableCell>
-                          <Button size="icon" variant="ghost" onClick={() => generateBranchRequestPDF(r)}>
-                            <Printer className="w-4 h-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  }
-                </TableBody>
-              </Table>
-            </TabsContent>
-            <TabsContent value="incoming" className="space-y-4 pt-4">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Issue No / رقم الصرف</TableHead>
-                    <TableHead>Value / القيمة</TableHead>
-                    <TableHead>Status / الحالة</TableHead>
-                    <TableHead>Date / التاريخ</TableHead>
-                    <TableHead>Action / الإجراء</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {issues.filter(i => !i.delivered).length === 0 ? <TableRow><TableCell colSpan={5} className="text-center">No Pending Shipments / لا توجد شحنات معلقة</TableCell></TableRow> :
-                    issues.filter(i => !i.delivered).map(i => (
-                      <TableRow key={i.id}>
-                        <TableCell>{i.id.slice(0, 8)}</TableCell>
-                        <TableCell>{i.totalValue.toFixed(2)}</TableCell>
-                        <TableCell><Badge variant="outline">On the way / في الطريق</Badge></TableCell>
-                        <TableCell>{new Date(i.createdAt).toLocaleDateString('ar-SA')}</TableCell>
-                        <TableCell>
-                          <Button size="sm" onClick={() => confirmIssue(i.id)}>
-                            <CheckCircle className="w-4 h-4 ml-2" />
-                            Confirm Receipt / تأكيد الاستلام
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  }
-                </TableBody>
-              </Table>
-            </TabsContent>
-            <TabsContent value="invoices" className="pt-4">
-              <div className="text-muted-foreground">Issued Invoices Count: / عدد الفواتير المصدرة: {invoices.length}</div>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+      {shouldShow('dashboardPage.trackingLogs') && (
+        <Card>
+          <CardHeader className="flex flex-row justify-between items-center">
+            <CardTitle>Tracking & Logs / المتابعة والسجلات</CardTitle>
+            {shouldShow('dashboardPage.clearHistory') && (
+              <Button variant="ghost" size="sm" onClick={handleFactoryResetBranchRequests} className="text-red-500 hover:text-red-700 hover:bg-red-50">
+                <LogOut className="w-4 h-4 ml-2" /> Clear History / حذف السجل
+              </Button>
+            )}
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="requests">
+              <TabsList>
+                <TabsTrigger value="requests">My Requests / طلباتي</TabsTrigger>
+                <TabsTrigger value="incoming">Incoming (For Receipt) / الوارد (للاستلام)</TabsTrigger>
+                <TabsTrigger value="invoices">Invoices Log / سجل الفواتير</TabsTrigger>
+              </TabsList>
+              <TabsContent value="requests" className="space-y-4 pt-4">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Request No / رقم الطلب</TableHead>
+                      <TableHead>Type / النوع</TableHead>
+                      <TableHead>Status / الحالة</TableHead>
+                      <TableHead>Date / التاريخ</TableHead>
+                      <TableHead>Notes / ملاحظات</TableHead>
+                      <TableHead>Print / طباعة</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {requests.length === 0 ? <TableRow><TableCell colSpan={6} className="text-center">No Requests / لا توجد طلبات</TableCell></TableRow> :
+                      requests.map(r => (
+                        <TableRow key={r.id}>
+                          <TableCell>{r.requestNumber || r.id.slice(0, 8)}</TableCell>
+                          <TableCell>
+                            <Badge variant={r.type === 'return' ? 'destructive' : 'default'}>
+                              {r.type === 'return' ? 'Return / مرتجع' : 'Supply / توريد'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={r.status === 'approved' ? 'default' : r.status === 'cancelled' ? 'destructive' : 'secondary'}>
+                              {r.status === 'submitted' ? 'Pending / قيد المراجعة' : r.status === 'approved' ? 'Approved / مقبول' : r.status === 'cancelled' ? 'Rejected / مرفوض' : r.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{new Date(r.createdAt).toLocaleDateString('ar-SA')}</TableCell>
+                          <TableCell>{r.notes}</TableCell>
+                          <TableCell>
+                            <Button size="icon" variant="ghost" onClick={() => generateBranchRequestPDF(r)}>
+                              <Printer className="w-4 h-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    }
+                  </TableBody>
+                </Table>
+              </TabsContent>
+              <TabsContent value="incoming" className="space-y-4 pt-4">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Issue No / رقم الصرف</TableHead>
+                      <TableHead>Value / القيمة</TableHead>
+                      <TableHead>Status / الحالة</TableHead>
+                      <TableHead>Date / التاريخ</TableHead>
+                      <TableHead>Action / الإجراء</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {issues.filter(i => !i.delivered).length === 0 ? <TableRow><TableCell colSpan={5} className="text-center">No Pending Shipments / لا توجد شحنات معلقة</TableCell></TableRow> :
+                      issues.filter(i => !i.delivered).map(i => (
+                        <TableRow key={i.id}>
+                          <TableCell>{i.id.slice(0, 8)}</TableCell>
+                          <TableCell>{i.totalValue.toFixed(2)}</TableCell>
+                          <TableCell><Badge variant="outline">On the way / في الطريق</Badge></TableCell>
+                          <TableCell>{new Date(i.createdAt).toLocaleDateString('ar-SA')}</TableCell>
+                          <TableCell>
+                            <Button size="sm" onClick={() => confirmIssue(i.id)}>
+                              <CheckCircle className="w-4 h-4 ml-2" />
+                              Confirm Receipt / تأكيد الاستلام
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    }
+                  </TableBody>
+                </Table>
+              </TabsContent>
+              <TabsContent value="invoices" className="pt-4">
+                <div className="text-muted-foreground">Issued Invoices Count: / عدد الفواتير المصدرة: {invoices.length}</div>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

@@ -18,6 +18,7 @@ import { useRouter } from "next/navigation"
 import GlobalImageDropzone from "./global-image-dropzone"
 import { DualText } from "@/components/ui/dual-text"
 import { useAuth } from "@/components/auth-provider"
+import { useGranularPermissions } from "@/hooks/use-granular-permissions"
 
 import { canAccessPage } from "@/lib/auth-utils"
 
@@ -48,6 +49,8 @@ export function Header() {
 
   const router = useRouter()
 
+  const { shouldShow, isRestricted } = useGranularPermissions()
+
   useEffect(() => {
     if (user && (user as any).role === 'branch') {
       setSessionBranchId((user as any).branchId || "")
@@ -55,7 +58,7 @@ export function Header() {
   }, [user])
 
   const links = (() => {
-    // 1. Branch Role Restriction (Legacy but good to keep specific logic if needed)
+    // 1. Branch Role Restriction
     if ((user as any)?.role === 'branch') {
       const branchId = (user as any).branchId || sessionBranchId
       return [
@@ -63,11 +66,26 @@ export function Header() {
       ]
     }
 
-    // 2. Permission Based Filtering (New System)
-    // Filter allLinks based on canAccessPage
-    // We cast user to any for now to avoid strict type conflicts if User type isn't fully updated everywhere yet, 
-    // but canAccessPage handles the new UserProfile type.
-    return allLinks.filter(link => canAccessPage(user as any, link.href))
+    // 2. Permission Based + Granular Filtering
+    return allLinks.filter(link => {
+      // Basic page access
+      if (!canAccessPage(user as any, link.href)) return false
+
+      // Granular mapping
+      if (link.href === "/") return shouldShow('showPages.inventory')
+      if (link.href === "/purchases") return shouldShow('showPages.purchases')
+      if (link.href === "/issues") return shouldShow('showPages.issues')
+      if (link.href === "/returns") return shouldShow('showPages.returns')
+      if (link.href === "/reports") return shouldShow('showPages.reports')
+      if (link.href === "/branches") return shouldShow('showPages.branches')
+      if (link.href === "/history") return shouldShow('showPages.history')
+      if (link.href === "/scanner") return shouldShow('showPages.scanner')
+      if (link.href === "/label-designer") return shouldShow('showPages.labelDesigner')
+      if (link.href === "/employees") return shouldShow('showPages.employees')
+      if (link.href === "/dashboard") return shouldShow('showPages.dashboard')
+
+      return true
+    })
   })()
 
   const handleLogout = async () => {
@@ -145,10 +163,12 @@ export function Header() {
           {/* Desktop Navigation - Removed in favor of Sidebar */}
 
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => router.back()} aria-label={t("common.back")} title={t("common.back")}>
-              <ChevronLeft className="h-4 w-4 ml-2" /> <DualText k="common.back" />
-            </Button>
-            {pathname !== '/branch-requests' && (
+            {shouldShow('global.backButton') && (
+              <Button variant="outline" size="sm" onClick={() => router.back()} aria-label={t("common.back")} title={t("common.back")}>
+                <ChevronLeft className="h-4 w-4 ml-2" /> <DualText k="common.back" />
+              </Button>
+            )}
+            {pathname !== '/branch-requests' && !isRestricted && (
               <>
                 <SyncIndicator />
                 <NotificationsCenter />

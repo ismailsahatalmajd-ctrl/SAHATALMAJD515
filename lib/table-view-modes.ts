@@ -16,7 +16,13 @@ export const TABLE_VIEW_MODES: TableViewConfig[] = [
         label: 'Standard View',
         labelAr: 'العرض القياسي',
         icon: Star,
-        columns: ['image', 'productCode', 'productName', 'category', 'currentStock', 'price', 'averagePrice', 'location', 'unit', 'lastActivity', 'actions']
+        columns: [
+            'image', 'productCode', 'itemNumber', 'productName', 'category', 'location',
+            'unit', 'openingStock', 'purchases', 'issues',
+            'inventoryCount', 'currentStock', 'difference',
+            'price', 'averagePrice', 'currentStockValue', 'issuesValue', 'turnoverRate',
+            'status', 'actions'
+        ]
     },
     {
         id: 'quick',
@@ -30,7 +36,7 @@ export const TABLE_VIEW_MODES: TableViewConfig[] = [
         label: 'Financial View',
         labelAr: 'عرض مالي',
         icon: DollarSign,
-        columns: ['productName', 'currentStock', 'price', 'averagePrice', 'currentStockValue', 'purchasesValue', 'issuesValue', 'returnsValue', 'actions']
+        columns: ['productName', 'currentStock', 'price', 'averagePrice', 'currentStockValue', 'issuesValue', 'actions']
     },
     {
         id: 'inventory',

@@ -43,6 +43,7 @@ import { MonthlyClosingDialog } from "@/components/monthly-closing-dialog"
 import { TABLE_VIEW_MODES, type TableViewMode, calculateTurnoverRate, getStockStatus as getTableStockStatus } from "@/lib/table-view-modes"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { MobileProductCard } from "@/components/mobile-product-card"
+import { useGranularPermissions } from "@/hooks/use-granular-permissions"
 
 type StockStatus = "all" | "available" | "low" | "out"
 
@@ -120,16 +121,19 @@ const getStockStatus = (p: Product): StockStatus => {
 const mergeDuplicateProducts = (products: Product[]): Product[] => {
   const mergedMap = new Map<string, Product>()
   products.forEach(p => {
-    const key = p.productCode || p.itemNumber || p.id
+    const code = (p.productCode || "").trim()
+    const num = (p.itemNumber || "").trim()
+    const key = code || num || p.id
+
     if (mergedMap.has(key)) {
       const existing = mergedMap.get(key)!
       mergedMap.set(key, {
         ...existing,
-        currentStock: existing.currentStock + p.currentStock,
-        currentStockValue: existing.currentStockValue + p.currentStockValue,
-        purchases: existing.purchases + p.purchases,
-        issues: existing.issues + p.issues,
-        openingStock: existing.openingStock + p.openingStock,
+        currentStock: Number(existing.currentStock || 0) + Number(p.currentStock || 0),
+        currentStockValue: Number(existing.currentStockValue || 0) + Number(p.currentStockValue || 0),
+        purchases: Number(existing.purchases || 0) + Number(p.purchases || 0),
+        issues: Number(existing.issues || 0) + Number(p.issues || 0),
+        openingStock: Number(existing.openingStock || 0) + Number(p.openingStock || 0),
       })
     } else {
       mergedMap.set(key, { ...p })
@@ -144,6 +148,7 @@ export default function Home() {
   const { t } = useI18n()
   const { user } = useAuth()
   const isMobile = useIsMobile()
+  const { shouldShow } = useGranularPermissions()
 
   // PROTECT: Redirect Branch users to Branch Requests
   useEffect(() => {
@@ -1123,7 +1128,7 @@ export default function Home() {
           // Local DB Update
           await db.products.update(id, cleanUpdates as any);
           // Cache update (if storage handles it via notify, but here we trigger manually if needed)
-          // Actually storage.ts's updateProduct is meant for single ones. 
+          // Actually storage.ts's updateProduct is meant for single ones.
           // We can use saveProducts or similar if cache is shared.
           // For now, most of our app relies on the 'products_change' notify
         }
@@ -1218,323 +1223,334 @@ export default function Home() {
           <CounterToggle />
         </div>
         <div className="space-y-6">
-          {showCards && <StatsCards products={products} visible={visibleCards} />}
+          {showCards && shouldShow('inventoryPage.statsCards') && <StatsCards products={products} visible={visibleCards} />}
 
-          <div className="rounded-lg border bg-card p-4 space-y-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="relative min-w-[200px]" style={{ display: filterShowSearch ? undefined : 'none' }}>
-                <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder={t("home.search.placeholder")}
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pr-10 h-9"
-                />
-              </div>
+          {(shouldShow('inventoryPage.search') || shouldShow('inventoryPage.filters') || shouldShow('inventoryPage.bulkOperations') || shouldShow('inventoryPage.quickSettings') || shouldShow('inventoryPage.addProduct')) && (
+            <div className="rounded-lg border bg-card p-4 space-y-4">
+              <div className="flex flex-wrap items-center gap-3">
+                {shouldShow('inventoryPage.search') && (
+                  <div className="relative min-w-[200px]" style={{ display: filterShowSearch ? undefined : 'none' }}>
+                    <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      placeholder={t("home.search.placeholder")}
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pr-10 h-9"
+                    />
+                  </div>
+                )}
 
-              {/* Filters moved to Products Table */}
+                {/* Filters moved to Products Table */}
 
-              <div className="flex items-center gap-4 border-l pl-4 ml-2" style={{ display: (filterShowMergeDup || filterShowExcludeZero) ? undefined : 'none' }}>
-                <div className="flex items-center gap-2" style={{ display: filterShowMergeDup ? undefined : 'none' }}>
-                  <Checkbox
-                    id="merge-duplicates"
-                    checked={mergeDuplicates}
-                    onCheckedChange={(checked) => setMergeDuplicates(checked as boolean)}
-                  />
-                  <Label htmlFor="merge-duplicates" className="text-sm font-medium cursor-pointer">
-                    <DualText k="home.filters.mergeDuplicates" />
-                  </Label>
-                </div>
-                <div className="flex items-center gap-2" style={{ display: filterShowExcludeZero ? undefined : 'none' }}>
-                  <Checkbox
-                    id="exclude-zero"
-                    checked={excludeZeroStock}
-                    onCheckedChange={(checked) => setExcludeZeroStock(checked as boolean)}
-                  />
-                  <Label htmlFor="exclude-zero" className="text-sm font-medium cursor-pointer">
-                    <DualText k="home.filters.excludeZero" />
-                  </Label>
-                </div>
-              </div>
+                {shouldShow('inventoryPage.filters') && (
+                  <div className="flex items-center gap-4 border-l pl-4 ml-2" style={{ display: (filterShowMergeDup || filterShowExcludeZero) ? undefined : 'none' }}>
+                    <div className="flex items-center gap-2" style={{ display: filterShowMergeDup ? undefined : 'none' }}>
+                      <Checkbox
+                        id="merge-duplicates"
+                        checked={mergeDuplicates}
+                        onCheckedChange={(checked) => setMergeDuplicates(checked as boolean)}
+                      />
+                      <Label htmlFor="merge-duplicates" className="text-sm font-medium cursor-pointer">
+                        <DualText k="home.filters.mergeDuplicates" />
+                      </Label>
+                    </div>
+                    <div className="flex items-center gap-2" style={{ display: filterShowExcludeZero ? undefined : 'none' }}>
+                      <Checkbox
+                        id="exclude-zero"
+                        checked={excludeZeroStock}
+                        onCheckedChange={(checked) => setExcludeZeroStock(checked as boolean)}
+                      />
+                      <Label htmlFor="exclude-zero" className="text-sm font-medium cursor-pointer">
+                        <DualText k="home.filters.excludeZero" />
+                      </Label>
+                    </div>
+                  </div>
+                )}
 
-              <BulkOperations products={products} filteredProducts={filteredProducts} onProductsUpdate={setProducts} />
+                {shouldShow('inventoryPage.bulkOperations') && <BulkOperations products={products} filteredProducts={filteredProducts} onProductsUpdate={setProducts} />}
 
-              {hasPermission(user, 'page.settings') && (
-                <Sheet>
-                  <SheetTrigger asChild>
-                    <Button variant="outline" size="icon">
-                      <Settings className="h-4 w-4" />
-                    </Button>
-                  </SheetTrigger>
-                  <SheetContent side="left" className="w-full sm:max-w-2xl overflow-y-auto">
-                    <SheetHeader>
-                      <SheetTitle><DualText k="home.settings.title" /></SheetTitle>
-                      <SheetDescription><DualText k="home.settings.desc" /></SheetDescription>
-                    </SheetHeader>
-                    <Tabs defaultValue="categories" className="mt-6">
-                      <TabsList className="grid w-full grid-cols-5">
-                        <TabsTrigger value="categories"><DualText k="home.settings.tabs.categories" /></TabsTrigger>
-                        <TabsTrigger value="locations"><DualText k="home.settings.tabs.locations" /></TabsTrigger>
-                        <TabsTrigger value="branches"><DualText k="home.settings.tabs.branches" /></TabsTrigger>
-                        <TabsTrigger value="units"><DualText k="home.settings.tabs.units" /></TabsTrigger>
-                        <TabsTrigger value="invoice"><DualText k="home.settings.tabs.invoice" /></TabsTrigger>
-                      </TabsList>
-                      <TabsContent value="categories" className="mt-4">
-                        <CategoryManager />
-                      </TabsContent>
-                      <TabsContent value="locations" className="mt-4">
-                        <LocationManager />
-                      </TabsContent>
-                      <TabsContent value="branches" className="mt-4">
-                        <BranchManager />
-                      </TabsContent>
-                      <TabsContent value="units" className="mt-4">
-                        <UnitManager />
-                      </TabsContent>
-                      <TabsContent value="invoice" className="mt-4 space-y-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="invoiceType"><DualText k="home.settings.invoice.type" /></Label>
-                          <select
-                            id="invoiceType"
-                            value={invoiceType}
-                            onChange={(e) => setInvoiceType(e.target.value)}
-                            className="w-full rounded-md border border-input bg-background px-3 py-2"
-                          >
-                            <option value="فاتورة صرف">{t("home.settings.invoice.types.issue")}</option>
-                            <option value="فاتورة تجميع">{t("home.settings.invoice.types.assembly")}</option>
-                            <option value="فاتورة مشتريات">{t("home.settings.invoice.types.purchase")}</option>
-                            <option value="طلبات فروع">{t("home.settings.invoice.types.branch")}</option>
-                            <option value="طلبات مشتريات جديدة">{t("home.settings.invoice.types.newPurchase")}</option>
-                            <option value="نوع آخر">{t("home.settings.invoice.types.other")}</option>
-                          </select>
-                          {invoiceType === "نوع آخر" && (
-                            <div className="mt-2">
-                              <Input
-                                placeholder={t("home.settings.invoice.typePlaceholder")}
-                                value={customInvoiceType}
-                                onChange={(e) => setCustomInvoiceType(e.target.value)}
-                              />
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label><DualText k="home.settings.invoice.columns" /></Label>
-                          <div className="grid grid-cols-2 gap-3">
-                            {availableColumns.map((key) => {
-                              const labels: Record<string, string> = {
-                                id: t("common.id"),
-                                productCode: t("common.code"),
-                                itemNumber: t("common.itemNumber"),
-                                productName: t("common.productName"),
-                                price: t("common.price"),
-                                averagePrice: t("common.avgPrice"),
-                                quantity: t("common.quantity"),
-                                unit: t("common.unit"),
-                                category: t("common.category"),
-                                location: t("common.location"),
-                              }
-                              const label = labels[key] || key
-                              const checked = invoiceColumns.includes(key)
-                              return (
-                                <label key={key} className="flex items-center gap-2">
-                                  <Checkbox
-                                    checked={checked}
-                                    onCheckedChange={(val) => {
-                                      const isOn = Boolean(val)
-                                      setInvoiceColumns((prev) =>
-                                        isOn ? Array.from(new Set([...prev, key])) : prev.filter((k) => k !== key),
-                                      )
-                                    }}
-                                  />
-                                  <span>{label}</span>
-                                </label>
-                              )
-                            })}
+                {hasPermission(user, 'page.settings') && shouldShow('inventoryPage.quickSettings') && (
+                  <Sheet>
+                    <SheetTrigger asChild>
+                      <Button variant="outline" size="icon">
+                        <Settings className="h-4 w-4" />
+                      </Button>
+                    </SheetTrigger>
+                    <SheetContent side="left" className="w-full sm:max-w-2xl overflow-y-auto">
+                      <SheetHeader>
+                        <SheetTitle><DualText k="home.settings.title" /></SheetTitle>
+                        <SheetDescription><DualText k="home.settings.desc" /></SheetDescription>
+                      </SheetHeader>
+                      <Tabs defaultValue="categories" className="mt-6">
+                        <TabsList className="grid w-full grid-cols-5">
+                          <TabsTrigger value="categories"><DualText k="home.settings.tabs.categories" /></TabsTrigger>
+                          <TabsTrigger value="locations"><DualText k="home.settings.tabs.locations" /></TabsTrigger>
+                          <TabsTrigger value="branches"><DualText k="home.settings.tabs.branches" /></TabsTrigger>
+                          <TabsTrigger value="units"><DualText k="home.settings.tabs.units" /></TabsTrigger>
+                          <TabsTrigger value="invoice"><DualText k="home.settings.tabs.invoice" /></TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="categories" className="mt-4">
+                          <CategoryManager />
+                        </TabsContent>
+                        <TabsContent value="locations" className="mt-4">
+                          <LocationManager />
+                        </TabsContent>
+                        <TabsContent value="branches" className="mt-4">
+                          <BranchManager />
+                        </TabsContent>
+                        <TabsContent value="units" className="mt-4">
+                          <UnitManager />
+                        </TabsContent>
+                        <TabsContent value="invoice" className="mt-4 space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="invoiceType"><DualText k="home.settings.invoice.type" /></Label>
+                            <select
+                              id="invoiceType"
+                              value={invoiceType}
+                              onChange={(e) => setInvoiceType(e.target.value)}
+                              className="w-full rounded-md border border-input bg-background px-3 py-2"
+                            >
+                              <option value="فاتورة صرف">{t("home.settings.invoice.types.issue")}</option>
+                              <option value="فاتورة تجميع">{t("home.settings.invoice.types.assembly")}</option>
+                              <option value="فاتورة مشتريات">{t("home.settings.invoice.types.purchase")}</option>
+                              <option value="طلبات فروع">{t("home.settings.invoice.types.branch")}</option>
+                              <option value="طلبات مشتريات جديدة">{t("home.settings.invoice.types.newPurchase")}</option>
+                              <option value="نوع آخر">{t("home.settings.invoice.types.other")}</option>
+                            </select>
+                            {invoiceType === "نوع آخر" && (
+                              <div className="mt-2">
+                                <Input
+                                  placeholder={t("home.settings.invoice.typePlaceholder")}
+                                  value={customInvoiceType}
+                                  onChange={(e) => setCustomInvoiceType(e.target.value)}
+                                />
+                              </div>
+                            )}
                           </div>
-                          <p className="text-sm text-muted-foreground">
-                            <DualText k="home.settings.invoice.columnsDesc" />
-                          </p>
-                        </div>
 
-                        <div className="flex gap-3">
-                          <Button onClick={saveInvoiceSettings}><DualText k="home.settings.invoice.save" /></Button>
-                          <Button variant="outline" onClick={resetInvoiceSettings}><DualText k="home.settings.invoice.reset" /></Button>
-                        </div>
+                          <div className="space-y-2">
+                            <Label><DualText k="home.settings.invoice.columns" /></Label>
+                            <div className="grid grid-cols-2 gap-3">
+                              {availableColumns.map((key) => {
+                                const labels: Record<string, string> = {
+                                  id: t("common.id"),
+                                  productCode: t("common.code"),
+                                  itemNumber: t("common.itemNumber"),
+                                  productName: t("common.productName"),
+                                  price: t("common.price"),
+                                  averagePrice: t("common.avgPrice"),
+                                  quantity: t("common.quantity"),
+                                  unit: t("common.unit"),
+                                  category: t("common.category"),
+                                  location: t("common.location"),
+                                }
+                                const label = labels[key] || key
+                                const checked = invoiceColumns.includes(key)
+                                return (
+                                  <label key={key} className="flex items-center gap-2">
+                                    <Checkbox
+                                      checked={checked}
+                                      onCheckedChange={(val) => {
+                                        const isOn = Boolean(val)
+                                        setInvoiceColumns((prev) =>
+                                          isOn ? Array.from(new Set([...prev, key])) : prev.filter((k) => k !== key),
+                                        )
+                                      }}
+                                    />
+                                    <span>{label}</span>
+                                  </label>
+                                )
+                              })}
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                              <DualText k="home.settings.invoice.columnsDesc" />
+                            </p>
+                          </div>
 
-                        <div className="border-t pt-4 mt-4 mb-4">
-                          <h3 className="font-bold mb-2 text-orange-600">إصلاح المشاكل (Maintenance)</h3>
-                          <p className="text-xs text-muted-foreground mb-2">أداة لإصلاح تكرار المنتجات ودمجها تلقائياً.</p>
-                          <Button variant="outline" className="w-full border-orange-200 hover:bg-orange-50 text-orange-700" onClick={async () => {
-                            if (confirm(t("home.maintenance.fixDuplicates.confirm"))) {
-                              const loadingToast = toast({
-                                title: getDualString("common.processing"),
-                                description: getDualString("common.pleaseWait")
-                              })
-                              try {
-                                const res = await fixDuplicates()
-                                toast({
-                                  title: getDualString("toast.success"),
-                                  description: getDualString("home.maintenance.fixDuplicates.finished")
-                                    .replace("{merged}", String(res.mergedCount))
-                                    .replace("{removed}", String(res.removedCount))
+                          <div className="flex gap-3">
+                            <Button onClick={saveInvoiceSettings}><DualText k="home.settings.invoice.save" /></Button>
+                            <Button variant="outline" onClick={resetInvoiceSettings}><DualText k="home.settings.invoice.reset" /></Button>
+                          </div>
+
+                          <div className="border-t pt-4 mt-4 mb-4">
+                            <h3 className="font-bold mb-2 text-orange-600">إصلاح المشاكل (Maintenance)</h3>
+                            <p className="text-xs text-muted-foreground mb-2">أداة لإصلاح تكرار المنتجات ودمجها تلقائياً.</p>
+                            <Button variant="outline" className="w-full border-orange-200 hover:bg-orange-50 text-orange-700" onClick={async () => {
+                              if (confirm(t("home.maintenance.fixDuplicates.confirm"))) {
+                                const loadingToast = toast({
+                                  title: getDualString("common.processing"),
+                                  description: getDualString("common.pleaseWait")
                                 })
-                              } catch (e) {
-                                console.error(e)
-                                toast({
-                                  title: getDualString("common.error"),
-                                  description: getDualString("common.errorOccurred"),
-                                  variant: "destructive"
-                                })
+                                try {
+                                  const res = await fixDuplicates()
+                                  toast({
+                                    title: getDualString("toast.success"),
+                                    description: getDualString("home.maintenance.fixDuplicates.finished")
+                                      .replace("{merged}", String(res.mergedCount))
+                                      .replace("{removed}", String(res.removedCount))
+                                  })
+                                } catch (e) {
+                                  console.error(e)
+                                  toast({
+                                    title: getDualString("common.error"),
+                                    description: getDualString("common.errorOccurred"),
+                                    variant: "destructive"
+                                  })
+                                }
                               }
-                            }
-                          }}>
-                            <Settings2 className="w-4 h-4 ml-2" />
-                            فحص وإصلاح التكرار
-                          </Button>
-                        </div>
+                            }}>
+                              <Settings2 className="w-4 h-4 ml-2" />
+                              فحص وإصلاح التكرار
+                            </Button>
+                          </div>
 
-                        <div className="border-t pt-4 mt-4">
-                          <h3 className="font-bold mb-2 text-destructive">منطقة الخطر</h3>
-                          <Button variant="destructive" onClick={async () => {
-                            if (confirm(t("home.maintenance.dbReset.confirm"))) {
-                              try {
-                                await db.delete()
-                                window.location.reload()
-                              } catch (e) {
-                                console.error(e)
-                                alert(t("home.maintenance.dbReset.error"))
+                          <div className="border-t pt-4 mt-4">
+                            <h3 className="font-bold mb-2 text-destructive">منطقة الخطر</h3>
+                            <Button variant="destructive" onClick={async () => {
+                              if (confirm(t("home.maintenance.dbReset.confirm"))) {
+                                try {
+                                  await db.delete()
+                                  window.location.reload()
+                                } catch (e) {
+                                  console.error(e)
+                                  alert(t("home.maintenance.dbReset.error"))
+                                }
                               }
-                            }
-                          }}>
-                            <DualText k="home.maintenance.dbReset.button" />
-                          </Button>
-                        </div>
-                      </TabsContent>
-                    </Tabs>
-                  </SheetContent>
-                </Sheet>
-              )}
+                            }}>
+                              <DualText k="home.maintenance.dbReset.button" />
+                            </Button>
+                          </div>
+                        </TabsContent>
+                      </Tabs>
+                    </SheetContent>
+                  </Sheet>
+                )}
 
-              {/* Settings & Actions Dropdown */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="gap-2">
-                    <Settings2 className="h-4 w-4" />
-                    <DualText k="common.settingsAndActions" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel><DualText k="settings.view" /></DropdownMenuLabel>
+                {shouldShow('inventoryPage.quickSettings') && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className="gap-2">
+                        <Settings2 className="h-4 w-4" />
+                        <DualText k="common.settingsAndActions" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuLabel><DualText k="settings.view" /></DropdownMenuLabel>
 
-                  <DropdownMenuItem onClick={() => setFiltersVisibilityOpen(true)}>
-                    <Eye className="ml-2 h-4 w-4" />
-                    <DualText k="settings.manageFilters" />
-                  </DropdownMenuItem>
-
-                  <DropdownMenuItem onClick={() => setShowFilters(!showFilters)}>
-                    {showFilters ? (
-                      <>
-                        <EyeOff className="ml-2 h-4 w-4" />
-                        <DualText k="settings.hideFilters" />
-                      </>
-                    ) : (
-                      <>
+                      <DropdownMenuItem onClick={() => setFiltersVisibilityOpen(true)}>
                         <Eye className="ml-2 h-4 w-4" />
-                        <DualText k="settings.showFilters" />
-                      </>
-                    )}
-                  </DropdownMenuItem>
+                        <DualText k="settings.manageFilters" />
+                      </DropdownMenuItem>
 
-                  <DropdownMenuItem onClick={() => setCardsVisibilityOpen(true)}>
-                    <LayoutGrid className="ml-2 h-4 w-4" />
-                    <DualText k="settings.manageCards" />
-                  </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setShowFilters(!showFilters)}>
+                        {showFilters ? (
+                          <>
+                            <EyeOff className="ml-2 h-4 w-4" />
+                            <DualText k="settings.hideFilters" />
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="ml-2 h-4 w-4" />
+                            <DualText k="settings.showFilters" />
+                          </>
+                        )}
+                      </DropdownMenuItem>
 
-                  <DropdownMenuItem onClick={() => setShowCards(!showCards)}>
-                    {showCards ? (
-                      <>
-                        <EyeOff className="ml-2 h-4 w-4" />
-                        <DualText k="settings.hideCards" />
-                      </>
-                    ) : (
-                      <>
+                      <DropdownMenuItem onClick={() => setCardsVisibilityOpen(true)}>
                         <LayoutGrid className="ml-2 h-4 w-4" />
-                        <DualText k="settings.showCards" />
-                      </>
-                    )}
-                  </DropdownMenuItem>
+                        <DualText k="settings.manageCards" />
+                      </DropdownMenuItem>
 
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel><DualText k="settings.inventory" /></DropdownMenuLabel>
+                      <DropdownMenuItem onClick={() => setShowCards(!showCards)}>
+                        {showCards ? (
+                          <>
+                            <EyeOff className="ml-2 h-4 w-4" />
+                            <DualText k="settings.hideCards" />
+                          </>
+                        ) : (
+                          <>
+                            <LayoutGrid className="ml-2 h-4 w-4" />
+                            <DualText k="settings.showCards" />
+                          </>
+                        )}
+                      </DropdownMenuItem>
 
-                  <DropdownMenuItem
-                    onClick={() => {
-                      if (!hasPermission(user, 'inventory.adjust')) {
-                        toast({ title: "غير مسموح", description: "لا تملك صلاحية إقفال الشهر", variant: "destructive" })
-                        return
-                      }
-                      setMonthlyClosingOpen(true)
-                    }}
-                    disabled={!hasPermission(user, 'inventory.adjust')}
-                    className="text-orange-700"
-                  >
-                    <Calendar className="ml-2 h-4 w-4" />
-                    <DualText k="settings.closeMonth" />
-                  </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel><DualText k="settings.inventory" /></DropdownMenuLabel>
 
-                  <DropdownMenuItem onClick={handleFixQuantityPerCarton}>
-                    <RotateCcw className="ml-2 h-4 w-4" />
-                    <DualText k="settings.fixQuantityPerCarton" />
-                  </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          if (!hasPermission(user, 'inventory.adjust')) {
+                            toast({ title: "غير مسموح", description: "لا تملك صلاحية إقفال الشهر", variant: "destructive" })
+                            return
+                          }
+                          setMonthlyClosingOpen(true)
+                        }}
+                        disabled={!hasPermission(user, 'inventory.adjust')}
+                        className="text-orange-700"
+                      >
+                        <Calendar className="ml-2 h-4 w-4" />
+                        <DualText k="settings.closeMonth" />
+                      </DropdownMenuItem>
 
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel><DualText k="settings.reports" /></DropdownMenuLabel>
+                      <DropdownMenuItem onClick={handleFixQuantityPerCarton}>
+                        <RotateCcw className="ml-2 h-4 w-4" />
+                        <DualText k="settings.fixQuantityPerCarton" />
+                      </DropdownMenuItem>
 
-                  <DropdownMenuItem onClick={printProductsFullPDF} disabled={!hasPermission(user, 'page.reports')}>
-                    <FileText className="ml-2 h-4 w-4" />
-                    <DualText k="settings.fullPdfReport" />
-                  </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel><DualText k="settings.reports" /></DropdownMenuLabel>
 
-                  <DropdownMenuItem onClick={printFilteredTableCardsPDF} disabled={!hasPermission(user, 'page.reports')}>
-                    <FileText className="ml-2 h-4 w-4" />
-                    <DualText k="settings.filteredPdfReport" />
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                      <DropdownMenuItem onClick={printProductsFullPDF} disabled={!hasPermission(user, 'page.reports')}>
+                        <FileText className="ml-2 h-4 w-4" />
+                        <DualText k="settings.fullPdfReport" />
+                      </DropdownMenuItem>
 
-              <Button onClick={() => setIsSideSheetOpen(true)}>
-                <Plus className="ml-2 h-4 w-4" />
-                <div className="flex flex-col items-start leading-tight">
-                  <DualText
-                    k="home.products.addNew"
-                    className="text-primary-foreground font-bold text-sm"
-                  />
+                      <DropdownMenuItem onClick={printFilteredTableCardsPDF} disabled={!hasPermission(user, 'page.reports')}>
+                        <FileText className="ml-2 h-4 w-4" />
+                        <DualText k="settings.filteredPdfReport" />
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+
+                {hasPermission(user, 'inventory.add') && shouldShow('inventoryPage.addProduct') && (
+                  <Button onClick={() => setIsSideSheetOpen(true)}>
+                    <Plus className="ml-2 h-4 w-4" />
+                    <div className="flex flex-col items-start leading-tight">
+                      <DualText
+                        k="home.products.addNew"
+                        className="text-primary-foreground font-bold text-sm"
+                      />
+                    </div>
+                  </Button>
+                )}
+
+
+              </div>
+
+              {shouldShow('inventoryPage.statsCards') && (
+                <div className="flex flex-wrap items-center justify-between gap-4 border-t pt-4">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Filter className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-muted-foreground"><DualText k="home.products.showingPrefix" /></span>
+                    <span className="font-bold">{filteredProducts.length}</span>
+                    <span className="text-muted-foreground"><DualText k="home.products.showingMid" /></span>
+                    <span className="font-bold">{(products || []).length}</span>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-muted-foreground"><DualText k="reports.inventoryValue" />:</span>
+                    <span className="font-bold text-primary text-lg">
+                      {convertNumbersToEnglish(filteredTotalValue.toLocaleString("ar-SA"))} <DualText k="common.currency" />
+                    </span>
+                    <span className="text-muted-foreground mx-1">/</span>
+                    <span className="text-muted-foreground">{convertNumbersToEnglish(totalValue.toLocaleString("ar-SA"))}</span>
+                  </div>
                 </div>
-              </Button>
-
-
+              )}
             </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-4 border-t pt-4">
-              <div className="flex items-center gap-2 text-sm">
-                <Filter className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground"><DualText k="home.products.showingPrefix" /></span>
-                <span className="font-bold">{filteredProducts.length}</span>
-                <span className="text-muted-foreground"><DualText k="home.products.showingMid" /></span>
-                <span className="font-bold">{(products || []).length}</span>
-              </div>
-
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-muted-foreground"><DualText k="reports.inventoryValue" />:</span>
-                <span className="font-bold text-primary text-lg">
-                  {convertNumbersToEnglish(filteredTotalValue.toLocaleString("ar-SA"))} <DualText k="common.currency" />
-                </span>
-                <span className="text-muted-foreground mx-1">/</span>
-                <span className="text-muted-foreground">{convertNumbersToEnglish(totalValue.toLocaleString("ar-SA"))}</span>
-              </div>
-            </div>
-          </div>
+          )}
 
 
           {/* Table View Mode Selector */}
@@ -1662,13 +1678,13 @@ export default function Home() {
       />
 
       {/* Smart Alerts with Month Closing Support */}
-      <SmartAlerts onMonthClosingClick={() => {
+      {(user as any)?.username !== 'OF123478' && <SmartAlerts onMonthClosingClick={() => {
         if (!hasPermission(user, 'inventory.adjust')) {
           toast({ title: "غير مسموح", description: "لا تملك صلاحية إقفال الشهر", variant: "destructive" })
           return
         }
         setMonthlyClosingOpen(true)
-      }} />
+      }} />}
     </div >
   )
 }

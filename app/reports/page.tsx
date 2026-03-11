@@ -25,10 +25,14 @@ import Link from "next/link"
 import { useI18n } from "@/components/language-provider"
 import { DualText } from "@/components/ui/dual-text"
 import { useInvoiceSettings } from "@/lib/invoice-settings-store"
+import { useGranularPermissions } from "@/hooks/use-granular-permissions"
+import { useAuth } from "@/components/auth-provider"
 
 export default function ReportsPage() {
   const { t } = useI18n()
   const settings = useInvoiceSettings()
+  const { shouldShow } = useGranularPermissions()
+  const { user } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
@@ -65,7 +69,7 @@ export default function ReportsPage() {
 
   const loadData = async () => {
     try {
-      const [productsData, transactionsData, issuesData, returnsData, posData, adjustmentsData, auditData, categoriesData] = await Promise.all([
+      const [productsData, transactionsData, issuesData, returnsData, posData, adjustmentsData, auditData, categoriesData, branchesData] = await Promise.all([
         getProducts(),
         getTransactions(),
         getIssues(),
@@ -83,15 +87,10 @@ export default function ReportsPage() {
       setPurchaseOrders(posData)
       setAdjustments(adjustmentsData)
       setAuditLogs(auditData)
-      setCategories(categoriesData.map((c) => c.name))
-      setBranches(categoriesData[2] || []) // Correction: Promise.all array index matching
-      // Let's fix the indexing properly
-      setCategories(categoriesData.map((c) => c.name))
-      // Actually `getBranches` is the 9th item (index 8)
-      const branchesData = await getBranches()
+      setCategories(categoriesData.map((c: any) => c.name))
       setBranches(branchesData)
 
-      const uniqueLocations = [...new Set(productsData.map((p) => p.location).filter(Boolean))]
+      const uniqueLocations = [...new Set(productsData.map((p: any) => p.location).filter(Boolean))]
       setLocations(uniqueLocations)
     } catch (error) {
       console.error("Failed to load report data", error)
@@ -224,7 +223,7 @@ export default function ReportsPage() {
 
         movements.push({
           id: t.id,
-          date: t.date || t.createdAt,
+          date: (t as any).date || t.createdAt,
           type: t.type as any, // 'purchase' or 'adjustment'
           reference: t.type === 'purchase' ? 'PURCHASE' : 'ADJUST',
           itemsCount: 1,
@@ -247,7 +246,7 @@ export default function ReportsPage() {
       if (i.delivered) {
         if (exists(i.id, 'issue')) return; // Skip if handled
 
-        const moveDetails = i.products.map(p => {
+        const moveDetails = i.products.map((p: any) => {
           const product = allProducts.find(prod => prod.id === p.productId)
           const cost = product?.averagePrice || product?.price || 0
           return {
@@ -258,8 +257,8 @@ export default function ReportsPage() {
           }
         })
 
-        const totalValueChange = moveDetails.reduce((sum, d) => sum + d.total, 0)
-        const totalQtyChange = moveDetails.reduce((sum, d) => sum + d.quantity, 0)
+        const totalValueChange = moveDetails.reduce((sum: number, d: any) => sum + d.total, 0)
+        const totalQtyChange = moveDetails.reduce((sum: number, d: any) => sum + d.quantity, 0)
 
         movements.push({
           id: i.id,
@@ -280,7 +279,7 @@ export default function ReportsPage() {
     returns.forEach(r => {
       if (exists(r.id, 'return')) return;
 
-      const moveDetails = r.products.map(p => {
+      const moveDetails = r.products.map((p: any) => {
         const product = allProducts.find(prod => prod.id === p.productId)
         const cost = product?.averagePrice || product?.price || 0
         const qty = p.quantityBase || p.quantity
@@ -295,8 +294,8 @@ export default function ReportsPage() {
         }
       })
 
-      const totalValueChange = moveDetails.reduce((sum, d) => sum + d.total, 0)
-      const totalQtyChange = moveDetails.reduce((sum, d) => sum + d.quantity, 0)
+      const totalValueChange = moveDetails.reduce((sum: number, d: any) => sum + d.total, 0)
+      const totalQtyChange = moveDetails.reduce((sum: number, d: any) => sum + d.quantity, 0)
 
       movements.push({
         id: r.id,
@@ -527,7 +526,7 @@ export default function ReportsPage() {
         // Accessing source object is hard here as we effectively flattened it.
         // Let's rely on string matching branch names in 'description' or 'details' for Issues/Returns.
         const branchNames = selectedBranches.map(id => branches.find(b => b.id === id)?.name).filter(Boolean)
-        const matches = branchNames.some(name => m.description.includes(name || ''))
+        const matches = branchNames.some(name => (m.description || '').includes(name || ''))
         if (!matches && (m.type === 'issue' || m.type === 'return')) return false
         // For other types like 'purchase', branch filter might not apply, so we might HIDE them if branch is selected?
         // Usually Branch Report implies "activity related to this branch".
@@ -638,361 +637,375 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Filter className="h-5 w-5" />
-                <DualText k="reports.filters.title" />
-              </CardTitle>
-              <CardDescription><DualText k="reports.filters.description" /></CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {shouldShow('reportsPage.filters') && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Filter className="h-5 w-5" />
+                  <DualText k="reports.filters.title" />
+                </CardTitle>
+                <CardDescription><DualText k="reports.filters.description" /></CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
 
-                {/* Branch Filter */}
-                <div className="space-y-2">
-                  <Label><DualText k="reports.filters.branch" fallback="Branch / الفرع" /></Label>
-                  <MultiSelect
-                    options={branches.map(b => ({ label: b.name, value: b.id }))}
-                    selected={selectedBranches}
-                    onChange={setSelectedBranches}
-                    placeholder={t("reports.filters.selectBranch", "Select Branch / اختر الفرع")}
-                  />
+                  {/* Branch Filter */}
+                  <div className="space-y-2">
+                    <Label><DualText k="reports.filters.branch" fallback="Branch / الفرع" /></Label>
+                    <MultiSelect
+                      options={branches.map(b => ({ label: b.name, value: b.id }))}
+                      selected={selectedBranches}
+                      onChange={setSelectedBranches}
+                      placeholder={t("reports.filters.selectBranch", "Select Branch / اختر الفرع")}
+                    />
+                  </div>
+
+                  {/* Status Filter */}
+                  <div className="space-y-2">
+                    <Label><DualText k="reports.filters.status" fallback="Status / الحالة" /></Label>
+                    <MultiSelect
+                      options={[
+                        { label: `${t("common.pending")} / Pending`, value: "pending" },
+                        { label: `${t("common.received")} / Received`, value: "received" },
+                        { label: `${t("common.delivered")} / Delivered`, value: "delivered" },
+                        { label: `${t("common.completed")} / Completed`, value: "completed" },
+                      ]}
+                      selected={selectedStatuses}
+                      onChange={setSelectedStatuses}
+                      placeholder={t("reports.filters.selectStatus", "Select Status / اختر الحالة")}
+                    />
+                  </div>
+
+                  {/* Type Filter */}
+                  <div className="space-y-2">
+                    <Label><DualText k="reports.filters.type" fallback="Type / النوع" /></Label>
+                    <MultiSelect
+                      options={[
+                        { label: "Purchase / شراء", value: "purchase" },
+                        { label: "Issue / صرف", value: "issue" },
+                        { label: "Return / مرتجع", value: "return" },
+                        { label: "Adjustment / تسوية", value: "adjustment" },
+                        { label: "Add / إضافة", value: "add" },
+                        { label: "Edit / تعديل", value: "edit" },
+                        { label: "Delete / حذف", value: "delete" },
+                      ]}
+                      selected={selectedTypes}
+                      onChange={setSelectedTypes}
+                      placeholder={t("reports.filters.selectType", "Select Type / اختر النوع")}
+                    />
+                  </div>
+
+                  {/* Category Filter */}
+                  <div className="space-y-2">
+                    <Label><DualText k="reports.category" fallback="Category / التصنيف" /></Label>
+                    <MultiSelect
+                      options={categories.map(c => ({ label: c, value: c }))}
+                      selected={selectedCategories}
+                      onChange={setSelectedCategories}
+                      placeholder={t("reports.filters.selectCategory", "Select Category / اختر التصنيف")}
+                    />
+                  </div>
+
+                  {/* Location Filter */}
+                  <div className="space-y-2">
+                    <Label><DualText k="reports.location" fallback="Location / الموقع" /></Label>
+                    <MultiSelect
+                      options={locations.map(l => ({ label: l, value: l }))}
+                      selected={selectedLocations}
+                      onChange={setSelectedLocations}
+                      placeholder={t("reports.filters.selectLocation", "Select Location / اختر الموقع")}
+                    />
+                  </div>
+
+                  {/* Product Filter */}
+                  <div className="space-y-2 lg:col-span-2">
+                    <Label><DualText k="reports.products" fallback="Products / المنتجات (Optional)" /></Label>
+                    <MultiSelect
+                      options={products.map(p => ({ label: p.productName + (p.productCode ? ` (${p.productCode})` : ''), value: p.id }))}
+                      selected={selectedProducts}
+                      onChange={setSelectedProducts}
+                      placeholder={t("reports.filters.selectProducts", "Select specific products / اختر منتجات محددة")}
+                    />
+                  </div>
+
+                  {/* Date and Invoice Search */}
+                  <div className="space-y-2">
+                    <Label><DualText k="reports.filters.custom.from" /></Label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => { setStartDate(e.target.value); setPeriod('custom') }}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label><DualText k="reports.filters.custom.to" /></Label>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => { setEndDate(e.target.value); setPeriod('custom') }}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    />
+                  </div>
+
+                  {/* Invoice Search */}
+                  <div className="space-y-2 md:col-span-2">
+                    <Label><DualText k="reports.filters.invoiceSearch" fallback="Invoice Search / بحث رقم الفاتورة" /></Label>
+                    <div className="relative">
+                      <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <input
+                        placeholder="Search invoice number..."
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-8 py-2 text-sm"
+                        value={searchInvoice}
+                        onChange={e => setSearchInvoice(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
                 </div>
 
-                {/* Status Filter */}
-                <div className="space-y-2">
-                  <Label><DualText k="reports.filters.status" fallback="Status / الحالة" /></Label>
-                  <MultiSelect
-                    options={[
-                      { label: `${t("common.pending")} / Pending`, value: "pending" },
-                      { label: `${t("common.received")} / Received`, value: "received" },
-                      { label: `${t("common.delivered")} / Delivered`, value: "delivered" },
-                      { label: `${t("common.completed")} / Completed`, value: "completed" },
-                    ]}
-                    selected={selectedStatuses}
-                    onChange={setSelectedStatuses}
-                    placeholder={t("reports.filters.selectStatus", "Select Status / اختر الحالة")}
-                  />
-                </div>
+                <div className="grid gap-4 md:grid-cols-3 mt-4 pt-4 border-t">
+                  <div className="flex items-center space-x-2 space-x-reverse">
+                    <Switch
+                      id="hide-zero"
+                      checked={hideZeroStock}
+                      onCheckedChange={(v) => {
+                        setHideZeroStock(v)
+                        if (v) {
+                          setShowOnlyOutOfStock(false)
+                          setShowLowStockOnly(false)
+                        }
+                      }}
+                    />
+                    <Label htmlFor="hide-zero"><DualText k="reports.hideZero" /></Label>
+                  </div>
 
-                {/* Type Filter */}
-                <div className="space-y-2">
-                  <Label><DualText k="reports.filters.type" fallback="Type / النوع" /></Label>
-                  <MultiSelect
-                    options={[
-                      { label: "Purchase / شراء", value: "purchase" },
-                      { label: "Issue / صرف", value: "issue" },
-                      { label: "Return / مرتجع", value: "return" },
-                      { label: "Adjustment / تسوية", value: "adjustment" },
-                      { label: "Add / إضافة", value: "add" },
-                      { label: "Edit / تعديل", value: "edit" },
-                      { label: "Delete / حذف", value: "delete" },
-                    ]}
-                    selected={selectedTypes}
-                    onChange={setSelectedTypes}
-                    placeholder={t("reports.filters.selectType", "Select Type / اختر النوع")}
-                  />
-                </div>
+                  <div className="flex items-center space-x-2 space-x-reverse">
+                    <Switch
+                      id="show-out-of-stock"
+                      checked={showOnlyOutOfStock}
+                      onCheckedChange={(v) => {
+                        setShowOnlyOutOfStock(v)
+                        if (v) {
+                          setHideZeroStock(false)
+                          setShowLowStockOnly(false)
+                        }
+                      }}
+                    />
+                    <Label htmlFor="show-out-of-stock"><DualText k="reports.showOnlyOutOfStock" /></Label>
+                  </div>
 
-                {/* Category Filter */}
-                <div className="space-y-2">
-                  <Label><DualText k="reports.category" fallback="Category / التصنيف" /></Label>
-                  <MultiSelect
-                    options={categories.map(c => ({ label: c, value: c }))}
-                    selected={selectedCategories}
-                    onChange={setSelectedCategories}
-                    placeholder={t("reports.filters.selectCategory", "Select Category / اختر التصنيف")}
-                  />
-                </div>
+                  <div className="flex items-center space-x-2 space-x-reverse">
+                    <Switch
+                      id="show-low-stock"
+                      checked={showLowStockOnly}
+                      onCheckedChange={(v) => {
+                        setShowLowStockOnly(v)
+                        if (v) {
+                          setHideZeroStock(false)
+                          setShowOnlyOutOfStock(false)
+                        }
+                      }}
+                    />
+                    <Label htmlFor="show-low-stock"><DualText k="reports.showLowStockOnly" /></Label>
+                  </div>
 
-                {/* Location Filter */}
-                <div className="space-y-2">
-                  <Label><DualText k="reports.location" fallback="Location / الموقع" /></Label>
-                  <MultiSelect
-                    options={locations.map(l => ({ label: l, value: l }))}
-                    selected={selectedLocations}
-                    onChange={setSelectedLocations}
-                    placeholder={t("reports.filters.selectLocation", "Select Location / اختر الموقع")}
-                  />
-                </div>
+                  <div className="flex items-center space-x-2 space-x-reverse">
+                    <Switch id="merge-identical" checked={mergeIdentical} onCheckedChange={setMergeIdentical} />
+                    <Label htmlFor="merge-identical"><DualText k="reports.mergeIdentical" /></Label>
+                  </div>
 
-                {/* Product Filter */}
-                <div className="space-y-2 lg:col-span-2">
-                  <Label><DualText k="reports.products" fallback="Products / المنتجات (Optional)" /></Label>
-                  <MultiSelect
-                    options={products.map(p => ({ label: p.productName + (p.productCode ? ` (${p.productCode})` : ''), value: p.id }))}
-                    selected={selectedProducts}
-                    onChange={setSelectedProducts}
-                    placeholder={t("reports.filters.selectProducts", "Select specific products / اختر منتجات محددة")}
-                  />
-                </div>
-
-                {/* Date and Invoice Search */}
-                <div className="space-y-2">
-                  <Label><DualText k="reports.filters.custom.from" /></Label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => { setStartDate(e.target.value); setPeriod('custom') }}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label><DualText k="reports.filters.custom.to" /></Label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => { setEndDate(e.target.value); setPeriod('custom') }}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  />
-                </div>
-
-                {/* Invoice Search */}
-                <div className="space-y-2 md:col-span-2">
-                  <Label><DualText k="reports.filters.invoiceSearch" fallback="Invoice Search / بحث رقم الفاتورة" /></Label>
-                  <div className="relative">
-                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search invoice number..."
-                      className="pl-8"
-                      value={searchInvoice}
-                      onChange={e => setSearchInvoice(e.target.value)}
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="threshold" className="whitespace-nowrap"><DualText k="reports.bestSellerThreshold" /></Label>
+                    <input
+                      id="threshold"
+                      type="number"
+                      min="1"
+                      value={bestSellerThreshold}
+                      onChange={(e) => setBestSellerThreshold(Number(e.target.value))}
+                      className="w-20 h-8 rounded-md border border-input bg-background px-2 text-sm"
                     />
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+          )}
 
-              </div>
+          {shouldShow('reportsPage.financialSummary') && (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium"><DualText k="reports.totalSales" /></CardTitle>
+                  <TrendingUp className="h-4 w-4 text-green-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{financialSummary.totalSales.toFixed(2)} {t("common.currency")}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {filteredTransactions.filter((t) => t.type === "sale").length} <DualText k="reports.sales.operations" />
+                  </p>
+                </CardContent>
+              </Card>
 
-              <div className="grid gap-4 md:grid-cols-3 mt-4 pt-4 border-t">
-                <div className="flex items-center space-x-2 space-x-reverse">
-                  <Switch
-                    id="hide-zero"
-                    checked={hideZeroStock}
-                    onCheckedChange={(v) => {
-                      setHideZeroStock(v)
-                      if (v) {
-                        setShowOnlyOutOfStock(false)
-                        setShowLowStockOnly(false)
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium"><DualText k="reports.totalPurchases" /></CardTitle>
+                  <TrendingDown className="h-4 w-4 text-red-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{financialSummary.totalPurchases.toFixed(2)} {t("common.currency")}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {filteredTransactions.filter((t) => t.type === "purchase").length} <DualText k="reports.purchases.operations" />
+                  </p>
+                </CardContent>
+              </Card>
+
+              {shouldShow('reportsPage.financialSummary_profit') && (
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium"><DualText k="reports.netProfit" /></CardTitle>
+                    <DollarSign className="h-4 w-4 text-primary" />
+                  </CardHeader>
+                  <CardContent>
+                    <div
+                      className={`text-2xl font-bold ${financialSummary.profit >= 0 ? "text-green-600" : "text-red-600"}`}
+                    >
+                      {financialSummary.profit.toFixed(2)} {t("common.currency")}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">{financialSummary.profit >= 0 ? <DualText k="reports.profit" /> : <DualText k="reports.loss" />}</p>
+                  </CardContent>
+                </Card>
+              )}
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium"><DualText k="reports.inventoryValue" /></CardTitle>
+                  <Package className="h-4 w-4 text-accent" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{totalInventoryValue.toFixed(2)} {t("common.currency")}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {products.length} <DualText k="common.product" /> ({lowStockCount} <DualText k="common.low" />)
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {shouldShow('reportsPage.stockMovementsSummary') && (
+            <div className="grid gap-4 md:grid-cols-4 mb-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground"><DualText k="reports.openingBalance" fallback="رصيد البداية (للفترة)" /></CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {filteredStockMovements.length > 0
+                      ? filteredStockMovements[filteredStockMovements.length - 1].inventoryValueBefore?.toFixed(2)
+                      : (stockMovements.length > 0 ? stockMovements[stockMovements.length - 1].inventoryValueBefore?.toFixed(2) : "0.00")}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground"><DualText k="reports.totalIncrease" fallback="إجمالي الزيادة" /></CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-green-600">
+                    {filteredStockMovements.reduce((sum, m) => {
+                      if (m.type === 'purchase' || m.type === 'return' || (m.type === 'adjustment' && m.totalQuantity > 0)) {
+                        return sum + m.totalAmount
                       }
-                    }}
-                  />
-                  <Label htmlFor="hide-zero"><DualText k="reports.hideZero" /></Label>
-                </div>
-
-                <div className="flex items-center space-x-2 space-x-reverse">
-                  <Switch
-                    id="show-out-of-stock"
-                    checked={showOnlyOutOfStock}
-                    onCheckedChange={(v) => {
-                      setShowOnlyOutOfStock(v)
-                      if (v) {
-                        setHideZeroStock(false)
-                        setShowLowStockOnly(false)
+                      return sum
+                    }, 0).toFixed(2)}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground"><DualText k="reports.totalDecrease" fallback="إجمالي النقص" /></CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-red-600">
+                    {filteredStockMovements.reduce((sum, m) => {
+                      if (m.type === 'issue' || (m.type === 'adjustment' && m.totalQuantity < 0)) {
+                        return sum + m.totalAmount
                       }
-                    }}
-                  />
-                  <Label htmlFor="show-out-of-stock"><DualText k="reports.showOnlyOutOfStock" /></Label>
-                </div>
+                      return sum
+                    }, 0).toFixed(2)}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground"><DualText k="reports.closingBalance" fallback="رصيد النهاية" /></CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {filteredStockMovements.length > 0
+                      ? filteredStockMovements[0].inventoryValueAfter?.toFixed(2)
+                      : (stockMovements.length > 0 ? stockMovements[0].inventoryValueAfter?.toFixed(2) : "0.00")}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
-                <div className="flex items-center space-x-2 space-x-reverse">
-                  <Switch
-                    id="show-low-stock"
-                    checked={showLowStockOnly}
-                    onCheckedChange={(v) => {
-                      setShowLowStockOnly(v)
-                      if (v) {
-                        setHideZeroStock(false)
-                        setShowOnlyOutOfStock(false)
-                      }
-                    }}
-                  />
-                  <Label htmlFor="show-low-stock"><DualText k="reports.showLowStockOnly" /></Label>
-                </div>
+          {shouldShow('reportsPage.stockMovementTable') && <StockMovementReportTable movements={filteredStockMovements} limit={1000} />}
 
-                <div className="flex items-center space-x-2 space-x-reverse">
-                  <Switch id="merge-identical" checked={mergeIdentical} onCheckedChange={setMergeIdentical} />
-                  <Label htmlFor="merge-identical"><DualText k="reports.mergeIdentical" /></Label>
-                </div>
+          {shouldShow('reportsPage.inventoryAnalysis') && <InventoryMovementAnalysis products={filteredProducts} />}
 
-                <div className="flex items-center gap-2">
-                  <Label htmlFor="threshold" className="whitespace-nowrap"><DualText k="reports.bestSellerThreshold" /></Label>
-                  <input
-                    id="threshold"
-                    type="number"
-                    min="1"
-                    value={bestSellerThreshold}
-                    onChange={(e) => setBestSellerThreshold(Number(e.target.value))}
-                    className="w-20 h-8 rounded-md border border-input bg-background px-2 text-sm"
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          {shouldShow('reportsPage.charts') && (
+            <div className="grid gap-4 md:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle><DualText k="reports.salesPurchases" /></CardTitle>
+                  <CardDescription><DualText k="reports.salesPurchases.desc" /></CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <SalesChart transactions={filteredTransactions} period={period} />
+                </CardContent>
+              </Card>
 
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium"><DualText k="reports.totalSales" /></CardTitle>
-                <TrendingUp className="h-4 w-4 text-green-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{financialSummary.totalSales.toFixed(2)} {t("common.currency")}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {filteredTransactions.filter((t) => t.type === "sale").length} <DualText k="reports.sales.operations" />
-                </p>
-              </CardContent>
-            </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle><DualText k="reports.byCategory" /></CardTitle>
+                  <CardDescription><DualText k="reports.byCategory.desc" /></CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <CategoryChart products={filteredProducts} />
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium"><DualText k="reports.totalPurchases" /></CardTitle>
-                <TrendingDown className="h-4 w-4 text-red-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{financialSummary.totalPurchases.toFixed(2)} {t("common.currency")}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {filteredTransactions.filter((t) => t.type === "purchase").length} <DualText k="reports.purchases.operations" />
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium"><DualText k="reports.netProfit" /></CardTitle>
-                <DollarSign className="h-4 w-4 text-primary" />
-              </CardHeader>
-              <CardContent>
-                <div
-                  className={`text-2xl font-bold ${financialSummary.profit >= 0 ? "text-green-600" : "text-red-600"}`}
-                >
-                  {financialSummary.profit.toFixed(2)} {t("common.currency")}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">{financialSummary.profit >= 0 ? <DualText k="reports.profit" /> : <DualText k="reports.loss" />}</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium"><DualText k="reports.inventoryValue" /></CardTitle>
-                <Package className="h-4 w-4 text-accent" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{totalInventoryValue.toFixed(2)} {t("common.currency")}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {products.length} <DualText k="common.product" /> ({lowStockCount} <DualText k="common.low" />)
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-4 mb-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground"><DualText k="reports.openingBalance" fallback="رصيد البداية (للفترة)" /></CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {filteredStockMovements.length > 0
-                    ? filteredStockMovements[filteredStockMovements.length - 1].inventoryValueBefore?.toFixed(2)
-                    : (stockMovements.length > 0 ? stockMovements[stockMovements.length - 1].inventoryValueBefore?.toFixed(2) : "0.00")}
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground"><DualText k="reports.totalIncrease" fallback="إجمالي الزيادة" /></CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-600">
-                  {filteredStockMovements.reduce((sum, m) => {
-                    if (m.type === 'purchase' || m.type === 'return' || (m.type === 'adjustment' && m.totalQuantity > 0)) {
-                      return sum + m.totalAmount
-                    }
-                    return sum
-                  }, 0).toFixed(2)}
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground"><DualText k="reports.totalDecrease" fallback="إجمالي النقص" /></CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-red-600">
-                  {filteredStockMovements.reduce((sum, m) => {
-                    if (m.type === 'issue' || (m.type === 'adjustment' && m.totalQuantity < 0)) {
-                      return sum + m.totalAmount
-                    }
-                    return sum
-                  }, 0).toFixed(2)}
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground"><DualText k="reports.closingBalance" fallback="رصيد النهاية" /></CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {filteredStockMovements.length > 0
-                    ? filteredStockMovements[0].inventoryValueAfter?.toFixed(2)
-                    : (stockMovements.length > 0 ? stockMovements[0].inventoryValueAfter?.toFixed(2) : "0.00")}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <StockMovementReportTable movements={filteredStockMovements} limit={1000} />
-
-          <InventoryMovementAnalysis products={filteredProducts} />
-
-          <div className="grid gap-4 md:grid-cols-2">
+          {shouldShow('reportsPage.topProducts') && (
             <Card>
               <CardHeader>
-                <CardTitle><DualText k="reports.salesPurchases" /></CardTitle>
-                <CardDescription><DualText k="reports.salesPurchases.desc" /></CardDescription>
+                <CardTitle><DualText k="reports.topProducts" /></CardTitle>
+                <CardDescription><DualText k="reports.topProducts.desc" /></CardDescription>
               </CardHeader>
               <CardContent>
-                <SalesChart transactions={filteredTransactions} period={period} />
+                <TopProductsTable
+                  transactions={filteredTransactions}
+                  products={filteredProducts}
+                  period={period}
+                  threshold={bestSellerThreshold}
+                />
               </CardContent>
             </Card>
+          )}
 
+          {shouldShow('reportsPage.lowStockAlerts') && (
             <Card>
               <CardHeader>
-                <CardTitle><DualText k="reports.byCategory" /></CardTitle>
-                <CardDescription><DualText k="reports.byCategory.desc" /></CardDescription>
+                <CardTitle className="text-destructive"><DualText k="reports.lowStockAlerts" /></CardTitle>
+                <CardDescription><DualText k="reports.lowStockAlertsDesc" /></CardDescription>
               </CardHeader>
               <CardContent>
-                <CategoryChart products={filteredProducts} />
+                <LowStockReportTable products={filteredProducts} />
               </CardContent>
             </Card>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle><DualText k="reports.topProducts" /></CardTitle>
-              <CardDescription><DualText k="reports.topProducts.desc" /></CardDescription>
-            </CardHeader>
-            <CardContent>
-              <TopProductsTable
-                transactions={filteredTransactions}
-                products={filteredProducts}
-                period={period}
-                threshold={bestSellerThreshold}
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-destructive"><DualText k="reports.lowStockAlerts" /></CardTitle>
-              <CardDescription><DualText k="reports.lowStockAlertsDesc" /></CardDescription>
-            </CardHeader>
-            <CardContent>
-              <LowStockReportTable products={filteredProducts} />
-            </CardContent>
-          </Card>
+          )}
         </div>
       </main>
     </div>

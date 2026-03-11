@@ -62,6 +62,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Header } from "@/components/header"
+import { useGranularPermissions } from "@/hooks/use-granular-permissions"
 
 
 export default function PurchasesPage() {
@@ -70,6 +71,7 @@ export default function PurchasesPage() {
   const { toast } = useToast()
   const { user } = useAuth()
   const router = useRouter()
+  const { shouldShow } = useGranularPermissions()
 
   useEffect(() => {
     if ((user as any)?.role === 'branch') {
@@ -300,27 +302,36 @@ export default function PurchasesPage() {
             </div>
             <div className="flex gap-2 items-center flex-wrap">
               <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleRestorePurchases} />
-              <Button variant="ghost" size="icon" onClick={() => fileInputRef.current?.click()} title={t("common.restore", "استعادة")}>
-                <Undo2 className="h-4 w-4 rotate-180" style={{ transform: 'scaleX(-1)' }} />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={handleBackupPurchases} title={t("common.backup", "نسخ احتياطي")}>
-                <Download className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={handleFactoryResetPurchases} title={t("common.reset", "استعادة ضبط المصنع")} className="text-red-500 hover:text-red-700 hover:bg-red-50 mr-2">
-                <Undo2 className="h-4 w-4" />
-              </Button>
-              <Button onClick={() => setIsReceivingNoteOpen(true)} variant="outline" className="gap-2 border-primary/20 hover:bg-primary/5 transition-all text-sm font-semibold h-10 px-4 rounded-xl">
-                <Truck className="h-4 w-4 text-primary" />
-                سند استلام بضاعة / GRN
-              </Button>
-              <ReceivingNoteDialog open={isReceivingNoteOpen} onOpenChange={setIsReceivingNoteOpen} />
-              <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button onClick={() => { setCartItems([]); setGeneralNotes(""); setSupplierName(""); setSupplierInvoiceNumber(""); setIsDialogOpen(true); setShowQuickAdd(false); }}>
-                    <Plus className="ml-2 h-4 w-4" />
-                    إضافة عملية شراء / Add Purchase
+              {shouldShow('purchasesPage.quickActions') && (
+                <>
+                  <Button variant="ghost" size="icon" onClick={() => fileInputRef.current?.click()} title={t("common.restore", "استعادة")}>
+                    <Undo2 className="h-4 w-4 rotate-180" style={{ transform: 'scaleX(-1)' }} />
                   </Button>
-                </DialogTrigger>
+                  <Button variant="ghost" size="icon" onClick={handleBackupPurchases} title={t("common.backup", "نسخ احتياطي")}>
+                    <Download className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={handleFactoryResetPurchases} title={t("common.reset", "استعادة ضبط المصنع")} className="text-red-500 hover:text-red-700 hover:bg-red-50 mr-2">
+                    <Undo2 className="h-4 w-4" />
+                  </Button>
+                </>
+              )}
+              {shouldShow('purchasesPage.addGRN') && (
+                <>
+                  <Button onClick={() => setIsReceivingNoteOpen(true)} variant="outline" className="gap-2 border-primary/20 hover:bg-primary/5 transition-all text-sm font-semibold h-10 px-4 rounded-xl">
+                    <Truck className="h-4 w-4 text-primary" />
+                    سند استلام بضاعة / GRN
+                  </Button>
+                  <ReceivingNoteDialog open={isReceivingNoteOpen} onOpenChange={setIsReceivingNoteOpen} />
+                </>
+              )}
+              {shouldShow('purchasesPage.addPurchase') && (
+                <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button onClick={() => { setCartItems([]); setGeneralNotes(""); setSupplierName(""); setSupplierInvoiceNumber(""); setIsDialogOpen(true); setShowQuickAdd(false); }}>
+                      <Plus className="ml-2 h-4 w-4" />
+                      إضافة عملية شراء / Add Purchase
+                    </Button>
+                  </DialogTrigger>
                 <DialogContent className="max-w-[95vw] w-[95vw] sm:max-w-[95vw] h-[95vh] flex flex-col overflow-hidden bg-gray-50/50 p-0">
                   <DialogHeader className="shrink-0 bg-white p-4 pb-4 border-b">
                     <DialogTitle className="text-xl">إضافة عملية شراء جديدة / Add New Purchase</DialogTitle>
@@ -567,46 +578,49 @@ export default function PurchasesPage() {
                     </Button>
                   </DialogFooter>
                 </DialogContent>
-              </Dialog>
+                </Dialog>
+              )}
             </div>
           </div>
 
-          <WarehouseAdvisor />
+          {shouldShow('purchasesPage.warehouseAdvisor') && <WarehouseAdvisor />}
 
-          <div className="grid gap-4 md:grid-cols-3">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium"><DualText k="purchases.metrics.totalPurchases" /></CardTitle>
-                <DollarSign className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{totalPurchases.toFixed(2)} <DualText k="common.currency" /></div>
-                <p className="text-xs text-muted-foreground">{filteredPurchases.length} <DualText k="purchases.metrics.totalPurchases" /></p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium"><DualText k="purchases.metrics.totalQuantity" /></CardTitle>
-                <Package className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{totalQuantity}</div>
-                <p className="text-xs text-muted-foreground"><DualText k="purchases.metrics.unitsPurchased" /></p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium"><DualText k="purchases.metrics.avgPurchaseValue" /></CardTitle>
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {filteredPurchases.length > 0 ? (totalPurchases / filteredPurchases.length).toFixed(2) : "0.00"} <DualText k="common.currency" />
-                </div>
-                <p className="text-xs text-muted-foreground"><DualText k="purchases.metrics.perOperation" /></p>
-              </CardContent>
-            </Card>
-          </div>
+          {shouldShow('purchasesPage.statsCards') && (
+            <div className="grid gap-4 md:grid-cols-3">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium"><DualText k="purchases.metrics.totalPurchases" /></CardTitle>
+                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{totalPurchases.toFixed(2)} <DualText k="common.currency" /></div>
+                  <p className="text-xs text-muted-foreground">{filteredPurchases.length} <DualText k="purchases.metrics.totalPurchases" /></p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium"><DualText k="purchases.metrics.totalQuantity" /></CardTitle>
+                  <Package className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{totalQuantity}</div>
+                  <p className="text-xs text-muted-foreground"><DualText k="purchases.metrics.unitsPurchased" /></p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium"><DualText k="purchases.metrics.avgPurchaseValue" /></CardTitle>
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {filteredPurchases.length > 0 ? (totalPurchases / filteredPurchases.length).toFixed(2) : "0.00"} <DualText k="common.currency" />
+                  </div>
+                  <p className="text-xs text-muted-foreground"><DualText k="purchases.metrics.perOperation" /></p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
           <Card>
             <CardHeader className="pb-3">
@@ -630,13 +644,15 @@ export default function PurchasesPage() {
                     <Receipt className="h-4 w-4" />
                     المشتريات / Purchases
                   </TabsTrigger>
-                  <TabsTrigger value="receiving" className="rounded-lg gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
-                    <Truck className="h-4 w-4" />
-                    سندات الاستلام / GRNs
-                    {receivingNotes.length > 0 && (
-                      <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px] bg-blue-100 text-blue-700 border-none">{receivingNotes.length}</Badge>
-                    )}
-                  </TabsTrigger>
+                  {shouldShow('purchasesPage.historyGRN') && (
+                    <TabsTrigger value="receiving" className="rounded-lg gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                      <Truck className="h-4 w-4" />
+                      سندات الاستلام / GRNs
+                      {receivingNotes.length > 0 && (
+                        <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px] bg-blue-100 text-blue-700 border-none">{receivingNotes.length}</Badge>
+                      )}
+                    </TabsTrigger>
+                  )}
                 </TabsList>
 
                 <TabsContent value="purchases">
@@ -654,7 +670,9 @@ export default function PurchasesPage() {
                           <TableHead className="w-[150px] border-x text-center">المورد / Supplier</TableHead>
                           <TableHead className="w-[120px] border-x text-center">رقم الفاتورة / Inv No.</TableHead>
                           <TableHead className="w-[160px] border-x text-center"><DualText k="purchases.table.date" /></TableHead>
-                          <TableHead className="w-[100px] border-x text-center">الإجراءات / Actions</TableHead>
+                          {(shouldShow('purchasesPage.historyActions.print') || shouldShow('purchasesPage.historyActions.delete')) && (
+                            <TableHead className="w-[100px] border-x text-center">الإجراءات / Actions</TableHead>
+                          )}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -727,37 +745,43 @@ export default function PurchasesPage() {
                                 <TableCell className="text-center">
                                   <span className="text-[10px] text-muted-foreground block">{formatArabicGregorianDateTime(new Date(group[0].createdAt))}</span>
                                 </TableCell>
-                                <TableCell>
-                                  <div className="flex items-center justify-center gap-1">
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-7 w-7 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50"
-                                      onClick={() => generatePurchaseTransactionPDF(group, t("common.lang") as any)}
-                                    >
-                                      <Printer className="h-3.5 w-3.5" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-7 w-7 text-red-400 hover:text-red-700 hover:bg-red-50"
-                                      onClick={() => {
-                                        if (confirm("هل أنت متأكد من حذف هذه المعاملة؟")) {
-                                          group.forEach(purchase => {
-                                            if (user) {
-                                              saveDocument('transactions', { ...purchase, id: purchase.id, _deleted: true })
-                                              removeFromStoreCache('transactions', purchase.id)
-                                            } else {
-                                              deleteTransaction(purchase.id)
+                                 {(shouldShow('purchasesPage.historyActions.print') || shouldShow('purchasesPage.historyActions.delete')) && (
+                                  <TableCell>
+                                    <div className="flex items-center justify-center gap-1">
+                                      {shouldShow('purchasesPage.historyActions.print') && (
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-7 w-7 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50"
+                                          onClick={() => generatePurchaseTransactionPDF(group, t("common.lang") as any)}
+                                        >
+                                          <Printer className="h-3.5 w-3.5" />
+                                        </Button>
+                                      )}
+                                      {shouldShow('purchasesPage.historyActions.delete') && (
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-7 w-7 text-red-400 hover:text-red-700 hover:bg-red-50"
+                                          onClick={() => {
+                                            if (confirm("هل أنت متأكد من حذف هذه المعاملة؟")) {
+                                              group.forEach(purchase => {
+                                                if (user) {
+                                                  saveDocument('transactions', { ...purchase, id: purchase.id, _deleted: true })
+                                                  removeFromStoreCache('transactions', purchase.id)
+                                                } else {
+                                                  deleteTransaction(purchase.id)
+                                                }
+                                              })
                                             }
-                                          })
-                                        }
-                                      }}
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </div>
-                                </TableCell>
+                                          }}
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                )}
                               </TableRow>
                             ))
                         )}

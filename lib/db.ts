@@ -58,6 +58,7 @@ export class InventoryDatabase extends Dexie {
   syncQueue!: Table<any>;
   conflictLogs!: Table<any>;
   changeLogs!: Table<any>;
+  userPreferences!: Table<any>;
   productImages!: Table<{ productId: string; data: string }>;
 
   // Branch Inventory System

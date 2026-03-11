@@ -45,12 +45,14 @@ import {
   exportDetailedBranchesExcel,
   exportMatrixIssuesExcel
 } from "@/lib/issues-excel-generator"
+import { useGranularPermissions } from "@/hooks/use-granular-permissions"
 
 export default function IssuesPage() {
   const settings = useInvoiceSettings()
   const { t, lang } = useI18n()
   const { toast } = useToast()
   const { user } = useAuth()
+  const { shouldShow } = useGranularPermissions()
 
   // Real-time data hooks
   const { data: cloudIssues, loading: issuesLoading } = useIssues()
@@ -703,7 +705,7 @@ export default function IssuesPage() {
       <Header />
 
       <main className="container mx-auto px-4 py-8">
-        {(user as any)?.role !== 'branch' && <AdminAnalyticsDashboard />}
+        {shouldShow('issuesPage.analytics') && (user as any)?.role !== 'branch' && <AdminAnalyticsDashboard />}
 
         <div className="space-y-6">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -712,18 +714,20 @@ export default function IssuesPage() {
               <p className="text-muted-foreground"><DualText k="issues.subtitle" /> (v1.1)</p>
             </div>
             <div className="flex gap-2 flex-wrap">
-              <div className="flex gap-2 mr-2 border-r pr-2">
-                <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleRestoreIssues} />
-                <Button variant="ghost" size="icon" onClick={() => fileInputRef.current?.click()} title={t("common.restore", "استعادة")}>
-                  <Undo2 className="h-4 w-4 rotate-180" style={{ transform: 'scaleX(-1)' }} />
-                </Button>
-                <Button variant="ghost" size="icon" onClick={handleBackupIssues} title={t("common.backup", "نسخ احتياطي")}>
-                  <Download className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="icon" onClick={handleFactoryResetIssues} title={t("common.reset", "استعادة ضبط المصنع")} className="text-red-500 hover:text-red-700 hover:bg-red-50">
-                  <Undo2 className="h-4 w-4" />
-                </Button>
-              </div>
+              {shouldShow('issuesPage.quickActions') && (
+                <div className="flex gap-2 mr-2 border-r pr-2">
+                  <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleRestoreIssues} />
+                  <Button variant="ghost" size="icon" onClick={() => fileInputRef.current?.click()} title={t("common.restore", "استعادة")}>
+                    <Undo2 className="h-4 w-4 rotate-180" style={{ transform: 'scaleX(-1)' }} />
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={handleBackupIssues} title={t("common.backup", "نسخ احتياطي")}>
+                    <Download className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={handleFactoryResetIssues} title={t("common.reset", "استعادة ضبط المصنع")} className="text-red-500 hover:text-red-700 hover:bg-red-50">
+                    <Undo2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
               {sessionBranchId && (
                 <Button asChild variant="secondary">
                   <Link href={`/branch/${sessionBranchId}`}><DualText k="nav.branchRequests" /></Link>
@@ -735,62 +739,68 @@ export default function IssuesPage() {
                   <DualText k="issues.verificationLogs" />
                 </Link>
               </Button>
-              <Button variant="outline" onClick={() => setIsReturnDialogOpen(true)}>
-                <Undo2 className="ml-2 h-4 w-4" />
-                <DualText k="issues.addReturn" />
-              </Button>
+              {shouldShow('issuesPage.addReturn') && (
+                <Button variant="outline" onClick={() => setIsReturnDialogOpen(true)}>
+                  <Undo2 className="ml-2 h-4 w-4" />
+                  <DualText k="issues.addReturn" />
+                </Button>
+              )}
               {hasDrafts && (
                 <Button variant="outline" onClick={() => { setEditingIssue(undefined); setIsIssueDialogOpen(true) }}>
                   <Edit className="ml-2 h-4 w-4" />
                   <DualText k="issues.resumeDraft" />
                 </Button>
               )}
-              <Button onClick={() => setIsIssueDialogOpen(true)}>
-                <Plus className="ml-2 h-4 w-4" />
-                <DualText k="issues.issueProducts" />
-              </Button>
+              {shouldShow('issuesPage.addIssue') && (
+                <Button onClick={() => setIsIssueDialogOpen(true)}>
+                  <Plus className="ml-2 h-4 w-4" />
+                  <DualText k="issues.issueProducts" />
+                </Button>
+              )}
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle suppressHydrationWarning className="text-sm font-medium"><DualText k="issues.metrics.totalIssues" /></CardTitle>
-                <FileText className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatEnglishNumber(totalIssuesValue.toFixed(2))} <DualText k="common.currency" /></div>
-                <p className="text-xs text-muted-foreground">{formatEnglishNumber(filteredIssues.length)} <DualText k="issues.metrics.operationsLabel" /></p>
-                {hasDrafts && (
-                  <div className="mt-2 flex items-center gap-2">
-                    <Badge variant="outline"><DualText k="issues.draftsAvailable" /></Badge>
-                    <Button variant="ghost" size="sm" onClick={() => { setEditingIssue(undefined); setIsIssueDialogOpen(true) }}><DualText k="common.continue" /></Button>
-                    <Button variant="ghost" size="sm" onClick={() => { const drafts = getIssueDrafts(); if (drafts.length) { deleteIssueDraft(drafts[0].id); setHasDrafts(getIssueDrafts().length > 0) } }}><DualText k="issues.deleteDraft" /></Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle suppressHydrationWarning className="text-sm font-medium"><DualText k="issues.metrics.totalReturns" /></CardTitle>
-                <Undo2 className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatEnglishNumber(totalReturnsValue.toFixed(2))} <DualText k="common.currency" /></div>
-                <p className="text-xs text-muted-foreground">{formatEnglishNumber(returns.length)} <DualText k="issues.metrics.returnOperationsLabel" /></p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle suppressHydrationWarning className="text-sm font-medium"><DualText k="issues.metrics.net" /></CardTitle>
-                <Download className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatEnglishNumber((totalIssuesValue - totalReturnsValue).toFixed(2))} <DualText k="common.currency" /></div>
-                <p className="text-xs text-muted-foreground"><DualText k="issues.metrics.afterReturns" /></p>
-              </CardContent>
-            </Card>
-          </div>
+          {shouldShow('issuesPage.statsCards') && (
+            <div className="grid gap-4 md:grid-cols-3">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle suppressHydrationWarning className="text-sm font-medium"><DualText k="issues.metrics.totalIssues" /></CardTitle>
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatEnglishNumber(totalIssuesValue.toFixed(2))} <DualText k="common.currency" /></div>
+                  <p className="text-xs text-muted-foreground">{formatEnglishNumber(filteredIssues.length)} <DualText k="issues.metrics.operationsLabel" /></p>
+                  {hasDrafts && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <Badge variant="outline"><DualText k="issues.draftsAvailable" /></Badge>
+                      <Button variant="ghost" size="sm" onClick={() => { setEditingIssue(undefined); setIsIssueDialogOpen(true) }}><DualText k="common.continue" /></Button>
+                      <Button variant="ghost" size="sm" onClick={() => { const drafts = getIssueDrafts(); if (drafts.length) { deleteIssueDraft(drafts[0].id); setHasDrafts(getIssueDrafts().length > 0) } }}><DualText k="issues.deleteDraft" /></Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle suppressHydrationWarning className="text-sm font-medium"><DualText k="issues.metrics.totalReturns" /></CardTitle>
+                  <Undo2 className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatEnglishNumber(totalReturnsValue.toFixed(2))} <DualText k="common.currency" /></div>
+                  <p className="text-xs text-muted-foreground">{formatEnglishNumber(returns.length)} <DualText k="issues.metrics.returnOperationsLabel" /></p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle suppressHydrationWarning className="text-sm font-medium"><DualText k="issues.metrics.net" /></CardTitle>
+                  <Download className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatEnglishNumber((totalIssuesValue - totalReturnsValue).toFixed(2))} <DualText k="common.currency" /></div>
+                  <p className="text-xs text-muted-foreground"><DualText k="issues.metrics.afterReturns" /></p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
           {(() => {
             const list = getIssueDrafts()
@@ -839,21 +849,25 @@ export default function IssuesPage() {
               <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <CardTitle suppressHydrationWarning><DualText k="issues.table.issues.title" /></CardTitle>
                 <div className="flex flex-col md:flex-row items-stretch md:items-center gap-2 w-full md:w-auto">
-                  <div className="relative w-full md:w-64">
-                    <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      placeholder="Search / بحث في العمليات..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pr-10 w-full"
-                    />
-                  </div>
-                  <Input
-                    placeholder="Invoice No / رقم الفاتورة"
-                    value={invoiceNumberSearch}
-                    onChange={(e) => setInvoiceNumberSearch(e.target.value)}
-                    className="w-full md:w-40"
-                  />
+                  {shouldShow('issuesPage.orderSearch') && (
+                    <>
+                      <div className="relative w-full md:w-64">
+                        <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          placeholder="Search / بحث في العمليات..."
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          className="pr-10 w-full"
+                        />
+                      </div>
+                      <Input
+                        placeholder="Invoice No / رقم الفاتورة"
+                        value={invoiceNumberSearch}
+                        onChange={(e) => setInvoiceNumberSearch(e.target.value)}
+                        className="w-full md:w-40"
+                      />
+                    </>
+                  )}
                   {/* Status Filter Multi-Select */}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -999,7 +1013,13 @@ export default function IssuesPage() {
                       </TableHead>
                       <TableHead className="w-[120px] shrink-0 border-x text-center flex items-center justify-center"><DualText k="issues.table.issues.columns.source" /></TableHead>
                       <TableHead className="w-[150px] shrink-0 border-x text-center flex items-center justify-center"><DualText k="issues.table.issues.columns.notes" /></TableHead>
-                      <TableHead className="text-center w-[280px] shrink-0 border-x flex items-center justify-center"><DualText k="issues.table.issues.columns.actions" /></TableHead>
+                      {(shouldShow('issuesPage.historyActions.deliver') || 
+                        shouldShow('issuesPage.historyActions.print') || 
+                        shouldShow('issuesPage.historyActions.edit') || 
+                        shouldShow('issuesPage.historyActions.exportOdoo') || 
+                        shouldShow('issuesPage.historyActions.delete')) && (
+                        <TableHead className="text-center w-[280px] shrink-0 border-x flex items-center justify-center"><DualText k="issues.table.issues.columns.actions" /></TableHead>
+                      )}
                     </TableRow>
                   </TableHeader>
                   <TableBody style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}>

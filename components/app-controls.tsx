@@ -24,11 +24,13 @@ import { DualText } from "@/components/ui/dual-text"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { hardReset } from "@/lib/storage"
+import { useGranularPermissions } from "@/hooks/use-granular-permissions"
 
 export function AppControls() {
     const { t } = useI18n()
     const router = useRouter()
     const [zoom, setZoom] = useState(100)
+    const { shouldShow } = useGranularPermissions()
 
     const handleRefresh = () => {
         window.location.reload()
@@ -96,10 +98,12 @@ export function AppControls() {
 
                 <DropdownMenuSeparator />
 
-                <DropdownMenuItem onClick={() => router.back()} className="flex items-center gap-2 text-right">
-                    <ChevronRight className="h-4 w-4" />
-                    <DualText k="common.back" />
-                </DropdownMenuItem>
+                {shouldShow('global.backButton') && (
+                    <DropdownMenuItem onClick={() => router.back()} className="flex items-center gap-2 text-right">
+                        <ChevronRight className="h-4 w-4" />
+                        <DualText k="common.back" />
+                    </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => router.forward()} className="flex items-center gap-2 text-right">
                     <ChevronLeft className="h-4 w-4" />
                     <DualText k="common.forward" />

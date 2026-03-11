@@ -20,11 +20,13 @@ import { Header } from "@/components/header"
 import { getVerificationLogs } from "@/lib/storage-verification"
 import type { VerificationLog } from "@/lib/types"
 import { formatArabicGregorianDate } from "@/lib/utils"
+import { useGranularPermissions } from "@/hooks/use-granular-permissions"
 
 export default function VerificationLogsPage() {
   const router = useRouter()
   const [logs, setLogs] = useState<VerificationLog[]>([])
   const [searchTerm, setSearchTerm] = useState("")
+  const { shouldShow } = useGranularPermissions()
 
   useEffect(() => {
     getVerificationLogs().then(logs => {
@@ -46,9 +48,11 @@ export default function VerificationLogsPage() {
       <div className="container mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => router.back()}>
-              <ArrowLeft className="h-6 w-6" />
-            </Button>
+            {shouldShow('global.backButton') && (
+              <Button variant="ghost" size="icon" onClick={() => router.back()}>
+                <ArrowLeft className="h-6 w-6" />
+              </Button>
+            )}
             <div>
               <h1 className="text-2xl font-bold">سجل المطابقات</h1>
               <p className="text-muted-foreground">

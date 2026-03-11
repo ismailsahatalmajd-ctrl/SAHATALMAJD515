@@ -56,6 +56,7 @@ import {
   syncEmployee,
   deleteEmployeeApi,
   syncOvertimeReason,
+  deleteOvertimeReasonApi,
   syncOvertimeEntry,
   deleteOvertimeEntryApi,
   syncAbsenceRecord,
@@ -1950,6 +1951,23 @@ export async function addOvertimeReason(name: string) {
   updateStoreCache('overtimeReasons', newReason)
   if (typeof window !== 'undefined') syncOvertimeReason(newReason).catch(console.error)
   return newReason
+}
+
+export async function updateOvertimeReason(id: string, updates: Partial<OvertimeReason>) {
+  const updated = { ...updates, updatedAt: new Date().toISOString() }
+  await db.overtimeReasons.update(id, updated)
+  const reason = await db.overtimeReasons.get(id)
+  if (reason) {
+    updateStoreCache('overtimeReasons', reason)
+    if (typeof window !== 'undefined') syncOvertimeReason(reason).catch(console.error)
+  }
+  return reason
+}
+
+export async function deleteOvertimeReason(id: string) {
+  await db.overtimeReasons.delete(id)
+  removeFromStoreCache('overtimeReasons', id)
+  if (typeof window !== 'undefined') deleteOvertimeReasonApi(id).catch(console.error)
 }
 
 export async function addOvertimeEntry(entry: Omit<OvertimeEntry, "id" | "createdAt">) {

@@ -841,6 +841,7 @@ export async function deleteAllReceivingNotesApi(ids: string[]) {
 export const syncEmployee = (r: any) => syncRecord(COLLECTIONS.EMPLOYEES, r);
 export const deleteEmployeeApi = (id: string) => deleteRecord(COLLECTIONS.EMPLOYEES, id);
 export const syncOvertimeReason = (r: any) => syncRecord(COLLECTIONS.OVERTIME_REASONS, r);
+export const deleteOvertimeReasonApi = (id: string) => deleteRecord(COLLECTIONS.OVERTIME_REASONS, id);
 export const syncOvertimeEntry = (r: any) => syncRecord(COLLECTIONS.OVERTIME_ENTRIES, r);
 export const deleteOvertimeEntryApi = (id: string) => deleteRecord(COLLECTIONS.OVERTIME_ENTRIES, id);
 export const syncAbsenceRecord = (r: any) => syncRecord(COLLECTIONS.ABSENCE_RECORDS, r);

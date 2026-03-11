@@ -18,8 +18,8 @@ import { useToast } from "@/hooks/use-toast"
 import { DualText, getDualString } from "@/components/ui/dual-text"
 import { useAuth } from "@/components/auth-provider"
 import { 
-  addEmployee, 
-  addOvertimeReason, 
+  addEmployee, updateEmployee, deleteEmployee,
+  addOvertimeReason, updateOvertimeReason, deleteOvertimeReason,
   addOvertimeEntry, deleteOvertimeEntry,
   addAbsenceRecord, deleteAbsenceRecord
 } from "@/lib/storage"
@@ -42,7 +42,7 @@ const deduplicateData = async () => {
   for (const e of emps) {
     const key = e.name.replace(/[^\w\u0600-\u06FF]/g, '') // remove spaces/brackets
     if (seenEmp.has(key)) {
-      await db.employees.delete(e.id)
+      await deleteEmployee(e.id)
     } else {
       seenEmp.add(key)
     }
@@ -53,7 +53,7 @@ const deduplicateData = async () => {
   for (const r of reasons) {
     const key = r.name.replace(/[^\w\u0600-\u06FF]/g, '')
     if (seenReasons.has(key)) {
-      await db.overtimeReasons.delete(r.id)
+      await deleteOvertimeReason(r.id)
     } else {
       seenReasons.add(key)
     }
@@ -271,13 +271,13 @@ export default function EmployeesHREPage() {
 
   const handleUpdateEmployee = async (id: string) => {
     if (!editEmployeeName.trim()) return
-    await db.employees.update(id, { name: editEmployeeName.trim() })
+    await updateEmployee(id, { name: editEmployeeName.trim() })
     setEditingEmployeeId(null)
     toast({ title: "تم التحديث" })
   }
 
   const handleDeleteEmployee = async (id: string) => {
-    if (confirm("حذف الموظف؟")) { await db.employees.delete(id); toast({ title: "تم الحذف" }); }
+    if (confirm("حذف الموظف؟")) { await deleteEmployee(id); toast({ title: "تم الحذف" }); }
   }
 
   const handleAddReason = async () => {
@@ -290,13 +290,13 @@ export default function EmployeesHREPage() {
 
   const handleUpdateReason = async (id: string) => {
     if (!editReasonName.trim()) return
-    await db.overtimeReasons.update(id, { name: editReasonName.trim() })
+    await updateOvertimeReason(id, { name: editReasonName.trim() })
     setEditingReasonId(null)
     toast({ title: "تم التحديث" })
   }
 
   const handleDeleteReason = async (id: string) => {
-    if (confirm("حذف السبب؟")) { await db.overtimeReasons.delete(id); toast({ title: "تم الحذف" }); }
+    if (confirm("حذف السبب؟")) { await deleteOvertimeReason(id); toast({ title: "تم الحذف" }); }
   }
 
   // --- ATTENDANCE STATE & LOGIC ---

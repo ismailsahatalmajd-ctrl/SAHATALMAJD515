@@ -31,6 +31,9 @@ export async function generateOvertimePDF(entry: OvertimeEntry): Promise<void> {
   const empNames = entry.employeeNames || [(entry as any).employeeName].filter(Boolean)
   const reasonsList = entry.reasons || [(entry as any).reason].filter(Boolean)
 
+  // Check if we have individual employee details
+  const hasIndividualDetails = entry.employeeDetails && entry.employeeDetails.length > 0
+
   const html = `
     <html lang="ar" dir="rtl">
       <head>
@@ -103,6 +106,35 @@ export async function generateOvertimePDF(entry: OvertimeEntry): Promise<void> {
 
           .reason-box { padding: 8px; text-align: center; min-height: 40px; font-weight: 700; font-size: 14px; }
 
+          /* Individual employee details styles */
+          .employee-details-table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 10px 0;
+            font-size: 11px;
+          }
+          .employee-details-table th, 
+          .employee-details-table td { 
+            border: 1px solid #000; 
+            padding: 4px; 
+            text-align: center;
+          }
+          .employee-details-table th { 
+            background-color: #1a2a44; 
+            color: white; 
+            font-weight: bold;
+          }
+          .employee-details-table .emp-name { 
+            text-align: right; 
+            font-weight: bold;
+            direction: ltr;
+          }
+          .employee-details-table .emp-reasons { 
+            text-align: right; 
+            font-size: 10px;
+            direction: ltr;
+          }
+
           .approval-box { border: 2.5px solid #1a2a44; margin-bottom: 8px; overflow: hidden; border-radius: 4px; }
           .approval-header { background-color: #1a2a44; color: white; text-align: center; padding: 4px; font-weight: bold; font-size: 13px; border-bottom: 1.5px solid #000; }
           .approval-content { display: flex; flex-direction: column; }
@@ -140,17 +172,74 @@ export async function generateOvertimePDF(entry: OvertimeEntry): Promise<void> {
             <div class="row-value">${convertNumbersToEnglish(formatDate(entry.date))}</div>
             <div class="row-label">تاريخ الطلب / Request Date</div>
           </div>
-          <div class="data-row">
-            <div class="row-value">${convertNumbersToEnglish(entry.fromTime)}</div>
-            <div class="row-label">من الساعة / From Time</div>
-          </div>
-          <div class="data-row">
-            <div class="row-value">${convertNumbersToEnglish(entry.toTime)}</div>
-            <div class="row-label">إلى الساعة / To Time</div>
-          </div>
+          
+          ${!hasIndividualDetails ? `
+            <div class="data-row">
+              <div class="row-value">${convertNumbersToEnglish(entry.fromTime)}</div>
+              <div class="row-label">من الساعة / From Time</div>
+            </div>
+            <div class="data-row">
+              <div class="row-value">${convertNumbersToEnglish(entry.toTime)}</div>
+              <div class="row-label">إلى الساعة / To Time</div>
+            </div>
+          ` : ''}
+          
+          ${hasIndividualDetails ? `
+            <div class="section-title">تفاصيل الساعات الإضافية للموظفين / Individual Employee Overtime Details</div>
+            <table class="employee-details-table">
+              <thead>
+                <tr>
+                  <th>الموظف / Employee</th>
+                  <th>من / From</th>
+                  <th>إلى / To</th>
+                  <th>الساعات / Hours</th>
+                  <th>الأسباب / Reasons</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${entry.employeeDetails?.map(emp => `
+                  <tr>
+                    <td class="emp-name">${emp.employeeName}</td>
+                    <td>${convertNumbersToEnglish(emp.fromTime)}</td>
+                    <td>${convertNumbersToEnglish(emp.toTime)}</td>
+                    <td style="font-weight: bold;">${convertNumbersToEnglish(emp.totalHours)}</td>
+                    <td class="emp-reasons">${emp.reasons.join(" / ")}</td>
+                  </tr>
+                `).join("") || ""}
+              </tbody>
+            </table>
+          ` : ''}
           
           <div class="section-title">سبب الساعات الإضافية / Reason for OverTime</div>
-          <div class="reason-box">${reasonsList.join(" / ")}</div>
+          <div class="reason-box">
+            ${(() => {
+              if (!hasIndividualDetails) {
+                return reasonsList.join(" / ")
+              }
+              
+              // Collect all unique reasons from both general and individual employee reasons
+              const allReasons = new Set<string>()
+              
+              // Add general reasons
+              reasonsList.forEach(reason => allReasons.add(reason))
+              
+              // Add individual employee reasons
+              entry.employeeDetails?.forEach(emp => {
+                emp.reasons.forEach(reason => allReasons.add(reason))
+              })
+              
+              // Convert to array and sort
+              const uniqueReasons = Array.from(allReasons).sort()
+              
+              // Display as numbered list
+              return uniqueReasons.map((reason, index) => 
+                `<div style="margin: 2px 0; font-size: 13px;">
+                  <span style="font-weight: bold;">${index + 1}.</span> 
+                  <span>${reason}</span>
+                </div>`
+              ).join('')
+            })()}
+          </div>
         </div>
 
         <!-- Manager Approval -->
@@ -224,16 +313,31 @@ export async function generateOvertimeReportPDF(entries: OvertimeEntry[], filter
     rowsHtml = entries.map((e) => {
       const eNames = e.employeeNames || [(e as any).employeeName].filter(Boolean)
       const eReasons = e.reasons || [(e as any).reason].filter(Boolean)
-      return `
-        <tr>
-          <td>${convertNumbersToEnglish(e.date || '')}</td>
-          <td style="text-align:right">${eNames.join(", ")}</td>
-          <td>${convertNumbersToEnglish(e.fromTime || '')}</td>
-          <td>${convertNumbersToEnglish(e.toTime || '')}</td>
-          <td style="font-weight:bold">${convertNumbersToEnglish(e.totalHours || 0)}</td>
-          <td style="text-align:right; font-size:10px">${eReasons.join(" / ")}</td>
-        </tr>
-      `
+      
+      // Check if we have individual employee details
+      if (e.employeeDetails && e.employeeDetails.length > 0) {
+        return e.employeeDetails.map(emp => `
+          <tr>
+            <td>${convertNumbersToEnglish(e.date || '')}</td>
+            <td style="text-align:right; font-weight:bold">${emp.employeeName}</td>
+            <td>${convertNumbersToEnglish(emp.fromTime)}</td>
+            <td>${convertNumbersToEnglish(emp.toTime)}</td>
+            <td style="font-weight:bold">${convertNumbersToEnglish(emp.totalHours)}</td>
+            <td style="text-align:right; font-size:10px">${emp.reasons.join(" / ")}</td>
+          </tr>
+        `).join("")
+      } else {
+        return `
+          <tr>
+            <td>${convertNumbersToEnglish(e.date || '')}</td>
+            <td style="text-align:right">${eNames.join(", ")}</td>
+            <td>${convertNumbersToEnglish(e.fromTime || '')}</td>
+            <td>${convertNumbersToEnglish(e.toTime || '')}</td>
+            <td style="font-weight:bold">${convertNumbersToEnglish(e.totalHours || 0)}</td>
+            <td style="text-align:right; font-size:10px">${eReasons.join(" / ")}</td>
+          </tr>
+        `
+      }
     }).join("")
   } else {
     tableHeader = `
@@ -247,33 +351,73 @@ export async function generateOvertimeReportPDF(entries: OvertimeEntry[], filter
         <th>الأسباب Reasons</th>
       </tr>
     `
-    const allNamesSet = new Set<string>()
+    
+    // Collect all individual employee entries from employeeDetails
+    const allEmployeeEntries: Array<{
+      name: string,
+      date: string,
+      fromTime: string,
+      toTime: string,
+      totalHours: number,
+      reasons: string[]
+    }> = []
+    
     entries.forEach(e => {
+      if (e.employeeDetails && e.employeeDetails.length > 0) {
+        // Use individual details if available
+        e.employeeDetails.forEach(emp => {
+          allEmployeeEntries.push({
+            name: emp.employeeName,
+            date: e.date || '',
+            fromTime: emp.fromTime,
+            toTime: emp.toTime,
+            totalHours: emp.totalHours,
+            reasons: emp.reasons
+          })
+        })
+      } else {
+        // Fallback to old format
         const names = e.employeeNames || [(e as any).employeeName].filter(Boolean)
-        names.forEach(n => allNamesSet.add(n))
+        names.forEach(name => {
+          allEmployeeEntries.push({
+            name,
+            date: e.date || '',
+            fromTime: e.fromTime || '',
+            toTime: e.toTime || '',
+            totalHours: e.totalHours || 0,
+            reasons: e.reasons || [(e as any).reason].filter(Boolean)
+          })
+        })
+      }
     })
-    const nameList = Array.from(allNamesSet).sort()
+    
+    // Group by employee name
+    const nameGroups = allEmployeeEntries.reduce((groups, entry) => {
+      if (!groups[entry.name]) {
+        groups[entry.name] = []
+      }
+      groups[entry.name].push(entry)
+      return groups
+    }, {} as Record<string, typeof allEmployeeEntries>)
+    
+    const nameList = Object.keys(nameGroups).sort()
 
     nameList.forEach(name => {
-        const empEntries = entries.filter(e => {
-            const names = e.employeeNames || [(e as any).employeeName].filter(Boolean)
-            return names.includes(name)
-        }).sort((a,b) => (a.date || '').localeCompare(b.date || ''))
+        const empEntries = nameGroups[name].sort((a,b) => a.date.localeCompare(b.date))
         
         if (empEntries.length === 0) return
-        const empTotal = empEntries.reduce((sum, e) => sum + (e.totalHours || 0), 0)
+        const empTotal = empEntries.reduce((sum, e) => sum + e.totalHours, 0)
 
         empEntries.forEach((e, idx) => {
-            const eReasons = e.reasons || [(e as any).reason].filter(Boolean)
             rowsHtml += `
                 <tr>
-                    <td>${convertNumbersToEnglish(e.date || '')}</td>
+                    <td>${convertNumbersToEnglish(e.date)}</td>
                     ${idx === 0 ? `<td rowspan="${empEntries.length}" style="font-weight:bold; background:#fff; font-size:12px; text-align:left; direction:ltr;">${name}</td>` : ''}
-                    <td>${convertNumbersToEnglish(e.fromTime || '')}</td>
-                    <td>${convertNumbersToEnglish(e.toTime || '')}</td>
-                    <td>${convertNumbersToEnglish(e.totalHours || 0)}</td>
+                    <td>${convertNumbersToEnglish(e.fromTime)}</td>
+                    <td>${convertNumbersToEnglish(e.toTime)}</td>
+                    <td>${convertNumbersToEnglish(e.totalHours)}</td>
                     ${idx === 0 ? `<td rowspan="${empEntries.length}" style="font-size: 16px; font-weight: 900; background: #fff; color: #1a2a44;">${convertNumbersToEnglish(empTotal)}</td>` : ''}
-                    <td style="text-align:right; font-size:10px">${eReasons.join(" / ")}</td>
+                    <td style="text-align:right; font-size:10px">${e.reasons.join(" / ")}</td>
                 </tr>
             `
         })

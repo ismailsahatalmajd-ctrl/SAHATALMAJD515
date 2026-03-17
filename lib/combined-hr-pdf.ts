@@ -150,13 +150,32 @@ export async function generateCombinedReportsPDF(
     // Detailed Report
     contentHtml = employeesData.map((emp, index) => {
       const otRowsHtml = emp.overtimeEntries.length > 0 ? emp.overtimeEntries.map(e => {
-        const eReasons = e.reasons || [(e as any).reason].filter(Boolean)
+        // Check for employee-specific details
+        let displayFrom = e.fromTime || ''
+        let displayTo = e.toTime || ''
+        let displayHours = e.totalHours || 0
+        let displayReasons = e.reasons || [(e as any).reason].filter(Boolean)
+
+        if (e.employeeDetails && e.employeeDetails.length > 0) {
+          const empDetail = e.employeeDetails.find(d => 
+            d.employeeName === emp.name || 
+            d.employeeName.includes(emp.name) || 
+            emp.name.includes(d.employeeName)
+          )
+          if (empDetail) {
+            displayFrom = empDetail.fromTime
+            displayTo = empDetail.toTime
+            displayHours = empDetail.totalHours
+            displayReasons = empDetail.reasons
+          }
+        }
+
         return `
           <tr>
             <td>${convertNumbersToEnglish(e.date || '')}</td>
-            <td style="direction: ltr;">${convertNumbersToEnglish(e.fromTime || '')} - ${convertNumbersToEnglish(e.toTime || '')}</td>
-            <td style="font-weight:bold;">${convertNumbersToEnglish(e.totalHours || 0)}</td>
-            <td style="font-size: 11px;">${eReasons.join(" / ")}</td>
+            <td style="direction: ltr;">${convertNumbersToEnglish(displayFrom)} - ${convertNumbersToEnglish(displayTo)}</td>
+            <td style="font-weight:bold;">${convertNumbersToEnglish(displayHours)}</td>
+            <td style="font-size: 11px;">${displayReasons.join(" / ")}</td>
           </tr>
         `
       }).join("") : '<tr><td colspan="4" style="text-align:center; padding: 15px;">لا يوجد سجل إضافي هذا الشهر</td></tr>'
@@ -166,7 +185,11 @@ export async function generateCombinedReportsPDF(
           <td>${convertNumbersToEnglish(r.date)}</td>
           <td>${typeLabelsAr[r.type] || r.type}</td>
           <td>${categoryLabelsAr[r.category] || r.category}</td>
-          <td style="font-size: 11px;">${r.notes || "-"}</td>
+          <td style="font-size: 11px;">
+            ${r.excuse ? `<div style="font-weight:bold; color:#1e3a8a;">العذر: ${r.excuse}</div>` : ''}
+            ${r.notes || "-"}
+            ${r.attachmentUrl ? `<div style="margin-top:5px;"><img src="${r.attachmentUrl}" style="max-width:150px; max-height:100px; border:1px solid #eee; border-radius:4px;" /></div>` : ''}
+          </td>
         </tr>
       `).join("") : '<tr><td colspan="4" style="text-align:center; padding: 15px;">لا توجد غيابات أو إجازات هذا الشهر</td></tr>'
 

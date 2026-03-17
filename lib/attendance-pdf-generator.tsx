@@ -27,20 +27,20 @@ function openPrintWindow(html: string, title: string) {
 }
 
 const typeLabelsAr: Record<string, string> = {
-  absence: "غياب",
-  leave: "إجازة",
-  official_event: "مناسبة رسمية"
+  absence: "غياب / Absence",
+  leave: "إجازة / Leave",
+  official_event: "مناسبة رسمية / Official Event"
 }
 
 const categoryLabelsAr: Record<string, string> = {
-  unexcused: "بدون عذر",
-  excused: "بعذر",
-  sick: "مرضي",
-  official: "رسمية",
-  eid: "عيد",
-  national: "يوم وطني",
-  work_visit: "زيارة عمل",
-  training: "تدريب"
+  unexcused: "بدون عذر / Unexcused",
+  excused: "بعذر / Excused",
+  sick: "مرضي / Sick",
+  official: "رسمية / Official",
+  eid: "عيد / Eid",
+  national: "يوم وطني / National Day",
+  work_visit: "زيارة عمل / Work Visit",
+  training: "تدريب / Training"
 }
 
 export async function generateAttendancePDF(record: AbsenceRecord): Promise<void> {
@@ -86,6 +86,7 @@ export async function generateAttendancePDF(record: AbsenceRecord): Promise<void
               <th>التاريخ / Date</th>
               <th>النوع / Record Type</th>
               <th>التصنيف / Category</th>
+              <th>العذر / Excuse</th>
               <th>ملاحظات / Notes</th>
             </tr>
           </thead>
@@ -95,10 +96,18 @@ export async function generateAttendancePDF(record: AbsenceRecord): Promise<void
               <td>${convertNumbersToEnglish(record.date)}</td>
               <td>${typeLabelsAr[record.type] || record.type}</td>
               <td>${categoryLabelsAr[record.category] || record.category}</td>
-              <td>${record.notes || "لا يوجد"}</td>
+              <td>${record.excuse || "-"}</td>
+              <td>${record.notes || "لا يوجد / None"}</td>
             </tr>
           </tbody>
         </table>
+
+        ${record.attachmentUrl ? `
+        <div style="margin-top: 20px; text-align: center;">
+          <div style="font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 5px;">المرفقات / Attachment:</div>
+          <img src="${record.attachmentUrl}" style="max-width: 100%; max-height: 400px; border: 1px solid #ccc; border-radius: 8px; padding: 5px;" />
+        </div>
+        ` : ''}
 
         <div class="footer">
           <div class="signature">توقيع الموظف / Employee</div>
@@ -120,7 +129,11 @@ export async function generateAttendanceReportPDF(records: AbsenceRecord[], filt
       <td>${convertNumbersToEnglish(r.date)}</td>
       <td>${typeLabelsAr[r.type] || r.type}</td>
       <td>${categoryLabelsAr[r.category] || r.category}</td>
-      <td>${r.notes || "-"}</td>
+      <td>
+        ${r.excuse ? `<div style="font-weight:bold;">العذر: ${r.excuse}</div>` : ''}
+        ${r.notes || "-"}
+        ${r.attachmentUrl ? `<div style="color: blue; font-size: 10px;">[يوجد مرفق / Has Attachment]</div>` : ''}
+      </td>
     </tr>
   `).join("")
 

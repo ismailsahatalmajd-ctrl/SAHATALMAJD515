@@ -33,6 +33,7 @@ export interface Product {
   isLowStock?: boolean // Flag for low stock status
   lowStockDetectedAt?: string // Timestamp when low stock was detected
   lastActivity?: string // Added last activity date
+  status?: string // Turnover status: fast | normal | slow | stagnant | new
   createdAt: string
   updatedAt: string
   lastModifiedBy?: string
@@ -647,15 +648,25 @@ export interface OvertimeEntry {
   date: string
   fromTime: string
   toTime: string
-  totalHours: number // Hours per person
-  grandTotalHours: number // Total hours for the group (hours * count)
-  reasons: string[]
+  totalHours: number // Hours per person (deprecated - use employeeDetails)
+  grandTotalHours: number // Total hours for the group (deprecated - calculate from employeeDetails)
+  reasons: string[] // (deprecated - use employeeDetails)
+  employeeDetails?: EmployeeOvertimeDetail[] // New field for per-employee details
   status: 'pending' | 'approved' | 'rejected'
   createdAt: string
   updatedAt?: string
   approvedBy?: string
   approvalNotes?: string
   branchId?: string
+}
+
+export interface EmployeeOvertimeDetail {
+  employeeId: string
+  employeeName: string
+  fromTime: string
+  toTime: string
+  totalHours: number
+  reasons: string[]
 }
 
 export interface AbsenceRecord {
@@ -665,6 +676,8 @@ export interface AbsenceRecord {
   date: string
   type: 'absence' | 'leave' | 'official_event' // غياب، إجازة، مناسبة رسمية
   category: string // بعذر، بدون عذر، مرضية، عيد، إلخ
+  excuse?: string // نص العذر
+  attachmentUrl?: string // رابط الصورة المرفقة
   notes?: string
   status: 'pending' | 'approved' | 'rejected'
   createdAt: string

@@ -192,28 +192,125 @@ export async function exportMatrixIssuesExcel(issues: Issue[], products: Product
     worksheet.views = [{ rightToLeft: true }];
 
     const branchNames = Array.from(new Set(issues.map(i => i.branchName))).sort();
-    const productMap = new Map<string, { [branchSelector: string]: number }>();
+    const productMap = new Map<string, { 
+        branchQuantities: { [branchName: string]: number },
+        unitPrice?: number
+    }>();
 
     issues.forEach(issue => {
         issue.products.forEach(ip => {
-            const counts = productMap.get(ip.productName) || {};
-            counts[issue.branchName] = (counts[issue.branchName] || 0) + ip.quantity;
-            productMap.set(ip.productName, counts);
+            const existing = productMap.get(ip.productName);
+            
+            if (existing) {
+                existing.branchQuantities[issue.branchName] = (existing.branchQuantities[issue.branchName] || 0) + ip.quantity;
+                // Store unit price if not already set
+                if (!existing.unitPrice && ip.unitPrice) {
+                    existing.unitPrice = ip.unitPrice;
+                }
+            } else {
+                productMap.set(ip.productName, {
+                    branchQuantities: { [issue.branchName]: ip.quantity },
+                    unitPrice: ip.unitPrice
+                });
+            }
         });
     });
 
-    // Headers: [Name, Branch1, Branch2, ...]
-    const headers = ['اسم المنتج', ...branchNames];
+    // Headers: [#, Name, Branch1, Branch2, ..., Total Qty, Total Cost, Total Value]
+    const headers = [
+        'م / #',
+        'اسم المنتج', 
+        ...branchNames,
+        'المجموع',
+        'اجمالي التكلفة',
+        'القيمة الإجمالية'
+    ];
     const headerRow = worksheet.addRow(headers);
     headerRow.font = { bold: true };
+    headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE0E0E0' }
+    };
+    headerRow.alignment = { horizontal: 'center' };
 
+    // Branch totals for summary row
+    const branchTotals: { [branchName: string]: number } = {};
+    branchNames.forEach(name => branchTotals[name] = 0);
+
+    let rowIndex = 1;
     for (const [productName, counts] of productMap.entries()) {
-        const row: (string | number)[] = [productName];
+        const row: (string | number)[] = [rowIndex++, productName];
+        
+        let totalQty = 0;
         branchNames.forEach(bn => {
-            row.push(counts[bn] || 0);
+            const qty = counts.branchQuantities[bn] || 0;
+            row.push(qty);
+            totalQty += qty;
+            branchTotals[bn] += qty;
         });
+        
+        const totalCost = counts.unitPrice ? totalQty * counts.unitPrice : 0;
+        const totalValue = totalCost; // Same as total cost for now
+        
+        row.push(totalQty, totalCost, totalValue);
         worksheet.addRow(row);
     }
+
+    // Add empty row
+    worksheet.addRow([]);
+
+    // Add total quantity per branch row
+    const totalQtyRow: (string | number)[] = ['مجموع للفرع', ''];
+    branchNames.forEach(bn => {
+        totalQtyRow.push(branchTotals[bn]);
+    });
+    totalQtyRow.push(''); // For total quantity column
+    totalQtyRow.push(''); // For total cost column
+    totalQtyRow.push(Object.values(branchTotals).reduce((sum, qty) => sum + qty, 0)); // Grand total quantity
+    const qtyRow = worksheet.addRow(totalQtyRow);
+    qtyRow.font = { bold: true };
+    qtyRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFFFFF00' } // Yellow
+    };
+    qtyRow.alignment = { horizontal: 'center' };
+
+    // Add total value per branch row
+    const totalValueRow: (string | number)[] = ['اجمالي القيمة للفرع', ''];
+    let grandTotalValue = 0;
+    branchNames.forEach(bn => {
+        let branchValue = 0;
+        for (const [productName, counts] of productMap.entries()) {
+            const qty = counts.branchQuantities[bn] || 0;
+            if (counts.unitPrice) {
+                branchValue += qty * counts.unitPrice;
+            }
+        }
+        totalValueRow.push(branchValue);
+        grandTotalValue += branchValue;
+    });
+    totalValueRow.push(''); // For total quantity column
+    totalValueRow.push(''); // For total cost column
+    totalValueRow.push(grandTotalValue); // Grand total value
+    const valueRow = worksheet.addRow(totalValueRow);
+    valueRow.font = { bold: true };
+    valueRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE6E6FA' } // Light purple
+    };
+    valueRow.alignment = { horizontal: 'center' };
+
+    // Auto-fit columns
+    worksheet.columns.forEach((column, index) => {
+        if (index === 1) {
+            column.width = 30; // Product name column
+        } else {
+            column.width = 15;
+        }
+    });
 
     const buffer = await workbook.xlsx.writeBuffer();
     saveAsExcel(buffer, `مصفوفة_المصروفات_${new Date().toISOString().split('T')[0]}.xlsx`);

@@ -43,7 +43,8 @@ import * as XLSX from 'xlsx'
 import {
   exportMergedIssuesExcel,
   exportDetailedBranchesExcel,
-  exportMatrixIssuesExcel
+  exportMatrixIssuesExcel,
+  exportFrequencyAnalysisExcel
 } from "@/lib/issues-excel-generator"
 import { useGranularPermissions } from "@/hooks/use-granular-permissions"
 
@@ -968,6 +969,12 @@ export default function IssuesPage() {
                             exportMatrixIssuesExcel(toExport, products)
                           }}>
                             مصفوفة الاستهلاك (Consumption Matrix)
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => {
+                            const toExport = issues.filter(i => selectedIssueIds.includes(i.id))
+                            exportFrequencyAnalysisExcel(toExport, products)
+                          }}>
+                            تحليل تكرار الطلب (Order Frequency Analysis)
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => {

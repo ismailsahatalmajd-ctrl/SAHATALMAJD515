@@ -111,6 +111,12 @@ export function formatArabicGregorianDateTime(date: Date): string {
   return `${datePart} ${timePart}`
 }
 
+// Format date, time, and day of week for detailed reports
+export function formatArabicGregorianDateTimeWithDay(date: Date): string {
+  const dayName = date.toLocaleDateString("ar-u-ca-gregory-nu-latn", { weekday: "long" })
+  return `${dayName} ${formatArabicGregorianDateTime(date)}`
+}
+
 // Ensure numbers render with English digits across UI
 export function formatEnglishNumber(value: number | string): string {
   const num = typeof value === "number" ? value : Number(String(value).replace(/[^\d.-]/g, ""))

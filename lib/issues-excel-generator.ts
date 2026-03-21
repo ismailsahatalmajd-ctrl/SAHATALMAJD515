@@ -1,6 +1,6 @@
 import * as ExcelJS from 'exceljs';
 import type { Issue, IssueProduct, Product } from './types';
-import { formatArabicGregorianDateTime } from './utils';
+import { formatArabicGregorianDateTime, formatArabicGregorianDateTimeWithDay } from './utils';
 
 /**
  * Generates Excel files for Warehouse Issues (المصروفات)
@@ -139,14 +139,55 @@ export async function exportMergedIssuesExcel(issues: Issue[], products: Product
  */
 export async function exportDetailedBranchesExcel(issues: Issue[], products: Product[]) {
     const workbook = new ExcelJS.Workbook();
+    
+    // 1. All Branches Sheet (First)
+    const allSheet = workbook.addWorksheet('جميع الفروع');
+    allSheet.views = [{ rightToLeft: true }];
+    const allHeaders = ['م', 'اسم الفرع', 'كود المنتج', 'اسم المنتج', 'الكمية', 'السعر', 'الإجمالي', 'التاريخ'];
+    const allHeaderRow = allSheet.addRow(allHeaders);
+    allHeaderRow.font = { bold: true };
+    allHeaderRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE0E0E0' }
+    };
+
+    let allIdx = 1;
+    let allGrandTotal = 0;
+
+    // 2. Individual Sheets Data Collection
     const branchMap = new Map<string, Issue[]>();
 
-    issues.forEach(issue => {
+    issues.sort((a, b) => new Date(a.deliveredAt || a.createdAt).getTime() - new Date(b.deliveredAt || b.createdAt).getTime()).forEach(issue => {
         const list = branchMap.get(issue.branchName) || [];
         list.push(issue);
         branchMap.set(issue.branchName, list);
+
+        // Populate All Branches Sheet
+        issue.products.forEach(ip => {
+            const total = ip.totalPrice || (ip.quantity * ip.unitPrice);
+            allGrandTotal += total;
+            allSheet.addRow([
+                allIdx++,
+                issue.branchName,
+                ip.productCode,
+                ip.productName,
+                ip.quantity,
+                ip.unitPrice,
+                total,
+                formatArabicGregorianDateTimeWithDay(new Date(issue.deliveredAt || issue.createdAt))
+            ]);
+        });
     });
 
+    allSheet.addRow([]);
+    allSheet.addRow(['', '', '', '', '', '', 'الإجمالي العام:', allGrandTotal]).font = { bold: true };
+    allSheet.columns.forEach(column => {
+        column.width = 20;
+        if (column.number === 4) column.width = 35; // Product Name
+    });
+
+    // 3. Create Individual Sheets
     for (const [branchName, branchIssues] of branchMap.entries()) {
         const safeName = branchName.slice(0, 31).replace(/[\\\/\?\*\[\]]/g, '');
         const worksheet = workbook.addWorksheet(safeName || 'Branch');
@@ -155,6 +196,11 @@ export async function exportDetailedBranchesExcel(issues: Issue[], products: Pro
         const headers = ['م', 'كود المنتج', 'اسم المنتج', 'الكمية', 'السعر', 'الإجمالي', 'التاريخ'];
         const headerRow = worksheet.addRow(headers);
         headerRow.font = { bold: true };
+        headerRow.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFE0E0E0' }
+        };
 
         let idx = 1;
         let branchTotal = 0;
@@ -170,13 +216,17 @@ export async function exportDetailedBranchesExcel(issues: Issue[], products: Pro
                     ip.quantity,
                     ip.unitPrice,
                     total,
-                    formatArabicGregorianDateTime(new Date(issue.createdAt))
+                    formatArabicGregorianDateTimeWithDay(new Date(issue.deliveredAt || issue.createdAt))
                 ]);
             });
         });
 
         worksheet.addRow([]);
         worksheet.addRow(['', '', '', '', 'إجمالي الفرع:', branchTotal]).font = { bold: true };
+        worksheet.columns.forEach(column => {
+            column.width = 20;
+            if (column.number === 3) column.width = 35; // Product Name
+        });
     }
 
     const buffer = await workbook.xlsx.writeBuffer();
@@ -192,34 +242,52 @@ export async function exportMatrixIssuesExcel(issues: Issue[], products: Product
     worksheet.views = [{ rightToLeft: true }];
 
     const branchNames = Array.from(new Set(issues.map(i => i.branchName))).sort();
-    const productMap = new Map<string, { 
-        branchQuantities: { [branchName: string]: number },
-        unitPrice?: number
+    const productMap = new Map<string, {
+        productCode: string;
+        category: string;
+        location: string;
+        lastDeliveredAt?: string;
+        branchQuantities: { [branchName: string]: number };
+        branchValues: { [branchName: string]: number };
     }>();
 
     issues.forEach(issue => {
         issue.products.forEach(ip => {
+            const product = products.find(p => p.id === ip.productId);
             const existing = productMap.get(ip.productName);
-            
+
+            const itemValue = ip.totalPrice || (ip.quantity * ip.unitPrice) || 0;
+
             if (existing) {
                 existing.branchQuantities[issue.branchName] = (existing.branchQuantities[issue.branchName] || 0) + ip.quantity;
-                // Store unit price if not already set
-                if (!existing.unitPrice && ip.unitPrice) {
-                    existing.unitPrice = ip.unitPrice;
+                existing.branchValues[issue.branchName] = (existing.branchValues[issue.branchName] || 0) + itemValue;
+                
+                // Store latest delivery date
+                const currentIssueDate = issue.deliveredAt || issue.createdAt;
+                if (!existing.lastDeliveredAt || new Date(currentIssueDate) > new Date(existing.lastDeliveredAt)) {
+                    existing.lastDeliveredAt = currentIssueDate;
                 }
             } else {
                 productMap.set(ip.productName, {
+                    productCode: product?.productCode || ip.productCode || '',
+                    category: product?.category || '',
+                    location: product?.location || product?.warehousePositionCode || product?.warehouseLocationId || '',
+                    lastDeliveredAt: issue.deliveredAt || issue.createdAt,
                     branchQuantities: { [issue.branchName]: ip.quantity },
-                    unitPrice: ip.unitPrice
+                    branchValues: { [issue.branchName]: itemValue }
                 });
             }
         });
     });
 
-    // Headers: [#, Name, Branch1, Branch2, ..., Total Qty, Total Cost, Total Value]
+    // Headers: [#, Name, Code, Category, Location, LastDelivered, Branch1, Branch2, ..., Total Qty, Total Cost, Total Value]
     const headers = [
         'م / #',
-        'اسم المنتج', 
+        'اسم المنتج',
+        'كود المنتج',
+        'التصنيف',
+        'الموقع',
+        'تاريخ آخر تسليم',
         ...branchNames,
         'المجموع',
         'اجمالي التكلفة',
@@ -240,20 +308,27 @@ export async function exportMatrixIssuesExcel(issues: Issue[], products: Product
 
     let rowIndex = 1;
     for (const [productName, counts] of productMap.entries()) {
-        const row: (string | number)[] = [rowIndex++, productName];
-        
+        const row: (string | number)[] = [
+            rowIndex++,
+            productName,
+            counts.productCode || '',
+            counts.category || '',
+            counts.location || '',
+            counts.lastDeliveredAt ? formatArabicGregorianDateTime(new Date(counts.lastDeliveredAt)) : '',
+        ];
+        // Add branch quantities
         let totalQty = 0;
+        let totalValue = 0;
         branchNames.forEach(bn => {
             const qty = counts.branchQuantities[bn] || 0;
+            const val = counts.branchValues[bn] || 0;
             row.push(qty);
             totalQty += qty;
+            totalValue += val;
             branchTotals[bn] += qty;
         });
         
-        const totalCost = counts.unitPrice ? totalQty * counts.unitPrice : 0;
-        const totalValue = totalCost; // Same as total cost for now
-        
-        row.push(totalQty, totalCost, totalValue);
+        row.push(totalQty, totalValue, totalValue);
         worksheet.addRow(row);
     }
 
@@ -261,7 +336,7 @@ export async function exportMatrixIssuesExcel(issues: Issue[], products: Product
     worksheet.addRow([]);
 
     // Add total quantity per branch row
-    const totalQtyRow: (string | number)[] = ['مجموع للفرع', ''];
+    const totalQtyRow: (string | number)[] = ['مجموع للفرع', '', '', '', '', ''];
     branchNames.forEach(bn => {
         totalQtyRow.push(branchTotals[bn]);
     });
@@ -278,18 +353,15 @@ export async function exportMatrixIssuesExcel(issues: Issue[], products: Product
     qtyRow.alignment = { horizontal: 'center' };
 
     // Add total value per branch row
-    const totalValueRow: (string | number)[] = ['اجمالي القيمة للفرع', ''];
+    const totalValueRow: (string | number)[] = ['اجمالي القيمة للفرع', '', '', '', '', ''];
     let grandTotalValue = 0;
     branchNames.forEach(bn => {
-        let branchValue = 0;
+        let branchValueSum = 0;
         for (const [productName, counts] of productMap.entries()) {
-            const qty = counts.branchQuantities[bn] || 0;
-            if (counts.unitPrice) {
-                branchValue += qty * counts.unitPrice;
-            }
+            branchValueSum += counts.branchValues[bn] || 0;
         }
-        totalValueRow.push(branchValue);
-        grandTotalValue += branchValue;
+        totalValueRow.push(branchValueSum);
+        grandTotalValue += branchValueSum;
     });
     totalValueRow.push(''); // For total quantity column
     totalValueRow.push(''); // For total cost column
@@ -305,8 +377,10 @@ export async function exportMatrixIssuesExcel(issues: Issue[], products: Product
 
     // Auto-fit columns
     worksheet.columns.forEach((column, index) => {
-        if (index === 1) {
-            column.width = 30; // Product name column
+        if (index === 1) { // Product Name
+            column.width = 30;
+        } else if (index >= 2 && index <= 5) { // Product Code, Category, Location, lastDeliveredAt
+            column.width = 25;
         } else {
             column.width = 15;
         }
@@ -314,6 +388,124 @@ export async function exportMatrixIssuesExcel(issues: Issue[], products: Product
 
     const buffer = await workbook.xlsx.writeBuffer();
     saveAsExcel(buffer, `مصفوفة_المصروفات_${new Date().toISOString().split('T')[0]}.xlsx`);
+}
+
+/**
+ * Report 4: Frequency Analysis (تحليل تكرار الطلب)
+ * Columns: sequence, branch, product name, product code, total times ordered, total qty, order date, order day, order quantity.
+ */
+export async function exportFrequencyAnalysisExcel(issues: Issue[], products: Product[]) {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('تحليل تكرار الطلب');
+    worksheet.views = [{ rightToLeft: true }];
+
+    const headers = [
+        'م / #',
+        'اسم الفرع / Branch Name',
+        'اسم المنتج / Product Name',
+        'كود المنتج / Product Code',
+        'عدد مرات الطلب / Order Frequency',
+        'كمية الطلب / Order Quantity',
+        'إجمالي الكميات / Total Quantities',
+        'تاريخ التسليم / Delivery Date',
+        'يوم التسليم / Delivery Day',
+        'إجمالي طلبات المنتج / Total Product Orders',
+        'إجمالي المنصرف العام / Global Total Issues'
+    ];
+    const headerRow = worksheet.addRow(headers);
+    headerRow.font = { bold: true };
+    headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE0E0E0' }
+    };
+    headerRow.alignment = { horizontal: 'center' };
+
+    // Grouping by Branch + Product
+    const summaryMap = new Map<string, {
+        branchName: string;
+        productName: string;
+        productCode: string;
+        frequency: number;
+        globalFrequency: number;
+        globalTotalQty: number;
+        totalQty: number;
+        orders: { date: string, qty: number }[];
+    }>();
+
+    // Calculate Global Frequency and Quantities first
+    const globalFrequencyMap = new Map<string, number>();
+    const globalQtyMap = new Map<string, number>();
+    issues.forEach(issue => {
+        issue.products.forEach(ip => {
+            const gFreq = globalFrequencyMap.get(ip.productId) || 0;
+            globalFrequencyMap.set(ip.productId, gFreq + 1);
+            
+            const gQty = globalQtyMap.get(ip.productId) || 0;
+            globalQtyMap.set(ip.productId, gQty + ip.quantity);
+        });
+    });
+
+    issues.forEach(issue => {
+        issue.products.forEach(ip => {
+            const key = `${issue.branchName}-${ip.productId}`;
+            const existing = summaryMap.get(key);
+            const orderDate = issue.deliveredAt || issue.createdAt;
+
+            if (existing) {
+                existing.frequency += 1;
+                existing.totalQty += ip.quantity;
+                existing.orders.push({ date: orderDate, qty: ip.quantity });
+            } else {
+                summaryMap.set(key, {
+                    branchName: issue.branchName,
+                    productName: ip.productName,
+                    productCode: ip.productCode || '',
+                    frequency: 1,
+                    globalFrequency: globalFrequencyMap.get(ip.productId) || 1,
+                    globalTotalQty: globalQtyMap.get(ip.productId) || ip.quantity,
+                    totalQty: ip.quantity,
+                    orders: [{ date: orderDate, qty: ip.quantity }]
+                });
+            }
+        });
+    });
+
+    let rowIndex = 1;
+    // Sort summary entries by branch name, then frequency desc
+    const sortedEntries = Array.from(summaryMap.values()).sort((a, b) => {
+        if (a.branchName !== b.branchName) return a.branchName.localeCompare(b.branchName);
+        return b.frequency - a.frequency;
+    });
+
+    sortedEntries.forEach(summary => {
+        // Output one row per order, with summary fields repeating
+        summary.orders.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).forEach(order => {
+            const dateObj = new Date(order.date);
+            worksheet.addRow([
+                rowIndex++,
+                summary.branchName,
+                summary.productName,
+                summary.productCode,
+                summary.frequency,
+                order.qty,
+                summary.totalQty,
+                formatArabicGregorianDateTime(dateObj),
+                dateObj.toLocaleDateString("ar-u-ca-gregory-nu-latn", { weekday: "long" }),
+                summary.globalFrequency,
+                summary.globalTotalQty
+            ]);
+        });
+    });
+
+    // Auto-fit columns
+    worksheet.columns.forEach((column, index) => {
+        column.width = 25;
+        if (index === 2) column.width = 35; // Product Name
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    saveAsExcel(buffer, `تحليل_تكرار_الطلب_${new Date().toISOString().split('T')[0]}.xlsx`);
 }
 
 function saveAsExcel(buffer: ExcelJS.Buffer, filename: string) {

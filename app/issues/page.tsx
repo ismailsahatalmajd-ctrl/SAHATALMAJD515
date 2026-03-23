@@ -44,7 +44,8 @@ import {
   exportMergedIssuesExcel,
   exportDetailedBranchesExcel,
   exportMatrixIssuesExcel,
-  exportFrequencyAnalysisExcel
+  exportFrequencyAnalysisExcel,
+  exportProductMovementAnalysisExcel
 } from "@/lib/issues-excel-generator"
 import { useGranularPermissions } from "@/hooks/use-granular-permissions"
 
@@ -528,15 +529,14 @@ export default function IssuesPage() {
         data.push({
           "id": "",
           "picking_type_id": idx === 0 ? "Internal Transfers" : "",
-          "partner_id": idx === 0 ? "Factory" : "",
-          "location_dest_id": idx === 0 ? "Partners/Customers" : "",
-          "priority": idx === 0 ? "Normal" : "",
-          "scheduled_date": idx === 0 ? new Date(issue.createdAt).toISOString().replace('T', ' ').split('.')[0] : "",
-          "origin": idx === 0 ? (issue.invoiceCode || issue.orderCode || getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))) : "",
           "location_id": idx === 0 ? "MAIN/Stock" : "",
-          "move_line_ids/product_id": `[${ip.productCode}] ${ip.productName}`,
-          "move_line_ids/quantity": ip.quantity,
-          "move_line_ids/product_uom_id": ip.unit || ""
+          "location_dest_id": idx === 0 ? "Factory" : "",
+          "origin": idx === 0 ? (issue.invoiceCode || issue.orderCode || getNumericInvoiceNumber(issue.id, new Date(issue.createdAt))) : "",
+          "scheduled_date": idx === 0 ? new Date(issue.createdAt).toISOString().replace('T', ' ').split('.')[0] : "",
+          "state": idx === 0 ? "draft" : "",
+          "move_ids_without_package/product_id": `[${ip.productCode}] ${ip.productName}`,
+          "move_ids_without_package/product_uom_qty": ip.quantity,
+          "move_ids_without_package/product_uom": "Units"
         })
       })
     })
@@ -975,6 +975,12 @@ export default function IssuesPage() {
                             exportFrequencyAnalysisExcel(toExport, products)
                           }}>
                             تحليل تكرار الطلب (Order Frequency Analysis)
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => {
+                            const toExport = issues.filter(i => selectedIssueIds.includes(i.id))
+                            exportProductMovementAnalysisExcel(toExport, products)
+                          }}>
+                            تحليل حركة المنتجات (Product Movement Analysis)
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => {

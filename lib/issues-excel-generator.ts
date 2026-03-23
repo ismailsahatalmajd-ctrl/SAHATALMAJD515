@@ -386,6 +386,79 @@ export async function exportMatrixIssuesExcel(issues: Issue[], products: Product
         }
     });
 
+    // --- Summary Section at Bottom ---
+    worksheet.addRow([]);
+    worksheet.addRow([]);
+    const summaryHeaderRow = worksheet.addRow(['', 'مختصر القيمة حسب المجموعات / Group Summary', '', '']);
+    summaryHeaderRow.font = { bold: true, size: 14 };
+    
+    const subHeaders = ['المجموعة / Group', 'اجمالي القيمة / Group Total', 'قيمة المصروفات / Branch Value', 'اسم الفرع / Branch Name'];
+    const subHeaderRow = worksheet.addRow(subHeaders);
+    subHeaderRow.font = { bold: true };
+    subHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+    subHeaderRow.alignment = { horizontal: 'center' };
+
+    // Grouping Logic
+    const branchValueSumMap = new Map<string, number>();
+    branchNames.forEach(bn => {
+        let sum = 0;
+        for (const counts of productMap.values()) {
+            sum += counts.branchValues[bn] || 0;
+        }
+        branchValueSumMap.set(bn, sum);
+    });
+
+    const groups = [
+        { label: 'قيمة المصنع', branches: branchNames.filter(b => b === 'Factory') },
+        { label: 'قيمة هنو', branches: branchNames.filter(b => b.toLowerCase().includes('hanoverian')) },
+        { label: 'قيمة جديل', branches: branchNames.filter(b => b.toLowerCase().includes('jadeel')) },
+        { label: 'قيمتة سويدي', branches: branchNames.filter(b => b.includes('Roastery Sewadi')) },
+        { label: 'قيمة سبارك', branches: branchNames.filter(b => b === 'SPARK') },
+        { label: 'قيمة المبيعات', branches: branchNames.filter(b => b === 'Sales') },
+        { label: 'قيمة مبيعات جدة', branches: branchNames.filter(b => b === 'Sales Jeddah') }
+    ];
+
+    let currentSumRow = worksheet.lastRow!.number + 1;
+    let totalAll = 0;
+
+    groups.forEach(g => {
+        if (g.branches.length === 0) return;
+
+        const groupTotal = g.branches.reduce((sum, bn) => sum + (branchValueSumMap.get(bn) || 0), 0);
+        totalAll += groupTotal;
+
+        g.branches.forEach((bn, idx) => {
+            const branchVal = branchValueSumMap.get(bn) || 0;
+            const r = worksheet.addRow([
+                g.label,
+                groupTotal,
+                branchVal,
+                bn
+            ]);
+            r.getCell(2).numFmt = '#,##0.00';
+            r.getCell(3).numFmt = '#,##0.00';
+        });
+
+        // Merge group label and group total if more than one branch
+        if (g.branches.length > 1) {
+            const startRow = currentSumRow;
+            const endRow = currentSumRow + g.branches.length - 1;
+            worksheet.mergeCells(startRow, 1, endRow, 1);
+            worksheet.mergeCells(startRow, 2, endRow, 2);
+            
+            // Center the merged content
+            worksheet.getRow(startRow).getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+            worksheet.getRow(startRow).getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
+        }
+        
+        currentSumRow += g.branches.length;
+    });
+
+    const finalTotalRow = worksheet.addRow(['الإجمالي العام', totalAll, '', '']);
+    finalTotalRow.font = { bold: true };
+    finalTotalRow.getCell(2).numFmt = '#,##0.00';
+    finalTotalRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+
     const buffer = await workbook.xlsx.writeBuffer();
     saveAsExcel(buffer, `مصفوفة_المصروفات_${new Date().toISOString().split('T')[0]}.xlsx`);
 }
@@ -433,10 +506,106 @@ export async function exportFrequencyAnalysisExcel(issues: Issue[], products: Pr
         orders: { date: string, qty: number }[];
     }>();
 
-    // Calculate Global Frequency and Quantities first
+    issues.sort((a, b) => new Date(a.deliveredAt || a.createdAt).getTime() - new Date(b.deliveredAt || b.createdAt).getTime());
+
+    // Grouping for Day Summary Sheet
+    const daySummaryMap = new Map<string, {
+        branchName: string;
+        dateStr: string;
+        productCount: number;
+        ordersCount: number;
+    }>();
+
+    // Calculate Global Frequency, Quantities, and Daily Totals
     const globalFrequencyMap = new Map<string, number>();
     const globalQtyMap = new Map<string, number>();
+    const dailyGlobalProductCount = new Map<string, number>();
+    const dailyGlobalOrderCount = new Map<string, number>();
+
+    // Weekly Summary Data Structure
+    const weekdaySummaryMap = new Map<string, {
+        dayName: string;
+        ordersCount: number;
+        branchDeliveriesCount: number;
+        productsCount: number;
+        totalQuantity: number;
+    }>();
+
+    // Branch-Weekday Summary Structure
+    const branchWeekdayMap = new Map<string, {
+        branchName: string;
+        dayName: string;
+        ordersCount: number;
+        productsCount: number;
+    }>();
+
     issues.forEach(issue => {
+        const orderDate = issue.deliveredAt || issue.createdAt;
+        const dateObj = new Date(orderDate);
+        const dayName = dateObj.toLocaleDateString("ar-u-ca-gregory-nu-latn", { weekday: "long" });
+
+        // Update branch-weekday mapping
+        const bwKey = `${issue.branchName}-${dayName}`;
+        const existingBW = branchWeekdayMap.get(bwKey);
+        const pCount = issue.products.length;
+        if (existingBW) {
+            existingBW.ordersCount += 1;
+            existingBW.productsCount += pCount;
+        } else {
+            branchWeekdayMap.set(bwKey, {
+                branchName: issue.branchName,
+                dayName,
+                ordersCount: 1,
+                productsCount: pCount
+            });
+        }
+        
+        const existingWeekday = weekdaySummaryMap.get(dayName);
+        const currentProductsCount = issue.products.length;
+        const currentTotalQty = issue.products.reduce((sum, ip) => sum + ip.quantity, 0);
+
+        if (existingWeekday) {
+            existingWeekday.ordersCount += 1;
+            existingWeekday.branchDeliveriesCount += 1;
+            existingWeekday.productsCount += currentProductsCount;
+            existingWeekday.totalQuantity += currentTotalQty;
+        } else {
+            weekdaySummaryMap.set(dayName, {
+                dayName,
+                ordersCount: 1,
+                branchDeliveriesCount: 1,
+                productsCount: currentProductsCount,
+                totalQuantity: currentTotalQty
+            });
+        }
+
+        const dateStr = dateObj.toISOString().split('T')[0];
+        const dayKey = `${issue.branchName}-${dateStr}`;
+        
+        // Update Daily Global Product & Order Counts
+        const productsInIssueCount = issue.products.length;
+        const currentGlobalDayCount = dailyGlobalProductCount.get(dateStr) || 0;
+        dailyGlobalProductCount.set(dateStr, currentGlobalDayCount + productsInIssueCount);
+        
+        const currentGlobalOrderCount = dailyGlobalOrderCount.get(dateStr) || 0;
+        dailyGlobalOrderCount.set(dateStr, currentGlobalOrderCount + 1);
+        
+        // Update Day Summary Map
+        const existingDay = daySummaryMap.get(dayKey);
+
+        if (existingDay) {
+            existingDay.productCount += productsInIssueCount;
+            existingDay.ordersCount += 1;
+        } else {
+            daySummaryMap.set(dayKey, {
+                branchName: issue.branchName,
+                dateStr: dateStr,
+                productCount: productsInIssueCount,
+                ordersCount: 1
+            });
+        }
+
+        // Update Global Maps
         issue.products.forEach(ip => {
             const gFreq = globalFrequencyMap.get(ip.productId) || 0;
             globalFrequencyMap.set(ip.productId, gFreq + 1);
@@ -505,7 +674,227 @@ export async function exportFrequencyAnalysisExcel(issues: Issue[], products: Pr
     });
 
     const buffer = await workbook.xlsx.writeBuffer();
-    saveAsExcel(buffer, `تحليل_تكرار_الطلب_${new Date().toISOString().split('T')[0]}.xlsx`);
+    
+    // Create new Summary Sheet ( ملخص الأيام والفروع )
+    const summarySheet = workbook.addWorksheet('ملخص الأيام والفروع');
+    summarySheet.views = [{ rightToLeft: true }];
+    const summaryHeaders = [
+        'م / #',
+        'اسم الفرع / Branch Name',
+        'شهر التسليم / Delivery Month',
+        'يوم التسليم (رقم) / Day',
+        'يوم التسليم (اسم) / Weekday',
+        'عدد المنتجات / Product Items',
+        'إجمالي طلبات اليوم (للكل) / Global Daily Orders',
+        'إجمالي منتجات اليوم (للكل) / Global Daily Items'
+    ];
+    const sHeaderRow = summarySheet.addRow(summaryHeaders);
+    sHeaderRow.font = { bold: true };
+    sHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+    sHeaderRow.alignment = { horizontal: 'center' };
+
+    let sIdx = 1;
+    // Sort summarized days by date and then branch
+    const sortedSummary = Array.from(daySummaryMap.values()).sort((a, b) => {
+        if (a.dateStr !== b.dateStr) return a.dateStr.localeCompare(b.dateStr);
+        return a.branchName.localeCompare(b.branchName);
+    });
+
+    sortedSummary.forEach(item => {
+        const date = new Date(item.dateStr);
+        summarySheet.addRow([
+            sIdx++,
+            item.branchName,
+            date.toLocaleDateString("ar-u-ca-gregory-nu-latn", { month: "long" }),
+            date.getDate(),
+            date.toLocaleDateString("ar-u-ca-gregory-nu-latn", { weekday: "long" }),
+            item.productCount,
+            dailyGlobalOrderCount.get(item.dateStr) || 1,
+            dailyGlobalProductCount.get(item.dateStr) || item.productCount
+        ]);
+    });
+
+    summarySheet.columns.forEach(col => col.width = 25);
+
+    // 2. Weekly Summary Table
+    summarySheet.addRow([]);
+    summarySheet.addRow([]);
+    const weeklyTitleRow = summarySheet.addRow(['ملخص أيام الأسبوع / Weekly Summary']);
+    weeklyTitleRow.font = { bold: true, size: 14 };
+    
+    const weeklyHeaders = [
+        'يوم التسليم (اسم) / Day Name',
+        'إجمالي الطلبات / Total Orders',
+        'عدد مرات صرف الفروع / Branch Deliveries',
+        'إجمالي بنود المنتجات / Product Items',
+        'إجمالي الكميات / Total Quantity'
+    ];
+    const wHeaderRow = summarySheet.addRow(weeklyHeaders);
+    wHeaderRow.font = { bold: true };
+    wHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+    wHeaderRow.alignment = { horizontal: 'center' };
+
+    const weekdayOrder = ["السبت", "الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة"];
+    
+    weekdayOrder.forEach(day => {
+        const stats = weekdaySummaryMap.get(day);
+        if (stats) {
+            summarySheet.addRow([
+                stats.dayName,
+                stats.ordersCount,
+                stats.branchDeliveriesCount,
+                stats.productsCount,
+                stats.totalQuantity
+            ]);
+        }
+    });
+
+    // 3. Branch & Weekday Analysis Table
+    summarySheet.addRow([]);
+    summarySheet.addRow([]);
+    const bwTitleRow = summarySheet.addRow(['تحليل الطلب حسب الفروع والأيام / Branch & Weekday Analysis']);
+    bwTitleRow.font = { bold: true, size: 14 };
+
+    const bwHeaders = [
+        'اسم الفرع / Branch Name',
+        'يوم التسليم (اسم) / Day Name',
+        'إجمالي المرات المطلوبة / Total Orders Count',
+        'إجمالي عدد بنود المنتجات / Total Products Count'
+    ];
+    const bwHeaderRow = summarySheet.addRow(bwHeaders);
+    bwHeaderRow.font = { bold: true };
+    bwHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+    bwHeaderRow.alignment = { horizontal: 'center' };
+
+    // Sort by branch name and then weekday
+    const sortedBW = Array.from(branchWeekdayMap.values()).sort((a, b) => {
+        if (a.branchName !== b.branchName) return a.branchName.localeCompare(b.branchName);
+        return weekdayOrder.indexOf(a.dayName) - weekdayOrder.indexOf(b.dayName);
+    });
+
+    sortedBW.forEach(stats => {
+        summarySheet.addRow([
+            stats.branchName,
+            stats.dayName,
+            stats.ordersCount,
+            stats.productsCount
+        ]);
+    });
+
+    const fullBuffer = await workbook.xlsx.writeBuffer();
+    saveAsExcel(fullBuffer, `تحليل_تكرار_الطلب_${new Date().toISOString().split('T')[0]}.xlsx`);
+}
+
+/**
+ * Report 5: Product Movement Analysis (تحليل حركة المنتجات)
+ * Columns: sequence, product name, product code, category, location, [Month columns: Status & Qty], stock balance, stock value, overall status.
+ */
+export async function exportProductMovementAnalysisExcel(issues: Issue[], products: Product[]) {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('تحليل حركة المنتجات');
+    worksheet.views = [{ rightToLeft: true }];
+
+    // Group issues by Month-Product
+    const productStats = new Map<string, {
+        [month: string]: number;
+    }>();
+    const monthsSet = new Set<string>();
+
+    issues.forEach(issue => {
+        const date = new Date(issue.deliveredAt || issue.createdAt);
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        monthsSet.add(monthKey);
+
+        issue.products.forEach(ip => {
+            const currentStats = productStats.get(ip.productId) || {};
+            currentStats[monthKey] = (currentStats[monthKey] || 0) + ip.quantity;
+            productStats.set(ip.productId, currentStats);
+        });
+    });
+
+    const sortedMonths = Array.from(monthsSet).sort();
+
+    // Headers Building
+    const headers = [
+        'م / #',
+        'اسم المنتج / Product Name',
+        'كود المنتج / Product Code',
+        'التصنيف / Category',
+        'الموقع / Location'
+    ];
+
+    sortedMonths.forEach(m => {
+        const monthName = new Date(`${m}-01`).toLocaleDateString("ar-u-ca-gregory-nu-latn", { month: "long", year: "numeric" });
+        headers.push(`${monthName} - الحالة`, `${monthName} - الكمية`);
+    });
+
+    headers.push(
+        'المخزون المتبقي / Stock Bal',
+        'قيمة المخزون / Stock Value',
+        'الحالة الحالية / Final Status'
+    );
+
+    const headerRow = worksheet.addRow(headers);
+    headerRow.font = { bold: true };
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+    headerRow.alignment = { horizontal: 'center' };
+
+    const getStatus = (qty: number, currentStock: number) => {
+        if (qty === 0) return 'راكد (Dead)';
+        if (currentStock <= 0) return 'سريع (Fast)'; // Definite fast movement if stock is out
+        
+        const ratio = qty / currentStock;
+        if (ratio > 1) return 'سريع (Fast)';
+        if (ratio >= 0.35) return 'عادي (Normal)';
+        return 'بطيء (Slow)';
+    };
+
+    let idx = 1;
+
+    products.forEach(p => {
+        const stats = productStats.get(p.id) || {};
+        const rowData: (string | number)[] = [
+            idx++,
+            p.productName,
+            p.productCode,
+            p.category,
+            p.location || p.warehousePositionCode || ''
+        ];
+
+        // Monthly data
+        let totalIssued = 0;
+        sortedMonths.forEach(m => {
+            const qty = stats[m] || 0;
+            totalIssued += qty;
+            rowData.push(getStatus(qty, p.currentStock), qty);
+        });
+
+        // Summary data
+        const stockBal = p.currentStock || 0;
+        const stockVal = stockBal * (p.averagePrice || p.price || 0);
+
+        // Overall status based on total period consumption
+        // Use normalized average monthly consumption for overall status?
+        // Let's use the average per month if available, else 0
+        const avgMonthlyQty = sortedMonths.length > 0 ? (totalIssued / sortedMonths.length) : 0;
+        
+        rowData.push(
+            stockBal,
+            Number(stockVal.toFixed(2)),
+            getStatus(avgMonthlyQty, p.currentStock)
+        );
+
+        const row = worksheet.addRow(rowData);
+        // Apply number format to Stock Value cell (second to last column)
+        const valCell = row.getCell(rowData.length - 1);
+        valCell.numFmt = '#,##0.00';
+    });
+
+    // Auto-width
+    worksheet.columns.forEach(col => col.width = 22);
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    saveAsExcel(buffer, `تحليل_حركة_المنتجات_${new Date().toISOString().split('T')[0]}.xlsx`);
 }
 
 function saveAsExcel(buffer: ExcelJS.Buffer, filename: string) {

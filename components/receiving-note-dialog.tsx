@@ -312,6 +312,7 @@ export function ReceivingNoteDialog({ open, onOpenChange }: ReceivingNoteDialogP
                                                     <TableCell>
                                                         <Input
                                                             type="number"
+                                                            step="any"
                                                             value={item.quantity}
                                                             onChange={e => updateItem(item.id, { quantity: Number(e.target.value) })}
                                                             className="bg-blue-50 border-none h-8 text-center font-black text-blue-700 rounded-lg"
@@ -320,6 +321,7 @@ export function ReceivingNoteDialog({ open, onOpenChange }: ReceivingNoteDialogP
                                                     <TableCell>
                                                         <Input
                                                             type="number"
+                                                            step="any"
                                                             value={item.price}
                                                             onChange={e => updateItem(item.id, { price: Number(e.target.value) })}
                                                             className="bg-transparent border-none focus-visible:ring-0 text-center h-8 text-xs font-bold text-slate-500"

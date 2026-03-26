@@ -572,7 +572,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
           .replace(/٧/g, '7')
           .replace(/٨/g, '8')
           .replace(/٩/g, '9')
-        return /^\d+$/.test(english) ? Number(english) : s
+        return /^-?\d*\.?\d+$/.test(english) ? Number(english) : s
       }
 
       if (imageExportMode === 'url') {

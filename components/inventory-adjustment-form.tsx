@@ -117,6 +117,7 @@ export function InventoryAdjustmentForm({ open, onOpenChange, onSubmit, products
               <Input
                 id="newQuantity"
                 type="number"
+                step="any"
                 value={formData.newQuantity}
                 onChange={(e) => setFormData({ ...formData, newQuantity: Number(e.target.value) })}
                 required

@@ -496,7 +496,7 @@ export function BranchDashboard() {
   }
 
   function updateQty(idx: number, qty: number) {
-    const val = Math.max(0, Math.floor(qty))
+    const val = Math.max(0, qty)
     setCart((prev) =>
       prev.map((x, i) => {
         if (i !== idx) return x
@@ -918,7 +918,7 @@ export function BranchDashboard() {
                           {it.selectedUnitName || it.unit || "-"}
                         </TableCell>}
                         <TableCell>
-                          <Input type="number" value={it.quantity} onChange={(e) => updateQty(idx, Number(e.target.value))} className="w-24" />
+                          <Input type="number" step="any" value={it.quantity} onChange={(e) => updateQty(idx, Number(e.target.value))} className="w-24" />
                         </TableCell>
                         {activeTab === 'request' && requestType === 'return' && (
                           <TableCell>

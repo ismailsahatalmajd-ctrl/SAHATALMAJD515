@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import type { Product } from "@/lib/types"
-import { calculateProductValues, getProducts, getUnits } from "@/lib/storage"
+import { calculateProductValues, getProducts, getUnits, getWarehouseLocations } from "@/lib/storage"
 import { toast } from "@/hooks/use-toast"
 import { DualText, getDualString } from "@/components/ui/dual-text"
 import { useI18n } from "@/components/language-provider"
@@ -62,6 +62,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
   )
 
   const unitsList = getUnits()
+  const warehouseLocations = getWarehouseLocations()
 
   const [imagePreview, setImagePreview] = useState<string | undefined>(product?.image)
   const [isUploading, setIsUploading] = useState(false)
@@ -423,27 +424,28 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="unit"><DualText k="common.unit" /></Label>
-                <Select value={formData.unit} onValueChange={(value) => handleChange("unit", value)}>
+                <Label htmlFor="warehouseLocation"><DualText k="common.warehouseLocation" /> / موقع المستودع</Label>
+                <Select 
+                  value={formData.warehouseLocationId || "none"} 
+                  onValueChange={(value) => {
+                    const loc = warehouseLocations.find(l => l.id === value)
+                    setFormData(prev => ({
+                      ...prev,
+                      warehouseLocationId: value === "none" ? undefined : value,
+                      warehousePositionCode: loc ? loc.positionCode : undefined
+                    }))
+                  }}
+                >
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder="اختر موقعاً / Select Location" />
                   </SelectTrigger>
                   <SelectContent>
-                    {unitsList && unitsList.length > 0 ? (
-                      unitsList.map((u: any) => (
-                        <SelectItem key={u.id} value={u.name}>
-                          {u.name}{u.abbreviation ? ` (${u.abbreviation})` : ""}
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <>
-                        <SelectItem value="قطعة"><DualText k="units.piece" /></SelectItem>
-                        <SelectItem value="كرتون"><DualText k="units.carton" /></SelectItem>
-                        <SelectItem value="كيلو"><DualText k="units.kg" /></SelectItem>
-                        <SelectItem value="متر"><DualText k="units.meter" /></SelectItem>
-                        <SelectItem value="لتر"><DualText k="units.liter" /></SelectItem>
-                      </>
-                    )}
+                    <SelectItem value="none">بدون موقع / No Location</SelectItem>
+                          {warehouseLocations.sort((a, b) => a.positionCode.localeCompare(b.positionCode)).map((loc) => (
+                            <SelectItem key={loc.id} value={loc.id}>
+                              {loc.positionCode} ({loc.warehouse} - {loc.zone})
+                            </SelectItem>
+                          ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -518,6 +520,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                 <Input
                   id="openingStock"
                   type="number"
+                  step="any"
                   value={formData.openingStock}
                   onChange={(e) => handleChange("openingStock", Number(e.target.value))}
                   required
@@ -528,6 +531,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                 <Input
                   id="purchases"
                   type="number"
+                  step="any"
                   value={formData.purchases}
                   onChange={(e) => handleChange("purchases", Number(e.target.value))}
                   required
@@ -538,6 +542,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                 <Input
                   id="issues"
                   type="number"
+                  step="any"
                   value={formData.issues}
                   onChange={(e) => handleChange("issues", Number(e.target.value))}
                   required
@@ -551,6 +556,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                 <Input
                   id="inventoryCount"
                   type="number"
+                  step="any"
                   value={formData.inventoryCount}
                   onChange={(e) => handleChange("inventoryCount", Number(e.target.value))}
                   required
@@ -561,7 +567,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                 <Input
                   id="price"
                   type="number"
-                  step="0.01"
+                  step="any"
                   value={formData.price}
                   onChange={(e) => handleChange("price", Number(e.target.value))}
                   required
@@ -574,6 +580,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                 <Input
                   id="quantity"
                   type="number"
+                  step="any"
                   value={formData.quantity}
                   onChange={(e) => handleChange("quantity", Number(e.target.value))}
                   required

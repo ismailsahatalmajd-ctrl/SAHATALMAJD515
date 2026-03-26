@@ -119,6 +119,7 @@ export function TransactionForm({ open, onOpenChange, onSubmit, products }: Tran
                 <Input
                   id="quantity"
                   type="number"
+                  step="any"
                   value={formData.quantity}
                   onChange={(e) => setFormData({ ...formData, quantity: Number(e.target.value) })}
                   required

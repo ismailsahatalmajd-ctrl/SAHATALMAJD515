@@ -313,7 +313,7 @@ export default function ReturnsPage() {
       const returnProducts = req.items.map((it) => {
         const p = cloudProducts.find((x) => x.id === it.productId || x.productCode === it.productCode)
         const unitPrice = p?.averagePrice ?? p?.price ?? 0
-        const quantityCarton = Math.max(0, Math.floor(it.requestedQuantity || it.quantity || 0))
+        const quantityCarton = Math.max(0, it.requestedQuantity || it.quantity || 0)
         const finalQuantity = (it as any).quantityBase || quantityCarton
 
         return {
@@ -663,6 +663,7 @@ export default function ReturnsPage() {
                                 <TableCell>
                                   <Input
                                     type="number"
+                                    step="any"
                                     min={0}
                                     max={selectedIssue.products.find((x) => x.productId === p.productId)?.quantity || 0}
                                     value={p.quantity}
@@ -751,6 +752,7 @@ export default function ReturnsPage() {
                                   <TableCell>
                                     <Input
                                       type="number"
+                                      step="any"
                                       min={0}
                                       max={maxQty}
                                       value={p.quantity}

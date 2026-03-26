@@ -20,7 +20,10 @@ import type {
   Employee,
   OvertimeReason,
   OvertimeEntry,
-  AbsenceRecord
+  AbsenceRecord,
+  PlannedLeave,
+  WarehouseLocation,
+  WarehouseDesignElement
 } from "./types"
 export type { PurchaseOrder, PurchaseOrderItem }
 import type { BranchInvoice } from './branch-invoice-types'
@@ -60,7 +63,11 @@ import {
   syncOvertimeEntry,
   deleteOvertimeEntryApi,
   syncAbsenceRecord,
-  deleteAbsenceRecordApi
+  deleteAbsenceRecordApi,
+  syncWarehouseLocation,
+  deleteWarehouseLocationApi,
+  syncWarehouseDesignElement,
+  deleteWarehouseDesignElementApi
 } from './firebase-sync-engine'
 
 // Monthly Closing
@@ -126,6 +133,9 @@ export function clearAppCache() {
       overtimeReasons: [],
       overtimeEntries: [],
       absenceRecords: [],
+      plannedLeaves: [],
+      warehouseLocations: [],
+      warehouseDesignElements: [],
     }
     notify('change')
     reloadFromDb().catch(console.error)
@@ -218,7 +228,8 @@ export async function factoryReset() {
       db.employees.clear(),
       db.overtimeReasons.clear(),
       db.overtimeEntries.clear(),
-      db.absenceRecords.clear()
+      db.absenceRecords.clear(),
+      db.warehouseLocations.clear()
     ])
 
     // 2. Clear Local Cache in Memory
@@ -247,6 +258,7 @@ export async function factoryReset() {
       overtimeReasons: [],
       overtimeEntries: [],
       absenceRecords: [],
+      warehouseLocations: [],
     } as any
 
     notify('products_change')
@@ -343,7 +355,49 @@ function getUserInfo() {
   return { uid: 'guest', name: 'Guest' }
 }
 
-// Products
+// Warehouse Locations
+export function getWarehouseLocations(): WarehouseLocation[] {
+  return store.cache.warehouseLocations
+}
+
+export async function addWarehouseLocation(loc: Omit<WarehouseLocation, "id" | "createdAt" | "updatedAt">): Promise<WarehouseLocation> {
+  const id = generateId()
+  const newLoc: WarehouseLocation = {
+    ...loc,
+    id,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }
+  store.cache.warehouseLocations.push(newLoc)
+  await db.warehouseLocations.put(newLoc)
+  if (typeof window !== 'undefined') {
+    syncWarehouseLocation(newLoc).catch(console.error)
+  }
+  notify('change')
+  return newLoc
+}
+
+export async function updateWarehouseLocation(id: string, updates: Partial<WarehouseLocation>): Promise<WarehouseLocation | null> {
+  const loc = store.cache.warehouseLocations.find(l => l.id === id)
+  if (!loc) return null
+  const updated = { ...loc, ...updates, updatedAt: new Date().toISOString() }
+  store.cache.warehouseLocations = store.cache.warehouseLocations.map(l => l.id === id ? updated : l)
+  await db.warehouseLocations.put(updated)
+  if (typeof window !== 'undefined') {
+    syncWarehouseLocation(updated).catch(console.error)
+  }
+  notify('change')
+  return updated
+}
+
+export async function deleteWarehouseLocation(id: string): Promise<void> {
+  store.cache.warehouseLocations = store.cache.warehouseLocations.filter(l => l.id !== id)
+  await db.warehouseLocations.delete(id)
+  if (typeof window !== 'undefined') {
+    deleteWarehouseLocationApi(id).catch(console.error)
+  }
+  notify('change')
+}
 export function getProducts(): Product[] {
   return store.cache.products
 }
@@ -1108,72 +1162,91 @@ export async function restoreIssues(issues: Issue[]) {
 }
 
 export async function updateIssue(id: string, updates: Partial<Issue>): Promise<Issue | null> {
-  const issues = getIssues()
-  const idx = issues.findIndex(i => i.id === id)
-  if (idx === -1) return null
+  try {
+    const issues = getIssues()
+    const idx = issues.findIndex(i => i.id === id)
+    if (idx === -1) return null
 
-  const oldIssue = issues[idx]
+    const oldIssue = issues[idx]
 
-  // If Delivered, we must manage stock reversal/re-application
-  if (oldIssue.delivered) {
-    try {
-      // 1. Revert Stock for OLD products
-      const allProducts = await db.products.toArray()
-      await Promise.all(oldIssue.products.map(async (ip) => {
-        const p = allProducts.find(prod => prod.id === ip.productId)
-        if (p) {
-          const qty = (ip as any).quantityBase || ip.quantity
-          p.issues = (p.issues || 0) - qty
-          p.issuesValue = (p.issuesValue || 0) - ip.totalPrice
-          // Recalc Stock
-          p.currentStock = (p.openingStock || 0) + (p.purchases || 0) + (p.returns || 0) - (p.issues || 0)
-          p.currentStockValue = p.currentStock * (p.averagePrice || p.price || 0)
-          p.updatedAt = new Date().toISOString()
-          p.lastModifiedBy = getDeviceId()
-          // Update Cache & DB
-          const pIdx = store.cache.products.findIndex(prod => prod.id === p.id)
-          if (pIdx !== -1) store.cache.products[pIdx] = p
-          await db.products.put(p)
-          if (typeof window !== 'undefined') await syncProduct(p).catch(console.error)
-        }
-      }))
-    } catch (e) { console.error("Error reverting stock in updateIssue", e) }
+    // If Delivered, we must manage stock reversal/re-application
+    if (oldIssue.delivered) {
+      try {
+        // 1. Revert Stock for OLD products
+        const allProducts = await db.products.toArray()
+        const stockReversalPromises = oldIssue.products.map(async (ip) => {
+          const p = allProducts.find(prod => prod.id === ip.productId)
+          if (p) {
+            const qty = (ip as any).quantityBase || ip.quantity
+            p.issues = (p.issues || 0) - qty
+            p.issuesValue = (p.issuesValue || 0) - ip.totalPrice
+            // Recalc Stock
+            p.currentStock = (p.openingStock || 0) + (p.purchases || 0) + (p.returns || 0) - (p.issues || 0)
+            p.currentStockValue = p.currentStock * (p.averagePrice || p.price || 0)
+            p.updatedAt = new Date().toISOString()
+            p.lastModifiedBy = getDeviceId()
+            // Update Cache & DB
+            const pIdx = store.cache.products.findIndex(prod => prod.id === p.id)
+            if (pIdx !== -1) store.cache.products[pIdx] = p
+            await db.products.put(p)
+            if (typeof window !== 'undefined') {
+              syncProduct(p).catch(console.error)
+            }
+          }
+        })
+        await Promise.all(stockReversalPromises)
+      } catch (e) { 
+        console.error("Error reverting stock in updateIssue", e)
+        throw new Error("Failed to revert stock during update")
+      }
+    }
+
+    // 2. Apply Updates to Issue
+    const updatedIssue = { ...oldIssue, ...updates, updatedAt: new Date().toISOString(), lastModifiedBy: getDeviceId() }
+    issues[idx] = updatedIssue
+    store.cache.issues = issues
+    await db.issues.put(updatedIssue)
+    if (typeof window !== 'undefined') {
+      syncIssue(updatedIssue).catch(console.error)
+    }
+
+    // 3. Re-apply Stock for NEW products (if Delivered)
+    if (updatedIssue.delivered) {
+      try {
+        const allProducts = await db.products.toArray() // Refresh
+        const stockApplicationPromises = updatedIssue.products.map(async (ip) => {
+          const p = allProducts.find(prod => prod.id === ip.productId)
+          if (p) {
+            const qty = (ip as any).quantityBase || ip.quantity
+            p.issues = (p.issues || 0) + qty
+            p.issuesValue = (p.issuesValue || 0) + ip.totalPrice
+            // Recalc Stock
+            p.currentStock = (p.openingStock || 0) + (p.purchases || 0) + (p.returns || 0) - (p.issues || 0)
+            p.currentStockValue = p.currentStock * (p.averagePrice || p.price || 0)
+            p.updatedAt = new Date().toISOString()
+            p.lastModifiedBy = getDeviceId()
+
+            const pIdx = store.cache.products.findIndex(prod => prod.id === p.id)
+            if (pIdx !== -1) store.cache.products[pIdx] = p
+            await db.products.put(p)
+            if (typeof window !== 'undefined') {
+              syncProduct(p).catch(console.error)
+            }
+          }
+        })
+        await Promise.all(stockApplicationPromises)
+        notify('products_change')
+      } catch (e) { 
+        console.error("Error applying stock in updateIssue", e)
+        throw new Error("Failed to apply stock during update")
+      }
+    }
+
+    return updatedIssue
+  } catch (error) {
+    console.error("Critical error in updateIssue:", error)
+    throw error
   }
-
-  // 2. Apply Updates to Issue
-  const updatedIssue = { ...oldIssue, ...updates, updatedAt: new Date().toISOString(), lastModifiedBy: getDeviceId() }
-  issues[idx] = updatedIssue
-  store.cache.issues = issues
-  await db.issues.put(updatedIssue)
-  if (typeof window !== 'undefined') await syncIssue(updatedIssue).catch(console.error)
-
-  // 3. Re-apply Stock for NEW products (if Delivered)
-  if (updatedIssue.delivered) {
-    try {
-      const allProducts = await db.products.toArray() // Refresh
-      await Promise.all(updatedIssue.products.map(async (ip) => {
-        const p = allProducts.find(prod => prod.id === ip.productId)
-        if (p) {
-          const qty = (ip as any).quantityBase || ip.quantity
-          p.issues = (p.issues || 0) + qty
-          p.issuesValue = (p.issuesValue || 0) + ip.totalPrice
-          // Recalc Stock
-          p.currentStock = (p.openingStock || 0) + (p.purchases || 0) + (p.returns || 0) - (p.issues || 0)
-          p.currentStockValue = p.currentStock * (p.averagePrice || p.price || 0)
-          p.updatedAt = new Date().toISOString()
-          p.lastModifiedBy = getDeviceId()
-
-          const pIdx = store.cache.products.findIndex(prod => prod.id === p.id)
-          if (pIdx !== -1) store.cache.products[pIdx] = p
-          await db.products.put(p)
-          if (typeof window !== 'undefined') await syncProduct(p).catch(console.error)
-        }
-      }))
-      notify('products_change')
-    } catch (e) { console.error("Error applying stock in updateIssue", e) }
-  }
-
-  return updatedIssue
 }
 
 import { formatInvoiceNumber, formatOrderNumber } from "./id-generator"
@@ -2044,4 +2117,100 @@ export async function deleteAbsenceRecord(id: string) {
 
 export function getAbsenceRecords() {
   return store.cache.absenceRecords || []
+}
+
+// Planned Leave Functions
+export async function addPlannedLeave(record: Omit<PlannedLeave, "id" | "createdAt" | "status">) {
+  const newRecord: PlannedLeave = {
+    ...record,
+    id: generateId(),
+    status: 'planned',
+    createdAt: new Date().toISOString()
+  }
+  await db.plannedLeaves.add(newRecord)
+  updateStoreCache('plannedLeaves', newRecord)
+  return newRecord
+}
+
+export async function updatePlannedLeave(id: string, updates: Partial<PlannedLeave>) {
+  const updated = { ...updates, updatedAt: new Date().toISOString() }
+  await db.plannedLeaves.update(id, updated)
+  const record = await db.plannedLeaves.get(id)
+  if (record) {
+    updateStoreCache('plannedLeaves', record)
+  }
+  return record
+}
+
+export async function deletePlannedLeave(id: string) {
+  await db.plannedLeaves.delete(id)
+  removeFromStoreCache('plannedLeaves', id)
+}
+
+export function getPlannedLeaves() {
+  return store.cache.plannedLeaves || []
+}
+
+// ============================================
+// Warehouse Design & Architectural Functions
+// ============================================
+
+export function getWarehouseDesignElements(): WarehouseDesignElement[] {
+  return store.cache.warehouseDesignElements || []
+}
+
+export async function addWarehouseDesignElement(el: Omit<WarehouseDesignElement, "id" | "createdAt">) {
+  const newEl: WarehouseDesignElement = {
+    ...el,
+    id: generateId(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }
+  await db.warehouseDesignElements.add(newEl)
+  updateStoreCache('warehouseDesignElements', newEl)
+  if (typeof window !== 'undefined') syncWarehouseDesignElement(newEl).catch(console.error)
+  return newEl
+}
+
+export async function updateWarehouseDesignElement(id: string, updates: Partial<WarehouseDesignElement>) {
+  const updated = { ...updates, updatedAt: new Date().toISOString() }
+  await db.warehouseDesignElements.update(id, updated)
+  const el = await db.warehouseDesignElements.get(id)
+  if (el) {
+    updateStoreCache('warehouseDesignElements', el)
+    if (typeof window !== 'undefined') syncWarehouseDesignElement(el).catch(console.error)
+  }
+  return el
+}
+
+export async function deleteWarehouseDesignElement(id: string) {
+  await db.warehouseDesignElements.delete(id)
+  removeFromStoreCache('warehouseDesignElements', id)
+  if (typeof window !== 'undefined') deleteWarehouseDesignElementApi(id).catch(console.error)
+}
+
+export async function clearAllWarehouseLocations() {
+  const all = getWarehouseLocations()
+  await db.warehouseLocations.clear()
+  store.cache.warehouseLocations = []
+  notify('warehouse_locations_change' as any)
+  if (typeof window !== 'undefined' && all.length > 0) {
+    await Promise.all(all.map(l => deleteWarehouseLocationApi(l.id))).catch(console.error)
+  }
+}
+
+export async function saveWarehouseLayout(warehouseId: string, elements: any[]) {
+  // Clear existing layout for this warehouse to ensure clean state
+  const existing = getWarehouseDesignElements().filter(el => el.warehouseId === warehouseId)
+  await Promise.all(existing.map(el => deleteWarehouseDesignElement(el.id)))
+  
+  // Save new elements
+  for (const el of elements) {
+    await addWarehouseDesignElement({
+      ...el,
+      warehouseId,
+      updatedAt: new Date().toISOString()
+    })
+  }
+  notify('warehouse_design_change' as any)
 }

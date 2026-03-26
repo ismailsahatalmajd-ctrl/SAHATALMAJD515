@@ -470,7 +470,7 @@ export function PurchaseRequestsSection() {
                                 {formatEnglishNumber(it.availableQuantity ?? 0)}
                               </TableCell>
                               <TableCell className="border-x p-2">
-                                <Input type="number" value={it.requestedQuantity} min={1}
+                                <Input type="number" step="any" value={it.requestedQuantity} min={1}
                                   className="text-center h-8 text-xs font-bold bg-blue-50/50"
                                   onChange={(e) => {
                                     const v = Number(e.target.value)

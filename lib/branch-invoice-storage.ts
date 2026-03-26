@@ -57,8 +57,8 @@ function resolveItemPricing(it: Omit<BranchInvoiceItem, "totalPrice" | "unitPric
   if (basePrice === 0 && it.unitPrice && it.unitType !== 'carton') basePrice = it.unitPrice
 
   // Quantity handling
-  const enteredQty = Math.max(0, Math.floor(it.quantity || it.quantityEntered || 0))
-  let qtyBase = Math.max(0, Math.floor(it.quantityBase ?? enteredQty))
+  const enteredQty = Math.max(0, it.quantity || it.quantityEntered || 0)
+  let qtyBase = Math.max(0, it.quantityBase ?? enteredQty)
   let unitName = it.selectedUnitName || it.unit || p?.unit
   let finalUnitPrice = basePrice
 

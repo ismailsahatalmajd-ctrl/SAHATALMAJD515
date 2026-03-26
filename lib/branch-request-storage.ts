@@ -130,7 +130,7 @@ export async function approveBranchRequest(id: string, actor?: string): Promise<
     const returnProducts: IssueProduct[] = req.items.map((it) => {
       const p = products.find((x) => x.id === it.productId)
       const unitPrice = p?.averagePrice ?? p?.price ?? 0
-      const quantity = Math.max(0, Math.floor(it.requestedQuantity || it.quantity || 0))
+      const quantity = Math.max(0, it.requestedQuantity || it.quantity || 0)
       return {
         productId: it.productId,  // Use saved ID
         productCode: it.productCode,  // Use saved code
@@ -168,7 +168,7 @@ export async function approveBranchRequest(id: string, actor?: string): Promise<
   const issueProducts: IssueProduct[] = req.items.map((it) => {
     const p = products.find((x) => x.id === it.productId)
     const unitPrice = p?.averagePrice ?? p?.price ?? 0
-    const quantity = Math.max(0, Math.floor(it.requestedQuantity || it.quantity || 0))
+    const quantity = Math.max(0, it.requestedQuantity || it.quantity || 0)
     // Multi-Unit Logic: Use quantityBase if available (for precise stock deduction), otherwise fallback
     const finalQuantity = it.quantityBase || quantity
 

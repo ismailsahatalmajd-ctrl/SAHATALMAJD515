@@ -39,6 +39,8 @@ export const dict: Dict = {
   "nav.history": { ar: "السجل", en: "History" },
   "nav.scanner": { ar: "الماسح", en: "Scanner" },
   "nav.labelDesigner": { ar: "مصمم الملصقات", en: "Label Designer" },
+  "nav.warehouseLayout": { ar: "مخطط المستودع", en: "Warehouse Layout" },
+  "nav.warehouseHub": { ar: "مركز المستودع Hub", en: "Warehouse Hub" },
   "nav.barcodes": { ar: "الباركود", en: "Barcodes" },
 
   // Footer
@@ -233,7 +235,8 @@ export const dict: Dict = {
 
   // Nav Extra
   "nav.barcodeHistory": { ar: "سجل الباركود", en: "Barcode History" },
-  "nav.branchDashboard": { ar: "لوحة الفرع", en: "Branch Dashboard" },
+  "nav.branchDashboard": { ar: "لوحة تحكم الفرع: {name}", en: "Branch Dashboard: {name}" },
+  "nav.branchNotes": { ar: "إدارة ملاحظات الفروع", en: "Branch Notes Management" },
 
   // Charts
   "charts.sales": { ar: "المبيعات", en: "Sales" },

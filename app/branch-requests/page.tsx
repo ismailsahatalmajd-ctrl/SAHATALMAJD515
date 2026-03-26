@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
 import { BranchDashboard } from "@/components/branch-dashboard"
+import { BranchNotesDisplay } from "@/components/branch-notes-display"
 import { useAuth } from "@/components/auth-provider"
 import { useGranularPermissions } from "@/hooks/use-granular-permissions"
 
@@ -158,6 +159,8 @@ export default function BranchRequestsPage() {
                 </div>
             </div>
 
+            <BranchNotesDisplay branchId="admin" isAdmin />
+
             <Card>
                 <CardHeader>
                     <CardTitle>قائمة الطلبات</CardTitle>
@@ -183,7 +186,9 @@ export default function BranchRequestsPage() {
                                         <TableRow key={req.id}>
                                             <TableCell className="font-mono">{req.requestNumber || `${req.type === 'return' ? 'RN' : 'OR'}-OLD-${req.id.slice(0, 5)}`}</TableCell>
                                             <TableCell>{req.branchName}</TableCell>
-                                            <TableCell>{new Date(req.createdAt).toLocaleDateString('ar-EG')}</TableCell>
+                                            <TableCell dir="ltr" className="text-right">
+                                                {new Date(req.createdAt).toLocaleDateString('en-GB')}
+                                            </TableCell>
                                             <TableCell>
                                                 <Badge variant={
                                                     req.status === 'draft' || req.status === 'submitted' ? 'outline' :
@@ -264,7 +269,7 @@ export default function BranchRequestsPage() {
                                             }`}>
                                             <p className="text-sm font-bold mb-1">{msg.senderName}</p>
                                             <p className="text-sm">{msg.message}</p>
-                                            <p className="text-xs opacity-70 mt-1">{new Date(msg.timestamp).toLocaleTimeString('ar-EG')}</p>
+                                            <p className="text-xs opacity-70 mt-1" dir="ltr">{new Date(msg.timestamp).toLocaleTimeString('en-GB')}</p>
                                         </div>
                                     </div>
                                 ))}

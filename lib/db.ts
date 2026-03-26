@@ -25,7 +25,11 @@ import type {
   Employee,
   OvertimeReason,
   OvertimeEntry,
-  AbsenceRecord
+  AbsenceRecord,
+  PlannedLeave,
+  WarehouseLocation,
+  WarehouseDesignElement,
+  BranchNote
 } from './types';
 import type { BranchInvoice } from './branch-invoice-types';
 import type { BranchRequest } from './branch-request-types';
@@ -74,6 +78,10 @@ export class InventoryDatabase extends Dexie {
   overtimeReasons!: Table<OvertimeReason>;
   overtimeEntries!: Table<OvertimeEntry>;
   absenceRecords!: Table<AbsenceRecord>;
+  plannedLeaves!: Table<PlannedLeave>;
+  warehouseLocations!: Table<WarehouseLocation>;
+  warehouseDesignElements!: Table<WarehouseDesignElement>;
+  branchNotes!: Table<BranchNote>;
 
   constructor() {
     super('InventoryDB');
@@ -145,10 +153,26 @@ export class InventoryDatabase extends Dexie {
       overtimeReasons: 'id, name, createdAt',
       overtimeEntries: 'id, employeeId, date, status, createdAt'
     });
-    
-    // Version 10: Attendance System
-    this.version(10).stores({
-      absenceRecords: 'id, employeeId, date, type, category, status, createdAt'
+
+    // Version 11: Warehouse Layout
+    this.version(11).stores({
+      warehouseLocations: 'id, zone, aisle, rack, positionCode, status, createdAt',
+      absenceRecords: 'id, employeeId, date, type, createdAt'
+    });
+
+    // Version 12: Layout Persistence
+    this.version(12).stores({
+      warehouseDesignElements: 'id, warehouseId, type, createdAt'
+    });
+
+    // Version 13: Planned Leave System
+    this.version(13).stores({
+      plannedLeaves: 'id, employeeId, startDate, endDate, status, createdAt'
+    });
+
+    // Version 14: Branch Notes System
+    this.version(14).stores({
+      branchNotes: 'id, expiresAt, *targetBranchIds'
     });
   }
 }
@@ -184,7 +208,7 @@ if (typeof window === 'undefined') {
     'branchRequests', 'branchRequestDrafts', 'purchaseRequests', 'receivingNotes', 'settings', 'auditLogs',
     'notifications', 'backups', 'imageCache', 'syncQueue', 'conflictLogs',
     'changeLogs', 'userSessions', 'userPreferences', 'productImages', 'suppliers',
-    'employees', 'overtimeReasons', 'overtimeEntries'
+    'employees', 'overtimeReasons', 'overtimeEntries', 'absenceRecords', 'plannedLeaves', 'warehouseLocations', 'branchNotes'
   ];
 
   tables.forEach(table => {
@@ -233,7 +257,7 @@ if (typeof window === 'undefined') {
       'branchRequests', 'branchRequestDrafts', 'purchaseRequests', 'receivingNotes', 'settings', 'auditLogs',
       'notifications', 'backups', 'imageCache', 'syncQueue', 'conflictLogs',
       'changeLogs', 'userSessions', 'userPreferences', 'productImages', 'suppliers',
-      'employees', 'overtimeReasons', 'overtimeEntries', 'absenceRecords'
+      'employees', 'overtimeReasons', 'overtimeEntries', 'absenceRecords', 'plannedLeaves', 'warehouseLocations', 'branchNotes'
     ];
 
     tables.forEach(table => {

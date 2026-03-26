@@ -1,3 +1,19 @@
+export interface WarehouseLocation {
+  id: string
+  warehouse: string // W1, W2, W3...
+  zone: string // Z1, Z2, A, B...
+  aisle: string // A1, A2...
+  rack: string // R1, R2...
+  level: 'ground' | 'middle' | 'top' | string // 1, 2, 3 or descriptive
+  side: 'right' | 'left' | string
+  positionCode: string // Full code e.g. W1-Z1-A2-R05-L1-R
+  status: 'active' | 'inactive'
+  notes?: string
+  slot?: number
+  createdAt: string
+  updatedAt: string
+}
+
 export interface Product {
   id: string
   productCode: string
@@ -26,6 +42,8 @@ export interface Product {
   cartonBarcode?: string // باركود الكرتون
   category: string
   image?: string
+  warehouseLocationId?: string // Reference to WarehouseLocation
+  warehousePositionCode?: string // Denormalized for quick access (e.g. Z1-A2-R05-L1-R)
   // معرض صور المنتج (اختياري)
   gallery?: string[]
   minStockLimit?: number // Added custom low stock limit
@@ -630,6 +648,7 @@ export interface Employee {
   name: string
   department?: string
   position?: string
+  fingerprintId?: string // ZKTeco User ID / Enroll Number
   createdAt: string
   updatedAt?: string
 }
@@ -684,4 +703,45 @@ export interface AbsenceRecord {
   updatedAt?: string
   approvedBy?: string
   branchId?: string
+}
+
+export interface PlannedLeave {
+  id: string
+  employeeId: string
+  employeeName: string
+  startDate: string
+  endDate: string
+  dates?: string[] // Multiple specific dates
+  totalDays: number
+  leaveType: 'official' | 'sick' | 'personal' | 'eid' | 'national' | 'maternity' | 'emergency'
+  reason: string
+  status: 'planned' | 'approved' | 'rejected' | 'cancelled'
+  createdAt: string
+  updatedAt?: string
+  approvedBy?: string
+  approvalNotes?: string
+  branchId?: string
+}
+
+export interface WarehouseDesignElement {
+  id: string
+  warehouseId: string
+  type: string
+  position: [number, number, number]
+  rotation: [number, number, number]
+  scale: [number, number, number]
+  data?: any
+  createdAt: string
+  updatedAt: string
+}
+
+export interface BranchNote {
+  id: string;
+  content: string;
+  type: 'info' | 'warning' | 'error' | 'success';
+  targetBranchIds: string[]; // ['all'] for all branches, or specific IDs
+  expiresAt: string; // ISO format
+  animation: 'pulse' | 'bounce' | 'fade' | 'none';
+  createdAt: string;
+  createdBy?: string;
 }

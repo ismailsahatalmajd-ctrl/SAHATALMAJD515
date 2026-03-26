@@ -51,6 +51,7 @@ import { BranchAssetStatusReport } from "@/components/branch-asset-status-report
 import { BranchAssetRequest } from "@/components/branch-asset-request"
 import { BranchMaintenanceReports } from "@/components/branch-maintenance-reports"
 import { BranchInventoryInvoices } from "@/components/branch-inventory-invoices"
+import { BranchNotesDisplay } from "@/components/branch-notes-display"
 
 export function BranchDashboard() {
   const router = useRouter()
@@ -608,7 +609,7 @@ export function BranchDashboard() {
       const pdfToPrint = newIssue ? await generateIssuePDF(newIssue) : await generateBranchInvoicePDF(created)
 
       toast({ title: "Invoice Created / تم إنشاء فاتورة", description: `Total: ${created.totalValue.toFixed(2)}` })
-      window.open(pdfToPrint, "_blank")
+      if (pdfToPrint) window.open(pdfToPrint as string, "_blank")
       setCart([])
     } catch (error) {
       console.error("Submit invoice failed:", error)
@@ -711,7 +712,9 @@ export function BranchDashboard() {
   return (
     <div className="p-4 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-xl font-bold">Branch Dashboard / لوحة فرع: {branch.name}</h1>
+        <h1 className="text-3xl font-bold text-gray-900 mx-auto">
+          <DualText k="nav.branchDashboard" params={{ name: branch.name }} fallback={`Branch Dashboard / لوحة فرع: ${branch.name}`} />
+        </h1>
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
@@ -759,6 +762,8 @@ export function BranchDashboard() {
           <CardContent className="text-sm">Custom lists and settings can be configured here. / يمكن تخصيص قوائم وإعدادات خاصة لكل فرع هنا.</CardContent>
         </Card>
       </div>
+
+      <BranchNotesDisplay branchId={branchId} />
 
       <Card>
         <CardHeader><CardTitle>Operations / العمليات</CardTitle></CardHeader>
@@ -1042,7 +1047,7 @@ export function BranchDashboard() {
                                     r.status === 'cancelled' ? 'Rejected / مرفوض' : r.status}
                           </Badge>
                         </TableCell>
-                        <TableCell>{new Date(r.createdAt).toLocaleDateString('en-GB')} {new Date(r.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</TableCell>
+                        <TableCell dir="ltr" className="text-right">{new Date(r.createdAt).toLocaleDateString('en-GB')} {new Date(r.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</TableCell>
                         <TableCell>{r.notes}</TableCell>
                         <TableCell>
                           <Button size="icon" variant="ghost" onClick={() => generateBranchRequestPDF(r)}>
@@ -1107,7 +1112,7 @@ export function BranchDashboard() {
                                     </TooltipTrigger>
                                     <TooltipContent>
                                       <div className="text-xs">
-                                        <p>Last modified: {new Date(i.updatedAt || "").toLocaleString('en-GB')}</p>
+                                        <p dir="ltr" className="text-right">Last modified: {new Date(i.updatedAt || "").toLocaleString('en-GB')}</p>
                                         {i.lastModifiedBy && <p>By: {i.lastModifiedBy}</p>}
                                       </div>
                                     </TooltipContent>

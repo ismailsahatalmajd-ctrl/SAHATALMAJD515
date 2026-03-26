@@ -2,7 +2,7 @@ import { db as firestore, storage } from "./firebase";
 import { db as localDb } from "./db";
 import { collection, onSnapshot, doc, writeBatch, getDoc, setDoc, deleteDoc, query, where, getDocs, Timestamp, updateDoc } from "firebase/firestore";
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
-import { Product, Transaction } from "./types";
+import { Product, Transaction, WarehouseDesignElement } from "./types";
 import { notify } from "./events";
 import { store } from "./data-store";
 import type { StoreEvent } from "./events";
@@ -167,7 +167,10 @@ export const COLLECTIONS = {
     OVERTIME_REASONS: 'overtimeReasons',
     OVERTIME_ENTRIES: 'overtimeEntries',
     ABSENCE_RECORDS: 'absenceRecords',
-    GRANULAR_PERMISSIONS: 'granularPermissions'
+    WAREHOUSE_LOCATIONS: 'warehouseLocations',
+    WAREHOUSE_DESIGN: 'warehouseDesignElements',
+    GRANULAR_PERMISSIONS: 'granularPermissions',
+    BRANCH_NOTES: 'branchNotes'
 };
 
 const notifyGranularUpdate = (userId: string) => {
@@ -265,7 +268,10 @@ export const startRealtimeSync = () => {
         unsubscribers.push(syncCollection(COLLECTIONS.OVERTIME_REASONS, localDb.overtimeReasons, "overtime_reasons_change" as any));
         unsubscribers.push(syncCollection(COLLECTIONS.OVERTIME_ENTRIES, localDb.overtimeEntries, "overtime_entries_change" as any));
         unsubscribers.push(syncCollection(COLLECTIONS.ABSENCE_RECORDS, localDb.absenceRecords as any, "absence_records_change" as any));
+        unsubscribers.push(syncCollection(COLLECTIONS.WAREHOUSE_LOCATIONS, localDb.warehouseLocations as any, "warehouse_locations_change" as any));
+        unsubscribers.push(syncCollection(COLLECTIONS.WAREHOUSE_DESIGN, localDb.warehouseDesignElements as any, "warehouse_design_change" as any));
         unsubscribers.push(syncCollection(COLLECTIONS.GRANULAR_PERMISSIONS, localDb.userPreferences as any, "granular_permissions_updated"));
+        unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_NOTES, localDb.branchNotes, "branch_notes_change" as any));
 
         // --- 2. Fetch-once Collections (Optimization: only on startup) ---
         // These don't change often enough to warrant a constant background CPU connection
@@ -659,6 +665,14 @@ export const syncInventoryAdjustment = (r: any) => syncRecord(COLLECTIONS.ADJUST
 export const syncBranchRequest = (r: any) => syncRecord(COLLECTIONS.BRANCH_REQUESTS, r);
 export const syncBranchInvoice = (r: any) => syncRecord(COLLECTIONS.BRANCH_INVOICES, r);
 export const syncPurchaseRequest = (r: any) => syncRecord(COLLECTIONS.PURCHASE_REQUESTS, r);
+export const syncBranchNote = (r: any) => syncRecord(COLLECTIONS.BRANCH_NOTES, r);
+export const deleteBranchNoteApi = (id: string) => deleteRecord(COLLECTIONS.BRANCH_NOTES, id);
+
+export const syncWarehouseDesignElement = (r: WarehouseDesignElement) => syncRecord(COLLECTIONS.WAREHOUSE_DESIGN, r);
+export const deleteWarehouseDesignElementApi = (id: string) => deleteRecord(COLLECTIONS.WAREHOUSE_DESIGN, id);
+
+export const syncWarehouseLocation = (r: any) => syncRecord(COLLECTIONS.WAREHOUSE_LOCATIONS, r);
+export const deleteWarehouseLocationApi = (id: string) => deleteRecord(COLLECTIONS.WAREHOUSE_LOCATIONS, id);
 
 // Branch Inventory System Sync Functions
 export const syncBranchInventory = (r: any) => syncRecord(COLLECTIONS.BRANCH_INVENTORY, r);

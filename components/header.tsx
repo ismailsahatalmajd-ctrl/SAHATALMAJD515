@@ -1,6 +1,6 @@
 "use client"
 
-import { Package, BarChart3, Receipt, ShoppingCart, Building2, Barcode, ChevronLeft, Settings, LogOut, Menu, Tag, Wrench, Server, Users, CalendarDays } from "lucide-react"
+import { Package, BarChart3, Receipt, ShoppingCart, Building2, Barcode, ChevronLeft, Settings, LogOut, Menu, Tag, Wrench, Server, Users, CalendarDays, Map as MapIcon, LayoutDashboard, MessageSquare } from "lucide-react"
 import Link from "next/link"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import Image from "next/image"
@@ -41,9 +41,12 @@ export function Header() {
     { href: "/history", key: "nav.history", label: "سجل الباركود", icon: Receipt },
     { href: "/scanner", key: "nav.scanner", label: t("nav.scanner"), icon: Barcode },
     { href: "/label-designer", key: "nav.labelDesigner", label: "مصمم الملصقات", icon: Tag },
+    { href: "/warehouse-layout", key: "nav.warehouseLayout", label: "مخطط المستودع", icon: MapIcon },
+    { href: "/warehouse-hub", key: "nav.warehouseHub", label: "مركز المستودع Hub", icon: LayoutDashboard },
     { href: "/admin/assets", key: "nav.assets", label: "إدارة الأصول", icon: Wrench },
     { href: "/employees", key: "hr.title", label: t("hr.title"), icon: Users },
     { href: "/admin/system", key: "nav.system", label: "موارد النظام", icon: Server },
+    { href: "/admin/branch-notes", key: "nav.branchNotes", label: "ملاحظات الفروع", icon: MessageSquare },
     { href: "/settings", key: "common.settings", label: t("common.settings"), icon: Settings },
   ]
 

@@ -503,8 +503,8 @@ export function BranchDashboard() {
         const factor = x.unitType === 'carton' ? (x.quantityPerCarton || 1) : 1
         return {
           ...x,
-          quantity: val,
-          quantityEntered: val,
+          quantity: qty, // Store raw input string to support decimal typing
+          quantityEntered: qty,
           quantityBase: val * factor,
           totalPrice: x.unitPrice * val
         }

@@ -69,6 +69,8 @@ interface ProductsTableProps {
   products: Product[]
   onEdit: (product: Product) => void
   onDelete: (id: string) => void
+  onPrintLabel?: (product: Product) => void
+  onBulkPrint?: (ids: string[]) => void
   viewMode?: TableViewMode  // New: Table view mode
   // Filter Props
   categories?: string[]
@@ -92,6 +94,8 @@ export function ProductsTable({
   products,
   onEdit,
   onDelete,
+  onPrintLabel,
+  onBulkPrint,
   viewMode = 'default',  // New: default to 'default' view
   categories = [],
   selectedCategory = "all",
@@ -458,6 +462,7 @@ export function ProductsTable({
     stockStatus: false,
     minStockLimit: false,
     lastActivity: false,
+    warehousePositionCode: true,
   })
   const [columnsLoaded, setColumnsLoaded] = useState(false)
   const [showLowStockSettings, setShowLowStockSettings] = useState(false)
@@ -911,8 +916,9 @@ export function ProductsTable({
               return `${(v * 100).toFixed(2)}%`
             }
             case 'status': return getStatusKey(p)
-            case 'lastActivity': return p.lastActivity || ''
-            default: return ''
+            case 'lastActivity': return p.lastActivity ? formatArabicGregorianDateTime(new Date(p.lastActivity)) : '-'
+            case 'warehousePositionCode': return p.warehousePositionCode || '-'
+            default: return (p as any)[k]
           }
         })
       }))
@@ -1159,6 +1165,15 @@ export function ProductsTable({
             <Button variant="ghost" size="sm" onClick={hideAllColumns}><DualText k="common.hideAll" /></Button>
             {selectedIds.size > 0 && shouldShow('inventoryPage.bulkOperations') && (
               <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="gap-2 bg-green-600 hover:bg-green-700"
+                  onClick={() => onBulkPrint && onBulkPrint(Array.from(selectedIds))}
+                >
+                  <Printer className="h-4 w-4" />
+                  <span>طباعة ({selectedIds.size})</span>
+                </Button>
                 <Button
                   variant="default"
                   size="sm"
@@ -1628,6 +1643,9 @@ export function ProductsTable({
                           {shouldShow('inventoryPage.columns.actions') && (
                             <td className={`p-2 text-center border align-middle sticky bg-inherit z-10 ${isRTL ? "left-0 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]" : "right-0 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]"}`}>
                                 <div className="flex items-center gap-1 justify-center">
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-green-50 hover:text-green-600" onClick={() => onPrintLabel && onPrintLabel(product)} disabled={!hasPermission(user, 'inventory.edit')}>
+                                    <Printer className="h-4 w-4" />
+                                  </Button>
                                   <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-blue-50 hover:text-blue-600" onClick={() => onEdit(product)} disabled={!hasPermission(user, 'inventory.edit')}>
                                     <Edit className="h-4 w-4" />
                                   </Button>

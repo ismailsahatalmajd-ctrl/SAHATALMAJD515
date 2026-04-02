@@ -1,9 +1,10 @@
+
 "use client"
 
-import { useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { AlertTriangle } from "lucide-react"
 
+import { useEffect } from "react"
 export default function Error({
   error,
   reset,
@@ -36,8 +37,9 @@ export default function Error({
 
         {/* 🛠️ SPECIAL FIX FOR FIRESTORE ERROR */}
         {(error.message?.includes('firebase') || error.message?.includes('Te') || process.env.NODE_ENV === 'development') && (
+
           <div className="mt-4 p-4 border border-amber-200 bg-amber-50 rounded-lg">
-            <p className="text-sm text-amber-800 mb-2 font- arabic">
+            <p className="text-sm text-amber-800 mb-2 font-arabic">
               تم اكتشاف خلل في قاعدة البيانات المحلية (Firestore Cache).
               اضغط أدناه لإصلاح عميق لقاعدة البيانات وإعادة التشغيل.
             </p>

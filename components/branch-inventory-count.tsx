@@ -25,13 +25,13 @@ interface CountEntry {
     productCode?: string
     productImage?: string
     systemStock: number
-    actualCount: number | null
+    actualCount: number | string | null
     difference: number
 }
 
 export function BranchInventoryCount({ branchId, onBack }: BranchInventoryCountProps) {
     const [searchQuery, setSearchQuery] = useState("")
-    const [counts, setCounts] = useState<Record<string, number | null>>({})
+    const [counts, setCounts] = useState<Record<string, number | string | null>>({})
     const [isSaving, setIsSaving] = useState(false)
 
     // Get branch inventory
@@ -72,7 +72,8 @@ export function BranchInventoryCount({ branchId, onBack }: BranchInventoryCountP
             }
 
             const actualCount = counts[item.id] ?? null
-            const difference = actualCount !== null ? actualCount - item.currentStock : 0
+            const numericActual = actualCount === "" || actualCount === null ? 0 : Number(actualCount)
+            const difference = actualCount !== null ? numericActual - item.currentStock : 0
 
             return {
                 inventoryId: item.id,
@@ -95,8 +96,7 @@ export function BranchInventoryCount({ branchId, onBack }: BranchInventoryCountP
     }, [countEntries])
 
     const handleCountChange = (inventoryId: string, value: string) => {
-        const num = value === "" ? null : Number(value)
-        setCounts(prev => ({ ...prev, [inventoryId]: num }))
+        setCounts(prev => ({ ...prev, [inventoryId]: value }))
     }
 
     const handleSaveCount = async () => {
@@ -111,9 +111,9 @@ export function BranchInventoryCount({ branchId, onBack }: BranchInventoryCountP
         setIsSaving(true)
         try {
             for (const entry of updates) {
-                if (entry.actualCount === null) continue
+                const finalCount = entry.actualCount === "" || entry.actualCount === null ? 0 : Number(entry.actualCount)
                 await db.branchInventory.update(entry.inventoryId, {
-                    lastInventoryCount: entry.actualCount,
+                    lastInventoryCount: finalCount,
                     lastInventoryDate: now,
                     updatedAt: now
                 })

@@ -1,0 +1,1 @@
+ D:\\NEWproject5\\inventory_app\\build\\f11906cf6f2fb10a32f5b07a65fc0d54\\dart_build_result.json:  D:\\NEWproject5\\inventory_app\\.dart_tool\\package_config.json D:\\NEWproject5\\inventory_app\\flutter\\bin\\cache\\dart-sdk\\version D:\\NEWproject5\\inventory_app\\pubspec.yaml d:\\newproject5\\inventory_app\\.dart_tool\\package_config.json

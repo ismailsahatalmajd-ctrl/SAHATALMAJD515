@@ -1,0 +1,643 @@
+"use client"
+
+import type React from "react"
+import { useState, useEffect, useRef } from "react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import type { Product } from "@/lib/types"
+import { calculateProductValues, getProducts, getUnits, getWarehouseLocations } from "@/lib/storage"
+import { toast } from "@/hooks/use-toast"
+import { DualText, getDualString } from "@/components/ui/dual-text"
+import { useI18n } from "@/components/language-provider"
+import { storage } from "@/lib/firebase"
+import { getSafeImageSrc, normalize, getApiUrl } from "@/lib/utils"
+import { Upload, X, Loader2 } from 'lucide-react'
+import { db } from "@/lib/db"
+// import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
+
+interface ProductFormProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSubmit: (product: Partial<Product>) => Promise<void> | void
+  product?: Product
+  categories: string[]
+}
+
+export function ProductForm({ open, onOpenChange, onSubmit, product, categories }: ProductFormProps) {
+  const { t } = useI18n()
+  const [formData, setFormData] = useState<Partial<Product>>(
+    product || {
+      productCode: "",
+      cartonBarcode: "",
+      itemNumber: "",
+      location: "",
+      productName: "",
+      quantity: 0,
+      quantityPerCarton: 1,
+      unit: "قطعة",
+      cartonUnit: "سم",
+      cartonLength: 0,
+      cartonWidth: 0,
+      cartonHeight: 0,
+      openingStock: 0,
+      purchases: 0,
+      issues: 0, // removed duplicate purchases
+      inventoryCount: 0,
+      price: 0,
+      category: "",
+      image: undefined,
+      minStockLimit: 10, // Default min stock limit
+      lowStockThresholdPercentage: 33.33,
+    },
+  )
+
+  const unitsList = getUnits()
+  const warehouseLocations = getWarehouseLocations()
+
+  const [imagePreview, setImagePreview] = useState<string | undefined>(product?.image)
+  const [isUploading, setIsUploading] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const isMountedRef = useRef(true)
+  const imageSectionRef = useRef<HTMLDivElement>(null)
+  const autoCloseTimerRef = useRef<number | null>(null)
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (open) {
+      if (product) {
+        console.log("[v0] Loading product data for editing:", product.productName)
+
+        // حساب القيم المحدثة من المعاملات
+        const loadDynamicData = async () => {
+          try {
+            // جلب المعاملات من قاعدة البيانات
+            const transactions = await db.transactions.where('productId').equals(product.id).toArray()
+            const issues = await db.issues.where('productId').equals(product.id).toArray()
+            const returns = await db.returns.where('productId').equals(product.id).toArray()
+
+            // حساب المجاميع من خلال البحث عن المنتج داخل كل عملية
+            const totalPurchases = transactions
+              .filter(t => t.type === 'purchase')
+              .reduce((sum, t) => sum + (Number(t.quantity) || 0), 0)
+
+            const totalIssues = issues.reduce((sum, i) => {
+              const p = i.products?.find((pp: any) => String(pp.productId) === String(product.id))
+              return sum + (Number(p?.quantity) || 0)
+            }, 0)
+
+            const totalReturns = returns.reduce((sum, r) => {
+              const p = r.products?.find((pp: any) => String(pp.productId) === String(product.id))
+              return sum + (Number(p?.quantity) || 0)
+            }, 0)
+
+            // حساب الرصيد الحالي بناءً على المعادلة: ابتدائي + مشتريات + مرتجعات - مصروفات
+            const currentStock = (Number(product.openingStock) || 0) + totalPurchases + totalReturns - totalIssues
+
+            // تحديث البيانات مع القيم المحسوبة
+            const updatedProduct = {
+              ...product,
+              purchases: totalPurchases,
+              issues: totalIssues,
+              returns: totalReturns,
+              currentStock: currentStock,
+              quantity: currentStock // Sync quantity with calculated stock for display/edit
+            }
+
+            setFormData(updatedProduct)
+            setImagePreview(product.image)
+          } catch (error) {
+            console.error("[v0] Error loading dynamic data:", error)
+            // في حالة الخطأ، استخدم البيانات الأصلية
+            setFormData(product)
+            setImagePreview(product.image)
+          }
+        }
+
+        loadDynamicData()
+      } else {
+        console.log("[v0] Resetting form for new product")
+        setFormData({
+          productCode: "",
+          itemNumber: "",
+          location: "",
+          productName: "",
+          quantity: 0,
+          quantityPerCarton: 1,
+          unit: "قطعة",
+          cartonLength: 0,
+          cartonWidth: 0,
+          cartonHeight: 0,
+          openingStock: 0,
+          purchases: 0,
+          issues: 0,
+          inventoryCount: 0,
+          price: 0,
+          category: "",
+          image: undefined,
+          minStockLimit: 10, // Default min stock limit
+          lowStockThresholdPercentage: 33.33,
+        })
+        setImagePreview(undefined)
+      }
+
+      // Focus image section if requested
+      try {
+        const focusSection = sessionStorage.getItem("productFormFocusSection")
+        const autoCloseMs = Number(sessionStorage.getItem("productFormAutoCloseMs") || "0")
+        if (focusSection === "image") {
+          imageSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+        }
+        if (autoCloseMs && autoCloseMs > 0) {
+          if (autoCloseTimerRef.current) window.clearTimeout(autoCloseTimerRef.current)
+          autoCloseTimerRef.current = window.setTimeout(() => {
+            onOpenChange(false)
+            try {
+              sessionStorage.removeItem("productFormFocusSection")
+              sessionStorage.removeItem("productFormAutoCloseMs")
+            } catch { }
+          }, autoCloseMs)
+        }
+      } catch { }
+    }
+  }, [open, product])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (isSaving) return // Prevent double submission
+
+    try {
+      setIsSaving(true)
+
+      const L = Number(formData.cartonLength || 0)
+      const W = Number(formData.cartonWidth || 0)
+      const H = Number(formData.cartonHeight || 0)
+      if (L < 0 || W < 0 || H < 0) {
+        toast({
+          title: getDualString("productForm.error.dimensions.title"),
+          description: getDualString("productForm.error.dimensions.desc"),
+          variant: "destructive",
+        })
+        setIsSaving(false)
+        return
+      }
+
+      // Check for duplicates (Disabled by user request)
+
+
+      // Ensure quantityPerCarton is at least 1
+      // Ensure quantityPerCarton is at least 1
+      // Handle Stock Adjustment Logic for Existing Products
+      let openingStockFinal = Number(formData.openingStock || 0);
+
+      if (product) {
+        // If editing an existing product, check if user changed the "Quantity" (Current Stock)
+        // If so, adjust Opening Stock to match the target.
+        // Target = Opening + Purchases + Returns - Issues
+        // => NewOpening = Target - (Purchases + Returns - Issues)
+
+        const targetStock = Number(formData.quantity || 0);
+        const originalStock = Number(product.currentStock || 0); // Approx check, but better to recalc
+
+        // We use formData values for P, R, I as they might have been edited? (Actually they are disabled usually)
+        // But let's trust formData as source of truth for the equation.
+        const P = Number(formData.purchases || 0);
+        const R = Number(formData.returns || 0);
+        const I = Number(formData.issues || 0);
+
+        // Recalculate what opening stock SHOULD be to hit the target
+        const requiredOpening = targetStock - (P + R - I);
+
+        // Only update if the result is different from current opening stock
+        // and if it's a valid number.
+        if (!isNaN(requiredOpening)) {
+          openingStockFinal = requiredOpening;
+        }
+      } else {
+        // New Product Logic (unchanged)
+        const qty = typeof formData.quantity === "number" && formData.quantity >= 0 ? Number(formData.quantity) : 0;
+        openingStockFinal = qty;
+      }
+
+      const dataToSubmit = {
+        ...formData,
+        quantityPerCarton: (formData.quantityPerCarton || 0) === 0 ? 1 : formData.quantityPerCarton,
+        openingStock: openingStockFinal
+      }
+      const calculatedData = calculateProductValues(dataToSubmit as Product)
+
+      // Wait for onSubmit to complete before closing
+      await onSubmit(calculatedData as Product)
+
+      // Only update state if still mounted
+      if (isMountedRef.current) {
+        onOpenChange(false)
+        setImagePreview(undefined)
+        setIsSaving(false)
+      }
+    } catch (error: any) {
+      console.error("Error submitting product form:", error)
+      toast({
+        title: getDualString("productForm.error.unexpected.title"),
+        description: getDualString("productForm.error.unexpected.desc", undefined, undefined, { error: error.message }),
+        variant: "destructive"
+      })
+      setIsSaving(false)
+    }
+  }
+
+  const handleChange = (field: keyof Product, value: string | number) => {
+    setFormData((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const allowed = ["image/jpeg", "image/png", "image/gif"]
+    if (!allowed.includes(file.type)) {
+      toast({ title: t("common.error.unsupportedFormat"), description: t("common.error.useImageFormats") })
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) { // Increased to 5MB for storage
+      toast({ title: getDualString("common.error.largeFile"), description: getDualString("common.error.maxSize2MB") }) // Keeping 2MB key but logic is 5MB? I'll just use a generic message
+      return
+    }
+
+    // Base64 Upload (Matches Assets Management logic)
+    // The user requested to use the same method as "Add Asset" which uses simple Base64 storage.
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      const base64 = reader.result as string
+      setImagePreview(base64)
+      setFormData((prev) => ({ ...prev, image: base64 }))
+      toast({ title: getDualString("productForm.success.imageUploaded") })
+    }
+    reader.onerror = () => {
+      toast({
+        title: getDualString("productForm.error.imageUploadFailed.title"),
+        variant: "destructive"
+      })
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleRemoveImage = () => {
+    setImagePreview(undefined)
+    setFormData((prev) => ({ ...prev, image: undefined }))
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[95vw] w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{product ? <DualText k="products.form.editTitle" /> : <DualText k="products.form.addTitle" />}</DialogTitle>
+          <DialogDescription><DualText k="products.form.desc" /></DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit}>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2" ref={imageSectionRef}>
+              <Label><DualText k="products.form.image" /></Label>
+              {isUploading ? (
+                <div className="flex items-center justify-center w-32 h-32 border-2 border-dashed rounded-lg">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : imagePreview ? (
+                <div className="relative w-32 h-32 border rounded-lg overflow-hidden">
+                  <img
+                    src={getSafeImageSrc(imagePreview || "/placeholder.svg")}
+                    alt="Product Preview"
+                    className="w-full h-full object-cover"
+                    onError={(e) => { e.currentTarget.src = "/placeholder.svg" }}
+                  />
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="icon"
+                    className="absolute top-1 left-1 h-6 w-6"
+                    onClick={handleRemoveImage}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <label className="flex items-center justify-center w-32 h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-accent transition-colors">
+                  <div className="text-center">
+                    <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground"><DualText k="products.form.uploadImage" /></span>
+                  </div>
+                  <input type="file" accept="image/jpeg,image/png,image/gif" onChange={handleImageUpload} className="hidden" />
+                </label>
+              )}
+
+              {/* تمت إزالة معرض الصور بناءً على الطلب؛ الآن نعرض آخر صورة فقط */}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="productCode"><DualText k="common.code" /></Label>
+                <Input
+                  id="productCode"
+                  value={formData.productCode}
+                  onChange={(e) => handleChange("productCode", e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="itemNumber"><DualText k="common.itemNumber" /></Label>
+                <Input
+                  id="itemNumber"
+                  value={formData.itemNumber}
+                  onChange={(e) => handleChange("itemNumber", e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="cartonBarcode">Carton Barcode / باركود الكرتون</Label>
+                <Input
+                  id="cartonBarcode"
+                  value={formData.cartonBarcode || ""}
+                  onChange={(e) => handleChange("cartonBarcode", e.target.value)}
+                  placeholder="Scan Carton Code..."
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="location"><DualText k="common.location" /></Label>
+                <Input
+                  id="location"
+                  value={formData.location}
+                  onChange={(e) => handleChange("location", e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="productName"><DualText k="common.productName" /></Label>
+                <Input
+                  id="productName"
+                  value={formData.productName}
+                  onChange={(e) => handleChange("productName", e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+              </div>
+            </div>
+
+
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="category"><DualText k="common.category" /></Label>
+                <Select value={formData.category} onValueChange={(value) => handleChange("category", value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={t("common.selectCategory")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map((cat) => (
+                      <SelectItem key={cat} value={cat}>
+                        {cat}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="warehouseLocation"><DualText k="common.warehouseLocation" /> / موقع المستودع</Label>
+                <Select 
+                  value={formData.warehouseLocationId || "none"} 
+                  onValueChange={(value) => {
+                    const loc = warehouseLocations.find(l => l.id === value)
+                    setFormData(prev => ({
+                      ...prev,
+                      warehouseLocationId: value === "none" ? undefined : value,
+                      warehousePositionCode: loc ? loc.positionCode : undefined
+                    }))
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="اختر موقعاً / Select Location" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">بدون موقع / No Location</SelectItem>
+                          {warehouseLocations.sort((a, b) => a.positionCode.localeCompare(b.positionCode)).map((loc) => (
+                            <SelectItem key={loc.id} value={loc.id}>
+                              {loc.positionCode} ({loc.warehouse} - {loc.zone})
+                            </SelectItem>
+                          ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="cartonLength"><DualText k="products.form.cartonLength" /></Label>
+                <Input
+                  id="cartonLength"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={formData.cartonLength ?? 0}
+                  onChange={(e) => handleChange("cartonLength", Number(e.target.value))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cartonWidth"><DualText k="products.form.cartonWidth" /></Label>
+                <Input
+                  id="cartonWidth"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={formData.cartonWidth ?? 0}
+                  onChange={(e) => handleChange("cartonWidth", Number(e.target.value))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cartonHeight"><DualText k="products.form.cartonHeight" /></Label>
+                <Input
+                  id="cartonHeight"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={formData.cartonHeight ?? 0}
+                  onChange={(e) => handleChange("cartonHeight", Number(e.target.value))}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="cartonUnit"><DualText k="products.form.cartonUnit" /></Label>
+                <Select value={formData.cartonUnit} onValueChange={(value) => handleChange("cartonUnit", value)}>
+                  <SelectTrigger id="cartonUnit">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="مم">مم</SelectItem>
+                    <SelectItem value="سم">سم</SelectItem>
+                    <SelectItem value="م">م</SelectItem>
+                    <SelectItem value="إنش">إنش</SelectItem>
+                    <SelectItem value="قدم">قدم</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="quantityPerCarton"><DualText k="products.form.quantityPerCarton" /></Label>
+                <Input
+                  id="quantityPerCarton"
+                  type="number"
+                  min={1}
+                  value={formData.quantityPerCarton ?? 1}
+                  onChange={(e) => handleChange("quantityPerCarton", Number(e.target.value))}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="openingStock"><DualText k="products.form.openingStock" /></Label>
+                <Input
+                  id="openingStock"
+                  type="number"
+                  step="any"
+                  value={formData.openingStock}
+                  onChange={(e) => handleChange("openingStock", Number(e.target.value))}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="purchases"><DualText k="products.form.purchases" /></Label>
+                <Input
+                  id="purchases"
+                  type="number"
+                  step="any"
+                  value={formData.purchases}
+                  onChange={(e) => handleChange("purchases", Number(e.target.value))}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="issues"><DualText k="products.form.issues" /></Label>
+                <Input
+                  id="issues"
+                  type="number"
+                  step="any"
+                  value={formData.issues}
+                  onChange={(e) => handleChange("issues", Number(e.target.value))}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="inventoryCount"><DualText k="products.form.inventory" /></Label>
+                <Input
+                  id="inventoryCount"
+                  type="number"
+                  step="any"
+                  value={formData.inventoryCount}
+                  onChange={(e) => handleChange("inventoryCount", Number(e.target.value))}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="price"><DualText k="common.price" /></Label>
+                <Input
+                  id="price"
+                  type="number"
+                  step="any"
+                  value={formData.price}
+                  onChange={(e) => handleChange("price", Number(e.target.value))}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="quantity">
+                  {product ? <DualText k="products.form.currentStockAdjust" /> : <DualText k="common.quantity" />}
+                </Label>
+                <Input
+                  id="quantity"
+                  type="number"
+                  step="any"
+                  value={formData.quantity}
+                  onChange={(e) => handleChange("quantity", Number(e.target.value))}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="minStockLimit"><DualText k="products.form.minStock" /></Label>
+                <Input
+                  id="minStockLimit"
+                  type="number"
+                  value={formData.minStockLimit || 10}
+                  onChange={(e) => handleChange("minStockLimit", Number(e.target.value))}
+                  placeholder="10"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="lowStockThresholdPercentage"><DualText k="products.form.minStockPct" /></Label>
+                <Input
+                  id="lowStockThresholdPercentage"
+                  type="number"
+                  step="0.01"
+                  value={formData.lowStockThresholdPercentage ?? 33.33}
+                  onChange={(e) => handleChange("lowStockThresholdPercentage", Number(e.target.value))}
+                  placeholder="33.33"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              <DualText k="common.cancel" />
+            </Button>
+            <Button type="submit" disabled={isUploading || isSaving}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <span className="ml-2">
+                    <DualText k="common.saving" />
+                  </span>
+                </>
+              ) : isUploading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <span className="ml-2">
+                    <DualText k="productForm.uploading" />
+                  </span>
+                </>
+              ) : (
+                product ? <DualText k="common.saveChanges" /> : <DualText k="common.addProduct" />
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}

@@ -460,7 +460,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                   min={0}
                   step="0.01"
                   value={formData.cartonLength ?? 0}
-                  onChange={(e) => handleChange("cartonLength", Number(e.target.value))}
+                  onChange={(e) => handleChange("cartonLength", e.target.value)}
                 />
               </div>
               <div className="space-y-2">
@@ -471,7 +471,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                   min={0}
                   step="0.01"
                   value={formData.cartonWidth ?? 0}
-                  onChange={(e) => handleChange("cartonWidth", Number(e.target.value))}
+                  onChange={(e) => handleChange("cartonWidth", e.target.value)}
                 />
               </div>
               <div className="space-y-2">
@@ -482,7 +482,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                   min={0}
                   step="0.01"
                   value={formData.cartonHeight ?? 0}
-                  onChange={(e) => handleChange("cartonHeight", Number(e.target.value))}
+                  onChange={(e) => handleChange("cartonHeight", e.target.value)}
                 />
               </div>
             </div>
@@ -509,7 +509,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                   type="number"
                   min={1}
                   value={formData.quantityPerCarton ?? 1}
-                  onChange={(e) => handleChange("quantityPerCarton", Number(e.target.value))}
+                  onChange={(e) => handleChange("quantityPerCarton", e.target.value)}
                 />
               </div>
             </div>
@@ -522,7 +522,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                   type="number"
                   step="any"
                   value={formData.openingStock}
-                  onChange={(e) => handleChange("openingStock", Number(e.target.value))}
+                  onChange={(e) => handleChange("openingStock", e.target.value)}
                   required
                 />
               </div>
@@ -533,7 +533,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                   type="number"
                   step="any"
                   value={formData.purchases}
-                  onChange={(e) => handleChange("purchases", Number(e.target.value))}
+                  onChange={(e) => handleChange("purchases", e.target.value)}
                   required
                 />
               </div>
@@ -544,7 +544,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                   type="number"
                   step="any"
                   value={formData.issues}
-                  onChange={(e) => handleChange("issues", Number(e.target.value))}
+                  onChange={(e) => handleChange("issues", e.target.value)}
                   required
                 />
               </div>
@@ -558,7 +558,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                   type="number"
                   step="any"
                   value={formData.inventoryCount}
-                  onChange={(e) => handleChange("inventoryCount", Number(e.target.value))}
+                  onChange={(e) => handleChange("inventoryCount", e.target.value)}
                   required
                 />
               </div>
@@ -569,7 +569,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                   type="number"
                   step="any"
                   value={formData.price}
-                  onChange={(e) => handleChange("price", Number(e.target.value))}
+                  onChange={(e) => handleChange("price", e.target.value)}
                   required
                 />
               </div>
@@ -582,7 +582,7 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                   type="number"
                   step="any"
                   value={formData.quantity}
-                  onChange={(e) => handleChange("quantity", Number(e.target.value))}
+                  onChange={(e) => handleChange("quantity", e.target.value)}
                   required
                 />
               </div>

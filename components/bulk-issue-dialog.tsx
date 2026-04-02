@@ -63,6 +63,7 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null)
   const [draftSaved, setDraftSaved] = useState<boolean>(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
 
   // Bulk Delete State
   const [selectedRows, setSelectedRows] = useState<number[]>([])
@@ -191,6 +192,55 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
     setIssueProducts(updated)
   }
 
+  // Manual save only - no auto-save to protect cloud performance
+
+  // Track changes without auto-saving
+  useEffect(() => {
+    if (!open || !issueToEdit || isSubmitting) return
+    
+    // Just track that there are unsaved changes
+    setHasUnsavedChanges(true)
+  }, [issueProducts, selectedBranchId, notes, extractorName, inspectorName, open, issueToEdit, isSubmitting])
+
+  // Save on window close/blur (emergency save only)
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges && issueToEdit && issueProducts.length > 0 && selectedBranchId) {
+        try {
+          const branch = branches.find((b) => b.id === selectedBranchId)
+          if (branch) {
+            const emergencySavePayload = {
+              ...issueToEdit,
+              branchId: selectedBranchId,
+              branchName: branch.name,
+              products: issueProducts,
+              totalValue: issueProducts.reduce((sum, p) => sum + p.totalPrice, 0),
+              notes: notes?.trim() ? notes : "من المستودع",
+              extractorName,
+              inspectorName,
+              updatedAt: new Date().toISOString()
+            }
+            
+            // Emergency save - no cloud sync to avoid performance issues
+            updateIssue(issueToEdit.id, emergencySavePayload).catch(console.error)
+            e.preventDefault()
+            e.returnValue = 'هل أنت متأكد؟ لديك تغييرات غير محفوظة.'
+          }
+        } catch (error) {
+          console.error("Emergency save failed:", error)
+        }
+      }
+    }
+
+    if (hasUnsavedChanges) {
+      window.addEventListener('beforeunload', handleBeforeUnload)
+    }
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [hasUnsavedChanges, issueToEdit, issueProducts, selectedBranchId, notes, extractorName, inspectorName, branches])
+
   // حفظ تلقائي للمسودة عند تغيّر البيانات
   useEffect(() => {
     if (!open || issueToEdit) return
@@ -301,10 +351,21 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
           updatedAt: new Date().toISOString()
         }
 
-        updateIssue(issueToEdit.id, updatedIssue)
+        // Add timeout to prevent hanging
+        const updatePromise = updateIssue(issueToEdit.id, updatedIssue)
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Update timeout - please try again")), 10000)
+        )
+        
+        await Promise.race([updatePromise, timeoutPromise])
 
         if (user) {
-          try { syncIssue(updatedIssue) } catch (e) { console.error("Sync failed", e) }
+          try { 
+            await syncIssue(updatedIssue) 
+          } catch (e) { 
+            console.error("Sync failed", e) 
+            // Don't fail the whole operation if sync fails
+          }
         }
 
         toast({ title: getDualString("common.success"), description: getDualString("bulkIssue.success.updated") })
@@ -322,7 +383,12 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
         })
 
         if (user) {
-          try { await syncIssue(newIssue) } catch (e) { console.error("Sync failed", e) }
+          try { 
+            await syncIssue(newIssue) 
+          } catch (e) { 
+            console.error("Sync failed", e)
+            // Don't fail the whole operation if sync fails
+          }
         }
 
         toast({ title: getDualString("common.success"), description: getDualString("bulkIssue.success.issued") })
@@ -330,15 +396,33 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
 
       // احذف المسودة المرتبطة بعد الحفظ النهائي
       if (currentDraftId) {
-        try { deleteIssueDraft(currentDraftId) } catch { }
+        try { 
+          await deleteIssueDraft(currentDraftId) 
+        } catch { 
+          console.error("Failed to delete draft")
+        }
         setCurrentDraftId(null)
         setDraftSaved(false)
       }
 
+    } catch (error) {
+      console.error("Error during save/update:", error)
+      const errorMessage = error instanceof Error ? error.message : getDualString("common.error")
+      
+      toast({
+        title: getDualString("common.error"),
+        description: errorMessage,
+        variant: "destructive"
+      })
+      
+      // Don't reset form on error - let user try again
+      return
     } finally {
       setIsSubmitting(false)
     }
 
+    // Reset unsaved changes indicator on successful save
+    setHasUnsavedChanges(false)
     resetForm()
     onSuccess()
   }
@@ -365,6 +449,13 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
           <DialogDescription>
             <DualText k={issueToEdit ? "bulkIssue.editDescription" : "bulkIssue.description"} />
           </DialogDescription>
+          {/* Manual save indicator for edited invoices */}
+          {issueToEdit && hasUnsavedChanges && (
+            <div className="mt-2 flex items-center gap-2 text-sm text-amber-600">
+              <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
+              <span>لديك تغييرات غير محفوظة - اضغط "تحديث الفاتورة" للحفظ</span>
+            </div>
+          )}
           {!issueToEdit && (
             <div className="mt-2 flex items-center gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => {
@@ -681,6 +772,15 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="h-11 px-6" disabled={isSubmitting}>
             <DualText k="bulkIssue.cancel" />
           </Button>
+          
+          {/* Show unsaved changes indicator */}
+          {issueToEdit && hasUnsavedChanges && (
+            <div className="flex items-center gap-2 text-sm text-amber-600 mr-4">
+              <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></div>
+              <span>تغييرات غير محفوظة</span>
+            </div>
+          )}
+          
           <Button onClick={handleSubmit} disabled={isSubmitting || issueProducts.length === 0 || !selectedBranchId} className="h-11 px-6">
             {isSubmitting ? (
               <span className="flex items-center gap-2">

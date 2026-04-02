@@ -303,7 +303,37 @@ export async function generateProductsPDF({ products, visibleColumns, columnLabe
         value = (opening + purchases + returns - issues)
       }
 
-      // 2. Stock Status (Calculated)
+      // 2. Turnover Status (Calculated - not stored in DB, same logic as table)
+      if (col === 'status') {
+        const os = Number(p.openingStock || 0)
+        const pur = Number(p.purchases || 0)
+        const iss = Number(p.issues || 0)
+        const cur = Number(p.currentStock || 0)
+
+        let statusKey = 'stagnant'
+        // New: opening=0, purchases>0, issues=0
+        if (os === 0 && pur > 0 && iss === 0) {
+          statusKey = 'new'
+        } else {
+          const avg = (os + cur) / 2
+          const rate = avg > 0 ? iss / avg : 0
+          if (rate > 1) statusKey = 'fast'
+          else if (rate > 0.35) statusKey = 'normal'
+          else if (rate > 0) statusKey = 'slow'
+          else statusKey = 'stagnant'
+        }
+
+        const statusLabels: Record<string, string> = {
+          fast: 'Fast / سريع',
+          normal: 'Normal / عادي',
+          slow: 'Slow / بطيء',
+          stagnant: 'Stagnant / راكد',
+          new: 'New / جديد',
+        }
+        value = statusLabels[statusKey]
+      }
+
+      // 2b. Stock Status (Calculated)
       if (col === 'stockStatus') {
         const stock = Number(p.currentStock) || 0
 
@@ -369,32 +399,9 @@ export async function generateProductsPDF({ products, visibleColumns, columnLabe
         value = 0
       }
 
-      // 6. Carton Dimensions and Box/Piece Logic
+      // 6. Quantity columns - plain number only (no carton breakdown)
       if (['openingStock', 'purchases', 'issues', 'returns', 'inventoryCount', 'currentStock', 'difference'].includes(col)) {
-        // Special formatting for quantities (Box + Piece)
-        const numVal = Number(value || 0)
-        const perCarton = Number(p.quantityPerCarton || 1)
-
-        // Default formatting
-        let formatted = formatNumberWithSeparators(numVal)
-
-        if (perCarton > 1 && numVal !== 0 && !isNaN(numVal)) {
-          const absVal = Math.abs(numVal)
-          const cartons = Math.floor(absVal / perCarton)
-          const remainder = absVal % perCarton
-          const sign = numVal < 0 ? "-" : ""
-          const cartonLabel = p.cartonUnit || 'Box'
-          const unitLabel = p.unit || 'Pc'
-
-          const parts = []
-          if (cartons > 0) parts.push(`${cartons} ${cartonLabel}`)
-          if (remainder > 0) parts.push(`${remainder} ${unitLabel}`)
-
-          if (parts.length > 0) {
-            formatted = `${sign}${parts.join(' + ')} (${formatNumberWithSeparators(numVal)})`
-          }
-        }
-        value = formatted
+        value = formatNumberWithSeparators(Number(value || 0))
       } else if (col === 'cartonDimensions') {
         const L = p.cartonLength
         const W = p.cartonWidth

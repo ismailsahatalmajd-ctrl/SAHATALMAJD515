@@ -1,0 +1,134 @@
+
+import { db } from "@/lib/db"
+import { getSafeImageSrc } from "@/lib/utils"
+
+interface PrintItem {
+    name: string
+    quantity: number
+    productCode: string
+    unit?: string
+    image?: string
+    notes?: string
+    reason?: string
+}
+
+export async function printInventoryInvoice(
+    type: "consumption" | "receiving",
+    date: string,
+    branchName: string,
+    items: PrintItem[]
+) {
+    const title = type === "consumption"
+        ? `سند استهلاك - ${branchName}`
+        : `سند استلام - ${branchName}`
+
+    const dateStr = new Date(date).toLocaleDateString("ar-SA")
+
+    // Header
+    const headers = `
+        <th style="width: 50px">#</th>
+        <th style="width: 60px">Image</th>
+        <th>Product / الصنف</th>
+        <th style="width: 100px">Code / الكود</th>
+        <th style="width: 80px">Qty / الكمية</th>
+        ${type === "consumption" ? '<th>Reason / السبب</th>' : ''}
+        <th>Notes / ملاحظات</th>
+    `
+
+    // Rows
+    const rows = await Promise.all(items.map(async (item, idx) => {
+        const imageSrc = getSafeImageSrc(item.image)
+        return `
+            <tr>
+                <td>${idx + 1}</td>
+                <td>${imageSrc ? `<img src="${imageSrc}" style="width:40px;height:40px;object-fit:cover;border-radius:4px">` : ''}</td>
+                <td style="text-align: right; font-weight: bold">${item.name}</td>
+                <td>${item.productCode || '-'}</td>
+                <td style="direction: ltr; font-weight: bold; color: ${type === 'consumption' ? '#dc2626' : '#16a34a'}">
+                    ${type === 'consumption' ? '-' : '+'}${item.quantity} ${item.unit || ''}
+                </td>
+                ${type === 'consumption' ? `<td>${item.reason || '-'}</td>` : ''}
+                <td style="color: #666; font-size: 0.9em">${item.notes || '-'}</td>
+            </tr>
+        `
+    }))
+
+    const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/sahat-almajd-logo.svg` : '/sahat-almajd-logo.svg'
+
+    const html = `
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <title>${title}</title>
+        <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; color: #333; }
+            .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #eee; padding-bottom: 20px; }
+            .logo { max-height: 80px; margin-bottom: 10px; }
+            .title { font-size: 24px; font-weight: bold; color: #1a1a1a; margin: 10px 0; }
+            .meta { display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 14px; }
+            .meta-item { background: #f9fafb; padding: 10px 20px; border-radius: 8px; border: 1px solid #eee; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+            th { background: #f3f4f6; padding: 12px; text-align: right; font-weight: 600; border: 1px solid #e5e7eb; }
+            td { padding: 10px 12px; border: 1px solid #e5e7eb; vertical-align: middle; }
+            tr:nth-child(even) { background: #f9fafb; }
+            .footer { margin-top: 40px; text-align: center; font-size: 12px; color: #888; border-top: 1px solid #eee; padding-top: 20px; }
+            .badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+            .badge-consumption { background: #fee2e2; color: #dc2626; }
+            .badge-receiving { background: #dcfce7; color: #16a34a; }
+            @media print {
+                body { padding: 0; }
+                .no-print { display: none; }
+                th { background-color: #f3f4f6 !important; -webkit-print-color-adjust: exact; }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <img src="${logoUrl}" class="logo" alt="Logo" />
+            <div class="title">${title}</div>
+            <div style="font-size: 14px; color: #666">Branch Inventory System / نظام مخزون الفرع</div>
+        </div>
+
+        <div class="meta">
+            <div class="meta-item">
+                <strong>Date / التاريخ:</strong> ${dateStr}
+            </div>
+            <div class="meta-item">
+                <strong>Type / النوع:</strong> 
+                <span class="badge ${type === 'consumption' ? 'badge-consumption' : 'badge-receiving'}">
+                    ${type === 'consumption' ? 'استهلاك / Consumption' : 'استلام / Receiving'}
+                </span>
+            </div>
+            <div class="meta-item">
+                <strong>Total Items / عدد الأصناف:</strong> ${items.length}
+            </div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>${headers}</tr>
+            </thead>
+            <tbody>
+                ${rows.join('')}
+            </tbody>
+        </table>
+
+        <div class="footer">
+            <p>تم استخراج هذا المستند من نظام ساحات المجد</p>
+            <p>Generated by Sahat Al Majd System on ${new Date().toLocaleString()}</p>
+        </div>
+
+        <script>
+            window.onload = function() { window.print(); }
+        </script>
+    </body>
+    </html>
+    `
+
+    const printWindow = window.open('', '_blank')
+    if (printWindow) {
+        printWindow.document.write(html)
+        printWindow.document.close()
+    }
+}

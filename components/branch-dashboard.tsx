@@ -52,6 +52,7 @@ import { BranchAssetRequest } from "@/components/branch-asset-request"
 import { BranchMaintenanceReports } from "@/components/branch-maintenance-reports"
 import { BranchInventoryInvoices } from "@/components/branch-inventory-invoices"
 import { BranchNotesDisplay } from "@/components/branch-notes-display"
+import { BranchInventoryReportComponent } from "@/components/branch-inventory-report"
 
 export function BranchDashboard() {
   const router = useRouter()
@@ -769,238 +770,246 @@ export function BranchDashboard() {
         <CardHeader><CardTitle>Operations / العمليات</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="invoice">Order System / نظام الطلبات</TabsTrigger>
               <TabsTrigger value="request">Return System / نظام المرتجعات</TabsTrigger>
+              <TabsTrigger value="inventory">Inventory System / نظام الجرد</TabsTrigger>
             </TabsList>
 
             <div className="mt-4 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-                <div className="md:col-span-1">
-                  <Label>Unified Search / بحث موحد</Label>
-                  <div className="relative">
-                    <Input
-                      placeholder="Search or Scan / ابحث أو امسح الباركود"
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      onKeyDown={async (e) => {
-                        if (e.key === 'Enter' && query.trim()) {
-                          const q = normalize(query)
-                          // Smart Scan: Check for exact match
-                          const all = await db.products.toArray()
-                          const match = all.find(p =>
-                            normalize(p.productCode) === q ||
-                            normalize(p.itemNumber || "") === q ||
-                            (p.cartonBarcode && normalize(p.cartonBarcode) === q)
-                          )
+              {activeTab === 'inventory' ? (
+                <BranchInventoryReportComponent branchId={branchId} branchName={branch.name || ""} />
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                    <div className="md:col-span-1">
+                      <Label>Unified Search / بحث موحد</Label>
+                      <div className="relative">
+                        <Input
+                          placeholder="Search or Scan / ابحث أو امسح الباركود"
+                          value={query}
+                          onChange={(e) => setQuery(e.target.value)}
+                          onKeyDown={async (e) => {
+                            if (e.key === 'Enter' && query.trim()) {
+                              const q = normalize(query)
+                              const all = await db.products.toArray()
+                              const match = all.find(p =>
+                                normalize(p.productCode) === q ||
+                                normalize(p.itemNumber || "") === q ||
+                                (p.cartonBarcode && normalize(p.cartonBarcode) === q)
+                              )
 
-                          if (match) {
-                            e.preventDefault()
-                            const isCarton = match.cartonBarcode && normalize(match.cartonBarcode) === q
-                            addToCart(match, isCarton ? 'carton' : 'base')
-                            setQuery("")
-                            toast({
-                              title: "Added to Cart / تمت الإضافة",
-                              description: `${match.productName} [${isCarton ? (match.cartonUnit || 'Carton') : (match.unit || 'Piece')}]`,
-                              duration: 2000
-                            })
-                          }
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <Label>Category / تصنيف</Label>
-                  <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="All / الكل" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All / الكل</SelectItem>
-                      {categories.filter(c => c && c.trim() !== "").map((c) => (
-                        <SelectItem key={c} value={c}>{c}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label>Location / الموقع</Label>
-                  <Select value={locationFilter} onValueChange={setLocationFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="All / الكل" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All / الكل</SelectItem>
-                      {locations.filter(l => l && l.trim() !== "").map((l) => (
-                        <SelectItem key={l} value={l}>{l}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex justify-end">
-                  <Button variant="default" className="px-4" onClick={() => document.getElementById("branch-cart")?.scrollIntoView({ behavior: "smooth" })}>
-                    <ShoppingCart className="w-4 h-4 ml-2" /> Cart / السلة <span className="ml-2 rounded bg-blue-600 text-white px-2">{cart.length}</span>
-                  </Button>
-                </div>
-              </div>
-
-              <div className="overflow-auto border rounded max-h-[300px]">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Image / الصورة</TableHead>
-                      <TableHead>Code / الكود</TableHead>
-                      <TableHead>Name / الاسم</TableHead>
-                      <TableHead>Stock / المخزون</TableHead>
-                      {settings.showUnit && <TableHead>Unit / الوحدة</TableHead>}
-                      <TableHead>Add / إضافة</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {displayProducts.map((p) => (
-                      <TableRow key={p.id}>
-                        <TableCell>
-                          <div className="cursor-pointer hover:opacity-80" onClick={() => setZoomedProduct(p)}>
-                            <ProductImage product={p} className="w-10 h-10 object-cover" />
-                          </div>
-                        </TableCell>
-                        <TableCell>{p.productCode}</TableCell>
-                        <TableCell>{p.productName}</TableCell>
-                        <TableCell>
-                          {p.currentStock > 0 ? (
-                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100">
-                              Available / متوفر
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100">
-                              Out of Stock / نفذت الكمية
-                            </Badge>
-                          )}
-                        </TableCell>
-                        {settings.showUnit && <TableCell>{p.unit}</TableCell>}
-                        <TableCell>
-                          <Button size="sm" onClick={() => addToCart(p)}>Add / أضف</Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              <div id="branch-cart" className="border p-4 rounded bg-slate-50">
-                <h2 className="text-base font-semibold mb-2">{activeTab === 'request' ? (requestType === 'return' ? 'Return Cart / سلة المرتجع' : 'Order Cart / سلة الطلب') : 'Order Cart / سلة الطلب'}</h2>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name / الاسم</TableHead>
-                      <TableHead>Code / الكود</TableHead>
-                      <TableHead>Image / الصورة</TableHead>
-                      {settings.showUnit && <TableHead>Unit / الوحدة</TableHead>}
-                      <TableHead>Quantity / الكمية</TableHead>
-                      {activeTab === 'request' && requestType === 'return' && <TableHead>Return Reason / سبب الارجاع</TableHead>}
-                      <TableHead>Stock / المخزون</TableHead>
-                      <TableHead>Notes / ملاحظات</TableHead>
-                      <TableHead>Delete / حذف</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {cart.map((it, idx) => (
-                      <TableRow key={it.productId + String(idx)}>
-                        <TableCell>{it.productName}</TableCell>
-                        <TableCell>{it.productCode || "-"}</TableCell>
-                        <TableCell>
-                          <div className="cursor-pointer hover:opacity-80" onClick={() => setZoomedProduct({ id: it.productId, image: it.image } as Product)}>
-                            <ProductImage product={{ id: it.productId, image: it.image }} className="w-10 h-10 object-cover" />
-                          </div>
-                        </TableCell>
-                        {settings.showUnit && <TableCell>
-                          {it.selectedUnitName || it.unit || "-"}
-                        </TableCell>}
-                        <TableCell>
-                          <Input 
-                            type="number" 
-                            step="any" 
-                            value={it.quantity} 
-                            onChange={(e) => updateQty(idx, e.target.value)} 
-                            className="w-24" 
-                          />
-                        </TableCell>
-                        {activeTab === 'request' && requestType === 'return' && (
-                          <TableCell>
-                            <Input
-                              placeholder="Reason... / السبب..."
-                              value={it.returnReason || ""}
-                              onChange={(e) => updateReturnReason(idx, e.target.value)}
-                              className="w-40"
-                            />
-                          </TableCell>
-                        )}
-                        <TableCell>
-                          {(() => {
-                            const p = cartProducts.find(cp => cp.id === it.productId)
-                            const stock = p ? p.currentStock : 0
-                            return stock > 0 ? (
-                              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100">
-                                Available / متوفر
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100">
-                                Out of Stock / نفذت الكمية
-                              </Badge>
-                            )
-                          })()}
-                        </TableCell>
-                        <TableCell>
-                          <Input
-                            placeholder="Notes... / ملاحظات..."
-                            value={it.notes || ""}
-                            onChange={(e) => updateItemNotes(idx, e.target.value)}
-                            className="w-40"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Button variant="destructive" size="sm" onClick={() => removeItem(idx)}>Delete / حذف</Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-
-                <div className="mt-4 pt-4 border-t">
-                  <TabsContent value="invoice">
-                    <div className="flex justify-between items-center">
-                      <Button onClick={submitInvoice} disabled={isSubmitting}>
-                        {isSubmitting && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
-                        Create Invoice / إنشاء فاتورة
-                      </Button>
-                    </div>
-                  </TabsContent>
-                  <TabsContent value="request">
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <Label>Request Type / نوع الطلب</Label>
-                          <Select value={requestType} onValueChange={(v: any) => setRequestType(v)}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="return">Return Request (to Warehouse) / طلب مرتجع (إلى المستودع)</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <Label>Notes / ملاحظات</Label>
-                          <Textarea value={requestNotes} onChange={e => setRequestNotes(e.target.value)} placeholder="Additional Notes... / ملاحظات إضافية..." />
-                        </div>
+                              if (match) {
+                                e.preventDefault()
+                                const isCarton = match.cartonBarcode && normalize(match.cartonBarcode) === q
+                                addToCart(match, isCarton ? 'carton' : 'base')
+                                setQuery("")
+                                toast({
+                                  title: "Added to Cart / تمت الإضافة",
+                                  description: `${match.productName} [${isCarton ? (match.cartonUnit || 'Carton') : (match.unit || 'Piece')}]`,
+                                  duration: 2000
+                                })
+                              }
+                            }
+                          }}
+                        />
                       </div>
-                      <Button onClick={submitRequest} className="w-full" disabled={isSubmitting}>
-                        {isSubmitting && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
-                        Submit Request / إرسال الطلب
+                    </div>
+                    <div>
+                      <Label>Category / تصنيف</Label>
+                      <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="All / الكل" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All / الكل</SelectItem>
+                          {categories.filter(c => c && c.trim() !== "").map((c) => (
+                            <SelectItem key={c} value={c}>{c}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Location / الموقع</Label>
+                      <Select value={locationFilter} onValueChange={setLocationFilter}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="All / الكل" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All / الكل</SelectItem>
+                          {locations.filter(l => l && l.trim() !== "").map((l) => (
+                            <SelectItem key={l} value={l}>{l}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button variant="default" className="px-4" onClick={() => document.getElementById("branch-cart")?.scrollIntoView({ behavior: "smooth" })}>
+                        <ShoppingCart className="w-4 h-4 ml-2" /> Cart / السلة <span className="ml-2 rounded bg-blue-600 text-white px-2">{cart.length}</span>
                       </Button>
                     </div>
-                  </TabsContent>
-                </div>
-              </div>
+                  </div>
+
+                  <div className="overflow-auto border rounded max-h-[300px]">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Image / الصورة</TableHead>
+                          <TableHead>Code / الكود</TableHead>
+                          <TableHead>Name / الاسم</TableHead>
+                          <TableHead>Stock / المخزون</TableHead>
+                          {settings.showUnit && <TableHead>Unit / الوحدة</TableHead>}
+                          <TableHead>Add / إضافة</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {displayProducts.map((p) => (
+                          <TableRow key={p.id}>
+                            <TableCell>
+                              <div className="cursor-pointer hover:opacity-80" onClick={() => setZoomedProduct(p)}>
+                                <ProductImage product={p} className="w-10 h-10 object-cover" />
+                              </div>
+                            </TableCell>
+                            <TableCell>{p.productCode}</TableCell>
+                            <TableCell>{p.productName}</TableCell>
+                            <TableCell>
+                              {p.currentStock > 0 ? (
+                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100">
+                                  Available / متوفر
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100">
+                                  Out of Stock / نفذت الكمية
+                                </Badge>
+                              )}
+                            </TableCell>
+                            {settings.showUnit && <TableCell>{p.unit}</TableCell>}
+                            <TableCell>
+                              <Button size="sm" onClick={() => addToCart(p)}>Add / أضف</Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  <div id="branch-cart" className="border p-4 rounded bg-slate-50">
+                    <h2 className="text-base font-semibold mb-2">
+                       {activeTab === 'request' ? (requestType === 'return' ? 'Return Cart / سلة المرتجع' : 'Order Cart / سلة الطلب') : 'Order Cart / سلة الطلب'}
+                    </h2>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name / الاسم</TableHead>
+                          <TableHead>Code / الكود</TableHead>
+                          <TableHead>Image / الصورة</TableHead>
+                          {settings.showUnit && <TableHead>Unit / الوحدة</TableHead>}
+                          <TableHead>Quantity / الكمية</TableHead>
+                          {activeTab === 'request' && requestType === 'return' && <TableHead>Return Reason / سبب الارجاع</TableHead>}
+                          <TableHead>Stock / المخزون</TableHead>
+                          <TableHead>Notes / ملاحظات</TableHead>
+                          <TableHead>Delete / حذف</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {cart.map((it, idx) => (
+                          <TableRow key={it.productId + String(idx)}>
+                            <TableCell>{it.productName}</TableCell>
+                            <TableCell>{it.productCode || "-"}</TableCell>
+                            <TableCell>
+                              <div className="cursor-pointer hover:opacity-80" onClick={() => setZoomedProduct({ id: it.productId, image: it.image } as Product)}>
+                                <ProductImage product={{ id: it.productId, image: it.image }} className="w-10 h-10 object-cover" />
+                              </div>
+                            </TableCell>
+                            {settings.showUnit && <TableCell>
+                              {it.selectedUnitName || it.unit || "-"}
+                            </TableCell>}
+                            <TableCell>
+                              <Input 
+                                type="number" 
+                                step="any" 
+                                value={it.quantity} 
+                                onChange={(e) => updateQty(idx, e.target.value)} 
+                                className="w-24" 
+                              />
+                            </TableCell>
+                            {activeTab === 'request' && requestType === 'return' && (
+                              <TableCell>
+                                <Input
+                                  placeholder="Reason... / السبب..."
+                                  value={it.returnReason || ""}
+                                  onChange={(e) => updateReturnReason(idx, e.target.value)}
+                                  className="w-40"
+                                />
+                              </TableCell>
+                            )}
+                            <TableCell>
+                              {(() => {
+                                const p = cartProducts.find(cp => cp.id === it.productId)
+                                const stock = p ? p.currentStock : 0
+                                return stock > 0 ? (
+                                  <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100">
+                                    Available / متوفر
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100">
+                                    Out of Stock / نفذت الكمية
+                                  </Badge>
+                                )
+                              })()}
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                placeholder="Notes... / ملاحظات..."
+                                value={it.notes || ""}
+                                onChange={(e) => updateItemNotes(idx, e.target.value)}
+                                className="w-40"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Button variant="destructive" size="sm" onClick={() => removeItem(idx)}>Delete / حذف</Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+
+                    <div className="mt-4 pt-4 border-t">
+                      <TabsContent value="invoice">
+                        <div className="flex justify-between items-center">
+                          <Button onClick={submitInvoice} disabled={isSubmitting}>
+                            {isSubmitting && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
+                            Create Invoice / إنشاء فاتورة
+                          </Button>
+                        </div>
+                      </TabsContent>
+                      <TabsContent value="request">
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <Label>Request Type / نوع الطلب</Label>
+                              <Select value={requestType} onValueChange={(v: any) => setRequestType(v)}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="return">Return Request (to Warehouse) / طلب مرتجع (إلى المستودع)</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label>Notes / ملاحظات</Label>
+                              <Textarea value={requestNotes} onChange={e => setRequestNotes(e.target.value)} placeholder="Additional Notes... / ملاحظات إضافية..." />
+                            </div>
+                          </div>
+                          <Button onClick={submitRequest} className="w-full" disabled={isSubmitting}>
+                            {isSubmitting && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
+                            Submit Request / إرسال الطلب
+                          </Button>
+                        </div>
+                      </TabsContent>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </Tabs>
         </CardContent>

@@ -7,6 +7,7 @@ import { Footer } from "@/components/footer"
 import { LanguageProvider } from "@/components/language-provider"
 import { DataStoreInitializer } from "@/components/data-store-initializer"
 import { DeviceMonitorInitializer } from "@/components/device-monitor-initializer"
+import PWASetup from "@/components/pwa-setup"
 
 const _geist = Geist({ subsets: ["latin"] })
 const _geistMono = Geist_Mono({ subsets: ["latin"] })
@@ -39,6 +40,39 @@ export const metadata: Metadata = {
       'max-snippet': -1,
     },
   },
+  icons: {
+    icon: '/icons/icon-192x192.png',
+    apple: '/icons/icon-152x152.png',
+  },
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'إدارة المنتجات',
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  openGraph: {
+    type: 'website',
+    siteName: 'مستودع ساحة المجد',
+    title: 'نظام إدارة المنتجات',
+    description: 'تطبيق احترافي لإدارة المنتجات والمخزون',
+    images: [
+      {
+        url: '/icons/og-image.png',
+        width: 1200,
+        height: 630,
+        alt: 'نظام إدارة المنتجات',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'نظام إدارة المنتجات',
+    description: 'تطبيق احترافي لإدارة المنتجات والمخزون',
+    images: ['/icons/og-image.png'],
+  },
 }
 
 import { AuthProvider } from "@/components/auth-provider"
@@ -57,6 +91,7 @@ export default function RootLayout({
   return (
     <html lang="ar" dir="rtl" translate="no" suppressHydrationWarning>
       <body className={`font-sans antialiased`} suppressHydrationWarning>
+        <PWASetup />
         <ServiceWorkerUnregister />
         <AuthProvider>
           <LanguageProvider>

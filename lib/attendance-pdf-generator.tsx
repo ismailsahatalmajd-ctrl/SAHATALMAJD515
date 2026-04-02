@@ -29,7 +29,8 @@ function openPrintWindow(html: string, title: string) {
 const typeLabelsAr: Record<string, string> = {
   absence: "غياب / Absence",
   leave: "إجازة / Leave",
-  official_event: "مناسبة رسمية / Official Event"
+  official_event: "مناسبة رسمية / Official Event",
+  attendance: "حضور / Attendance"
 }
 
 const categoryLabelsAr: Record<string, string> = {
@@ -40,7 +41,9 @@ const categoryLabelsAr: Record<string, string> = {
   eid: "عيد / Eid",
   national: "يوم وطني / National Day",
   work_visit: "زيارة عمل / Work Visit",
-  training: "تدريب / Training"
+  training: "تدريب / Training",
+  fingerprint: "بصمة / Fingerprint",
+  manual: "يدوي / Manual"
 }
 
 export async function generateAttendancePDF(record: AbsenceRecord): Promise<void> {
@@ -175,4 +178,193 @@ export async function generateAttendanceReportPDF(records: AbsenceRecord[], filt
     </html>
   `
   openPrintWindow(html, `Attendance Report - ${filterMonth}`)
+}
+
+export async function generateZkAttendanceReportPDF(
+  summary: Array<{ 
+    employeeName: string; 
+    date: string; 
+    firstSwipe: string; 
+    lastSwipe: string; 
+    count: number;
+    duration: string;
+  }>, 
+  titleSuffix: string = ""
+): Promise<void> {
+  const logoUrl = `${window.location.origin}/hr-overtime-logo.png`
+
+  const rowsHtml = summary.map((s, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td style="font-weight:bold; text-align:right;">${s.employeeName}</td>
+      <td>${convertNumbersToEnglish(s.date)}</td>
+      <td style="color: blue; font-weight:bold;">${s.firstSwipe}</td>
+      <td style="color: #c05621; font-weight:bold;">${s.count > 1 ? s.lastSwipe : '<span style="color:#d9534f; font-size:10px;">لم يتم التبصيم</span>'}</td>
+      <td>${s.count}</td>
+      <td style="font-weight:bold; color: #38a169;">${s.duration}</td>
+    </tr>
+  `).join("")
+
+  const html = `
+    <html lang="ar" dir="rtl">
+      <head>
+        <meta charset="utf-8" />
+        <style>
+          @page { size: A4 portrait; margin: 15mm; }
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; direction: rtl; padding: 10px; color: #333; }
+          .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; border-bottom: 2px solid #222; padding-bottom: 10px; }
+          .logo { width: 70px; }
+          .report-title { text-align: center; margin: 20px 0; background: #f8f8f8; padding: 10px; border: 1px solid #ddd; }
+          table { width: 100%; border-collapse: collapse; font-size: 13px; }
+          th, td { border: 1px solid #444; padding: 10px; text-align: center; }
+          th { background: #f0f0f0; font-weight: bold; }
+          .footer { margin-top: 40px; text-align: left; font-size: 10px; color: #666; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div style="text-align: right;">
+            <div style="font-weight: bold; font-size: 16px;">مستودع ساحة المجد</div>
+            <div style="font-size: 12px; color: #555;">Human Resources Department</div>
+          </div>
+          <img src="${logoUrl}" class="logo" />
+          <div style="text-align: left;">
+            <div style="font-weight: bold;">تاريخ الطباعة</div>
+            <div>${new Date().toLocaleDateString('ar-EG')}</div>
+          </div>
+        </div>
+        
+        <div class="report-title">
+          <h2 style="margin:0;">خلاصة حضور وانصراف جهاز البصمة</h2>
+          <div style="font-size: 14px; margin-top:5px;">${titleSuffix}</div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width:40px;">#</th>
+              <th>اسم الموظف</th>
+              <th>التاريخ</th>
+              <th>وقت الحضور (In)</th>
+              <th>وقت الانصراف (Out)</th>
+              <th>البصمات</th>
+              <th>الساعات</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml || '<tr><td colspan="6">لا توجد سجلات مزامنة حالياً / No synced records found</td></tr>'}
+          </tbody>
+        </table>
+
+        <div style="margin-top: 50px; display: flex; justify-content: space-around;">
+          <div style="text-align:center; width:150px; border-top:1px solid #000; padding-top:5px;">توقيع مراقب الدوام</div>
+          <div style="text-align:center; width:150px; border-top:1px solid #000; padding-top:5px;">اعتماد مدير الموارد البشرية</div>
+        </div>
+
+        <div class="footer">
+          تم إنشاء هذا التقرير تلقائياً عبر نظام إدارة ساحة المجد - MB20-VL System
+        </div>
+      </body>
+    </html>
+  `
+  openPrintWindow(html, `ZKTeco Summary Report`)
+}
+
+export async function generatePerformanceSummaryPDF(
+  data: Array<{
+    name: string;
+    workingDays: number;
+    totalHours: string;
+    absenceDays: number;
+    missingSwipes: number;
+  }>,
+  startDate: string,
+  endDate: string
+): Promise<void> {
+  const logoUrl = `${window.location.origin}/hr-overtime-logo.png`
+  
+  const rowsHtml = data.map((d, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td style="text-align:right; font-weight:bold;">${d.name}</td>
+      <td>${d.workingDays}</td>
+      <td style="font-weight:bold; color: #38a169;">${d.totalHours}</td>
+      <td style="color: #d9534f;">${d.absenceDays}</td>
+      <td style="color: #c05621;">${d.missingSwipes}</td>
+    </tr>
+  `).join("")
+
+  const html = `
+    <html lang="ar" dir="rtl">
+      <head>
+        <meta charset="utf-8" />
+        <style>
+          @page { size: A4 portrait; margin: 15mm; }
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; direction: rtl; padding: 10px; color: #333; }
+          .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #222; padding-bottom: 5px; }
+          .logo { width: 60px; }
+          .report-banner { 
+            text-align: center; 
+            margin: 15px 0; 
+            background: #eef2ff; 
+            padding: 20px; 
+            border: 1.5px solid #6366f1; 
+            border-radius: 8px;
+            color: #1e1b4b;
+          }
+          table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+          th, td { border: 1.5px solid #444; padding: 12px; text-align: center; }
+          th { background: #f1f5f9; font-weight: bold; }
+          .footer { margin-top: 60px; display: flex; justify-content: space-around; text-align: center; }
+          .sig-box { width: 180px; border-top: 1px solid #000; padding-top: 5px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div style="text-align: right;">
+            <div style="font-weight: bold; font-size: 14px;">مستودع ساحة المجد</div>
+            <div style="font-size: 11px;">HR Management | إدارة الموارد البشرية</div>
+          </div>
+          <img src="${logoUrl}" class="logo" />
+          <div style="text-align: left;">
+            <div style="font-weight: bold; font-size: 12px;">تاريخ الإصدار</div>
+            <div style="font-size: 12px;">${convertNumbersToEnglish(startDate)} - ${convertNumbersToEnglish(endDate)}</div>
+          </div>
+        </div>
+        
+        <div class="report-banner">
+          <h1 style="margin:0; font-size: 24px;">خلاصة الأداء وعمليات التبصيم</h1>
+          <div style="font-size: 16px; font-weight: bold; margin-top: 5px;">الفترة: ${startDate} -> ${endDate}</div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width:30px;">#</th>
+              <th>اسم الموظف</th>
+              <th>أيام الدوام</th>
+              <th>إجمالي الساعات</th>
+              <th>أيام الغياب</th>
+              <th>بصمات ناقصة</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml || '<tr><td colspan="6">لا توجد سجلات كافية لهذه الفترة</td></tr>'}
+          </tbody>
+        </table>
+
+        <div class="footer">
+          <div class="sig-box">
+            <div style="font-weight:bold;">معد التقرير</div>
+            <div style="margin-top:20px; font-size: 12px; color: #888;">التوقيع</div>
+          </div>
+          <div class="sig-box">
+            <div style="font-weight:bold;">مدير الموارد البشرية</div>
+            <div style="margin-top:20px; font-size: 12px; color: #888;">الختم والاعتماد</div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `
+  openPrintWindow(html, `Employee Performance Summary`)
 }

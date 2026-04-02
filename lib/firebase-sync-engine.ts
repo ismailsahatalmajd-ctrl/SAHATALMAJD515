@@ -170,7 +170,8 @@ export const COLLECTIONS = {
     WAREHOUSE_LOCATIONS: 'warehouseLocations',
     WAREHOUSE_DESIGN: 'warehouseDesignElements',
     GRANULAR_PERMISSIONS: 'granularPermissions',
-    BRANCH_NOTES: 'branchNotes'
+    BRANCH_NOTES: 'branchNotes',
+    BRANCH_INVENTORY_REPORTS: 'branch_inventory_reports'
 };
 
 const notifyGranularUpdate = (userId: string) => {
@@ -272,6 +273,7 @@ export const startRealtimeSync = () => {
         unsubscribers.push(syncCollection(COLLECTIONS.WAREHOUSE_DESIGN, localDb.warehouseDesignElements as any, "warehouse_design_change" as any));
         unsubscribers.push(syncCollection(COLLECTIONS.GRANULAR_PERMISSIONS, localDb.userPreferences as any, "granular_permissions_updated"));
         unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_NOTES, localDb.branchNotes, "branch_notes_change" as any));
+        unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_INVENTORY_REPORTS, localDb.branchInventoryReports, "branch_inventory_reports_change" as any));
 
         // --- 2. Fetch-once Collections (Optimization: only on startup) ---
         // These don't change often enough to warrant a constant background CPU connection
@@ -683,6 +685,7 @@ export const syncAssetRequest = (r: any) => syncRecord(COLLECTIONS.ASSET_REQUEST
 export const syncAssetStatusReport = (r: any) => syncRecord(COLLECTIONS.ASSET_STATUS_REPORTS, r);
 export const deleteBranchAsset = (id: string) => deleteRecord(COLLECTIONS.BRANCH_ASSETS, id);
 export const deleteAssetRequest = (id: string) => deleteRecord(COLLECTIONS.ASSET_REQUESTS, id);
+export const syncBranchInventoryReport = (r: any) => syncRecord(COLLECTIONS.BRANCH_INVENTORY_REPORTS, r);
 
 export const pullAllDataFromFirebase = async () => {
     await syncAllCloudToLocal(() => { });

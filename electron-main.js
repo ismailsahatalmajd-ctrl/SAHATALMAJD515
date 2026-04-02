@@ -1,0 +1,268 @@
+const { app, BrowserWindow, Menu, protocol, net, ipcMain } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const { pathToFileURL } = require('url');
+
+// Register the 'app' protocol
+protocol.registerSchemesAsPrivileged([
+    { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, allowServiceWorkers: true } }
+]);
+
+const isDev = process.env.NODE_ENV === 'development';
+
+console.log('================================');
+console.log('Electron started!');
+console.log('isDev:', isDev);
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('================================');
+
+let mainWindow;
+
+function createWindow() {
+    console.log('Creating window...');
+
+    mainWindow = new BrowserWindow({
+        width: 1400,
+        height: 900,
+        minWidth: 800,
+        minHeight: 600,
+        title: 'SOHEEL - نظام سهيل لإدارة المخزون',
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            preload: path.join(__dirname, 'electron', 'preload.js'),
+        },
+    });
+
+    if (isDev) {
+        mainWindow.loadURL('http://localhost:3000');
+        mainWindow.webContents.openDevTools();
+    } else {
+        // Load the live production site to ensure it's always up-to-date
+        // This makes the desktop app a reflection of the current website
+        const LIVE_URL = 'https://sahatcom.cards';
+
+        console.log(`Loading live application from: ${LIVE_URL}`);
+
+        mainWindow.loadURL(LIVE_URL).catch(err => {
+            console.error(`CRITICAL: Failed to load ${LIVE_URL}`, err);
+            // Fallback to local if offline or error? 
+            // For now, retry or show error is better than stale local version if "reflection" is the goal.
+        });
+
+        // Optional: Remove DevTools in production for cleaner look
+        // mainWindow.webContents.openDevTools(); 
+    }
+
+    mainWindow.once('ready-to-show', () => {
+        mainWindow.show();
+    });
+
+    if (isDev) {
+        mainWindow.webContents.openDevTools();
+    }
+
+    // Arabic RTL Menu
+    const menuTemplate = [
+        {
+            label: 'ملف',
+            submenu: [
+                {
+                    label: 'تحديث',
+                    accelerator: 'F5',
+                    click: () => mainWindow.reload(),
+                },
+                { type: 'separator' },
+                {
+                    label: 'إغلاق',
+                    accelerator: 'Alt+F4',
+                    click: () => app.quit(),
+                },
+            ],
+        },
+        {
+            label: 'عرض',
+            submenu: [
+                {
+                    label: 'تكبير',
+                    accelerator: 'CmdOrCtrl+Plus',
+                    click: () => {
+                        const currentZoom = mainWindow.webContents.getZoomLevel();
+                        mainWindow.webContents.setZoomLevel(currentZoom + 1);
+                    },
+                },
+                {
+                    label: 'تصغير',
+                    accelerator: 'CmdOrCtrl+-',
+                    click: () => {
+                        const currentZoom = mainWindow.webContents.getZoomLevel();
+                        mainWindow.webContents.setZoomLevel(currentZoom - 1);
+                    },
+                },
+                {
+                    label: 'الحجم الافتراضي',
+                    accelerator: 'CmdOrCtrl+0',
+                    click: () => mainWindow.webContents.setZoomLevel(0),
+                },
+                { type: 'separator' },
+                {
+                    label: 'ملء الشاشة',
+                    accelerator: 'F11',
+                    click: () => mainWindow.setFullScreen(!mainWindow.isFullScreen()),
+                },
+            ],
+        },
+        {
+            label: 'تنقل',
+            submenu: [
+                {
+                    label: 'رجوع',
+                    accelerator: 'Alt+Left',
+                    click: () => {
+                        if (mainWindow.webContents.canGoBack()) {
+                            mainWindow.webContents.goBack();
+                        }
+                    },
+                },
+                {
+                    label: 'تقدم',
+                    accelerator: 'Alt+Right',
+                    click: () => {
+                        if (mainWindow.webContents.canGoForward()) {
+                            mainWindow.webContents.goForward();
+                        }
+                    },
+                },
+            ],
+        },
+    ];
+
+    if (isDev) {
+        menuTemplate.push({
+            label: 'تطوير',
+            submenu: [
+                {
+                    label: 'أدوات المطور',
+                    accelerator: 'F12',
+                    click: () => mainWindow.webContents.toggleDevTools(),
+                },
+            ],
+        });
+    }
+
+    const menu = Menu.buildFromTemplate(menuTemplate);
+    Menu.setApplicationMenu(menu);
+
+    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+        console.error('Load failed:', errorCode, errorDescription);
+    });
+
+    mainWindow.webContents.on('did-finish-load', () => {
+        console.log('Page loaded successfully!');
+    });
+
+    mainWindow.on('closed', () => {
+        console.log('Window closed');
+        mainWindow = null;
+    });
+
+    console.log('Window created successfully!');
+}
+
+app.whenReady().then(() => {
+    console.log('App is ready!');
+
+    // Handle the custom 'app' protocol
+    protocol.handle('app', (request) => {
+        let url = new URL(request.url).pathname;
+        if (url === '/') url = '/index.html';
+
+        // Add index.html if it's a directory-like path
+        if (url.endsWith('/')) url += 'index.html';
+
+        // If it doesn't have an extension and isn't a special Next.js asset path, append .html
+        if (!path.extname(url) && !url.startsWith('/_next/') && !url.includes('.')) {
+            url += '.html';
+        }
+
+        const filePath = path.join(__dirname, 'out', url);
+
+        try {
+            return net.fetch(pathToFileURL(filePath).toString());
+        } catch (e) {
+            console.error('Protocol handle error:', e);
+            return new Response('Internal Server Error', { status: 500 });
+        }
+    });
+
+    createWindow();
+
+    app.on('activate', () => {
+        if (BrowserWindow.getAllWindows().length === 0) {
+            createWindow();
+        }
+    });
+});
+
+app.on('window-all-closed', () => {
+    console.log('All windows closed');
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
+});
+
+
+// ZKTeco Sync IPC Handler
+ipcMain.handle('zk-sync', async (event, { ip, port }) => {
+    console.log(`Starting ZKTeco sync (Using node-zklib) for IP: ${ip}, Port: ${port}`);
+    
+    const ZKLib = require('node-zklib');
+    const zk = new ZKLib(ip, port || 4370, 10000, 4000);
+
+    try {
+        console.log('Attempting to connect via node-zklib...');
+        await zk.createSocket();
+        
+        console.log('Connection established. Fetching data...');
+        // Some devices need a short delay after connection
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        const users = await zk.getUsers();
+        const attendances = await zk.getAttendances();
+        
+        console.log(`Success! Fetched ${users.data.length} users and ${attendances.data.length} logs.`);
+        
+        await zk.disconnect();
+        
+        return {
+            success: true,
+            data: {
+                users: users.data || [],
+                attendances: attendances.data || []
+            }
+        };
+    } catch (error) {
+        console.error('node-zklib Error:', error);
+        
+        let errorMessage = 'فشل الاتصال: ';
+        if (error.code === 'ETIMEDOUT') {
+            errorMessage += 'انتهت المهلة (Timed out). تأكد من توصيل الكيبل ومن الـ IP.';
+        } else if (error.message && error.message.includes('EF_ATTLOG')) {
+            errorMessage += 'خطأ في جلب بيانات الحضور (بروتوكول غير متوافق).';
+        } else {
+            errorMessage += error.message || 'الجهاز لا يستجيب للطلب.';
+        }
+
+        return {
+            success: false,
+            error: errorMessage,
+            diagnostic: {
+                code: error.code,
+                message: error.message,
+                ip: ip
+            }
+        };
+    }
+});
+
+console.log('Electron script loaded');

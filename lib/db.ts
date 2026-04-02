@@ -29,7 +29,8 @@ import type {
   PlannedLeave,
   WarehouseLocation,
   WarehouseDesignElement,
-  BranchNote
+  BranchNote,
+  BranchInventoryReport
 } from './types';
 import type { BranchInvoice } from './branch-invoice-types';
 import type { BranchRequest } from './branch-request-types';
@@ -82,6 +83,7 @@ export class InventoryDatabase extends Dexie {
   warehouseLocations!: Table<WarehouseLocation>;
   warehouseDesignElements!: Table<WarehouseDesignElement>;
   branchNotes!: Table<BranchNote>;
+  branchInventoryReports!: Table<BranchInventoryReport>;
 
   constructor() {
     super('InventoryDB');
@@ -174,6 +176,11 @@ export class InventoryDatabase extends Dexie {
     this.version(14).stores({
       branchNotes: 'id, expiresAt, *targetBranchIds'
     });
+
+    // Version 15: Branch Inventory Reports
+    this.version(15).stores({
+      branchInventoryReports: 'id, branchId, reportCode, createdAt'
+    });
   }
 }
 
@@ -208,7 +215,7 @@ if (typeof window === 'undefined') {
     'branchRequests', 'branchRequestDrafts', 'purchaseRequests', 'receivingNotes', 'settings', 'auditLogs',
     'notifications', 'backups', 'imageCache', 'syncQueue', 'conflictLogs',
     'changeLogs', 'userSessions', 'userPreferences', 'productImages', 'suppliers',
-    'employees', 'overtimeReasons', 'overtimeEntries', 'absenceRecords', 'plannedLeaves', 'warehouseLocations', 'branchNotes'
+    'employees', 'overtimeReasons', 'overtimeEntries', 'absenceRecords', 'plannedLeaves', 'warehouseLocations', 'branchNotes', 'branchInventoryReports'
   ];
 
   tables.forEach(table => {
@@ -257,7 +264,7 @@ if (typeof window === 'undefined') {
       'branchRequests', 'branchRequestDrafts', 'purchaseRequests', 'receivingNotes', 'settings', 'auditLogs',
       'notifications', 'backups', 'imageCache', 'syncQueue', 'conflictLogs',
       'changeLogs', 'userSessions', 'userPreferences', 'productImages', 'suppliers',
-      'employees', 'overtimeReasons', 'overtimeEntries', 'absenceRecords', 'plannedLeaves', 'warehouseLocations', 'branchNotes'
+      'employees', 'overtimeReasons', 'overtimeEntries', 'absenceRecords', 'plannedLeaves', 'warehouseLocations', 'branchNotes', 'branchInventoryReports'
     ];
 
     tables.forEach(table => {

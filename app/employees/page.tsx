@@ -27,13 +27,18 @@ import {
 import { useLiveQuery } from "dexie-react-hooks"
 import { db } from "@/lib/db"
 import { convertNumbersToEnglish, cn } from "@/lib/utils"
-import { format } from "date-fns"
+import { format, differenceInMinutes, parse } from "date-fns"
 import { formatDateWithDay } from "@/utils/dateFormatter"
 import type { OvertimeEntry, EmployeeOvertimeDetail } from "@/lib/types"
 import { generateOvertimePDF, generateOvertimeReportPDF } from "@/lib/overtime-pdf-generator"
 import { generateSingleEmployeeOvertimeReportPDF } from "@/lib/single-employee-overtime-pdf"
 import { generateMultiEmployeeOvertimeReportPDF } from "@/lib/multi-employee-overtime-pdf"
-import { generateAttendancePDF, generateAttendanceReportPDF } from "@/lib/attendance-pdf-generator"
+import { 
+  generateAttendancePDF, 
+  generateAttendanceReportPDF, 
+  generateZkAttendanceReportPDF,
+  generatePerformanceSummaryPDF
+} from "@/lib/attendance-pdf-generator"
 import { generateLeavePreReportPDF } from "@/lib/leave-pre-report-pdf"
 import { generateCombinedReportsPDF, CombinedEmployeeData } from "@/lib/combined-hr-pdf"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -630,8 +635,8 @@ export default function EmployeesHREPage() {
   // --- ATTENDANCE STATE & LOGIC ---
   const [at_selectedEmployeeIds, setAtSelectedEmployeeIds] = useState<string[]>([])
   const [at_date, setAtDate] = useState(format(new Date(), "yyyy-MM-dd"))
-  const [at_recordType, setAtRecordType] = useState<'absence' | 'leave' | 'official_event'>('absence')
-  const [at_category, setAtCategory] = useState("unexcused")
+  const [at_recordType, setAtRecordType] = useState<'attendance' | 'absence' | 'leave' | 'official_event'>('attendance')
+  const [at_category, setAtCategory] = useState("fingerprint")
   const [at_notes, setAtNotes] = useState("")
   const [at_filterEmployeeId, setAtFilterEmployeeId] = useState<string>("all")
   const [at_filterMonth, setAtFilterMonth] = useState(format(new Date(), "yyyy-MM"))
@@ -670,26 +675,22 @@ export default function EmployeesHREPage() {
   }
 
   // --- ZKTECO STATE & LOGIC ---
-  const [zk_ip, setZkIp] = useState("192.168.8.186")
+  const [zk_ip, setZkIp] = useState("192.168.8.200")
   const [zk_port, setZkPort] = useState("4370")
   const [zk_status, setZkStatus] = useState<"idle" | "connecting" | "syncing" | "success" | "error">("idle")
   const [zk_logs, setZkLogs] = useState<any[]>([])
+  const [zk_users, setZkUsers] = useState<any[]>([])
 
   const handleZkSync = async () => {
     setZkStatus("syncing")
     try {
-      // In a real Electron app, this would call window.electron.zkSync({ ip: zk_ip, port: zk_port })
-      // For now, we simulate the process and explain the requirement
       toast({ 
         title: "جاري الاتصال بجهاز البصمة...", 
         description: `IP: ${zk_ip}:${zk_port}`,
       })
       
-      // Simulate delay
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      
       // Check if we are in Electron
-      const isElectron = typeof window !== 'undefined' && navigator.userAgent.toLowerCase().includes('electron')
+      const isElectron = typeof window !== 'undefined' && (window as any).electron?.zkSync
       
       if (!isElectron) {
         setZkStatus("error")
@@ -701,20 +702,237 @@ export default function EmployeesHREPage() {
         return
       }
 
-      // Placeholder for actual sync logic
-      // const results = await (window as any).electron.zkSync({ ip: zk_ip, port: Number(zk_port) })
+      // Call the actual sync logic via bridge
+      const response = await (window as any).electron.zkSync({ ip: zk_ip, port: Number(zk_port) })
       
-      setZkStatus("success")
-      toast({ title: "تم مزامنة البيانات بنجاح" })
-    } catch (error) {
+      if (response.success) {
+        setZkStatus("success")
+        const fetchedLogs = response.data.attendances || []
+        const fetchedUsers = response.data.users || []
+        
+        setZkLogs(fetchedLogs)
+        setZkUsers(fetchedUsers)
+        
+        toast({ 
+          title: "تم مزامنة البيانات بنجاح",
+          description: `تم جلب ${fetchedUsers.length} مستخدم و ${fetchedLogs.length} حركة سجل من جهاز البصمة.`
+        })
+      } else {
+        setZkStatus("error")
+        toast({ 
+          title: "فشل المزامنة", 
+          description: response.error,
+          variant: "destructive"
+        })
+      }
+    } catch (error: any) {
       setZkStatus("error")
-      toast({ title: "فشل الاتصال بجهاز البصمة", variant: "destructive" })
+      toast({ 
+        title: "خطأ غير متوقع", 
+        description: error.message,
+        variant: "destructive" 
+      })
     }
   }
 
   const handleUpdateFingerprintId = async (empId: string, fId: string) => {
     await updateEmployee(empId, { fingerprintId: fId })
     toast({ title: "تم تحديث رقم البصمة" })
+  }
+
+  const handleApplyUserMappings = async () => {
+    const mappings: Record<string, string> = {
+      "3": "Sohel Rana",
+      "4": "ILYAS",
+      "5": "Forhad",
+      "6": "Bahador",
+      "8": "Qamar Ul Haq",
+      "9": "Litan",
+      "10": "Kashem",
+      "11": "Shamrez",
+      "12": "Makkaram"
+    }
+    
+    let appliedCount = 0
+    for (const [id, name] of Object.entries(mappings)) {
+      const employee = employees.find(e => 
+        e.name.toLowerCase().includes(name.toLowerCase()) || 
+        name.toLowerCase().includes(e.name.toLowerCase())
+      )
+      if (employee) {
+        await updateEmployee(employee.id, { fingerprintId: id })
+        appliedCount++
+      }
+    }
+    
+    toast({ 
+      title: "تم تطبيق الربط المخصص", 
+      description: `تم ربط ${appliedCount} موظف من أصل ${Object.keys(mappings).length} بنجاح.`
+    })
+  }
+
+  const handleSaveZkLogs = async () => {
+    if (zk_logs.length === 0) {
+      toast({ title: "لا توجد سجلات لحفظها", variant: "destructive" })
+      return
+    }
+
+    setZkStatus("syncing")
+    try {
+      let savedCount = 0
+      for (const log of zk_logs) {
+        const employee = employees.find(e => e.fingerprintId === String(log.deviceUserId))
+        
+        if (employee) {
+          const recordTimeStr = format(new Date(log.recordTime), "yyyy-MM-dd HH:mm:ss")
+          const existing = await db.absenceRecords
+            .where({ employeeId: employee.id, recordTime: recordTimeStr })
+            .first()
+
+          if (!existing) {
+            await addAbsenceRecord({
+              employeeId: employee.id,
+              employeeName: employee.name,
+              date: format(new Date(log.recordTime), "yyyy-MM-dd"),
+              type: "attendance", 
+              category: "fingerprint", 
+              notes: `بصمة من جهاز: ${zk_ip}`,
+              recordTime: recordTimeStr,
+              branchId: (user as any)?.branchId || undefined
+            })
+            savedCount++
+          }
+        }
+      }
+
+      toast({ 
+        title: "اكتمل الحفظ", 
+        description: `تمت إضافة ${savedCount} حركات حضور جديدة لجدول الموظفين.` 
+      })
+      setZkStatus("success")
+    } catch (error: any) {
+      console.error("Save error:", error)
+      toast({ title: "خطأ أثناء الحفظ", description: error.message, variant: "destructive" })
+      setZkStatus("error")
+    }
+  }
+
+  const zk_dailySummary = useMemo(() => {
+    if (zk_logs.length === 0) return []
+    
+    const summaryMap = new Map<string, { employeeName: string, date: string, firstSwipe: string, lastSwipe: string, count: number }>()
+
+    zk_logs.forEach(log => {
+      const dateKey = format(new Date(log.recordTime), "yyyy-MM-dd")
+      const employee = employees.find(e => 
+        String(e.fingerprintId) === String(log.deviceUserId)
+      )
+      
+      const empName = employee?.name || `مستخدم ${log.deviceUserId}`
+      const key = `${dateKey}_${log.deviceUserId}`
+      
+      const timeStr = format(new Date(log.recordTime), "HH:mm:ss")
+      const existing = summaryMap.get(key)
+      
+      if (!existing) {
+        summaryMap.set(key, {
+          employeeName: empName,
+          date: dateKey,
+          firstSwipe: timeStr,
+          lastSwipe: timeStr,
+          count: 1
+        })
+      } else {
+        if (timeStr < existing.firstSwipe) existing.firstSwipe = timeStr
+        if (timeStr > existing.lastSwipe) existing.lastSwipe = timeStr
+        existing.count += 1
+      }
+    })
+
+    return Array.from(summaryMap.values())
+      .map(s => {
+        let duration = "00:00"
+        if (s.count > 1) {
+          const start = parse(`${s.date} ${s.firstSwipe}`, "yyyy-MM-dd HH:mm:ss", new Date())
+          const end = parse(`${s.date} ${s.lastSwipe}`, "yyyy-MM-dd HH:mm:ss", new Date())
+          const diffMins = differenceInMinutes(end, start)
+          const hrs = Math.floor(diffMins / 60)
+          const mins = diffMins % 60
+          duration = `${hrs}:${mins.toString().padStart(2, '0')}`
+        }
+        return { ...s, duration }
+      })
+      .sort((a, b) => b.date.localeCompare(a.date))
+  }, [zk_logs, employees])
+
+  const [zk_perfStartDate, setZkPerfStartDate] = useState(format(new Date(), "yyyy-MM-01"))
+  const [zk_perfEndDate, setZkPerfEndDate] = useState(format(new Date(), "yyyy-MM-dd"))
+
+  const handleGeneratePerformanceReport = async () => {
+    const start = new Date(zk_perfStartDate)
+    const end = new Date(zk_perfEndDate)
+    
+    // 1. Filter logs in range
+    const logsInRange = zk_logs.filter(log => {
+      const d = new Date(log.recordTime)
+      return d >= start && d <= end
+    })
+
+    // 2. Fetch all absence records in range (using Dexie)
+    const allAbsences = await db.absenceRecords.toArray()
+    const absencesInRange = allAbsences.filter(r => {
+      const d = new Date(r.date)
+      return d >= start && d <= end
+    })
+
+    const reportData = employees.map(emp => {
+      const empLogs = logsInRange.filter(l => String(l.deviceUserId) === String(emp.fingerprintId))
+      
+      // Group by date
+      const daysMap = new Map<string, { first: string, last: string, count: number }>()
+      empLogs.forEach(log => {
+        const dKey = format(new Date(log.recordTime), "yyyy-MM-dd")
+        const tStr = format(new Date(log.recordTime), "HH:mm:ss")
+        const existing = daysMap.get(dKey)
+        if (!existing) {
+          daysMap.set(dKey, { first: tStr, last: tStr, count: 1 })
+        } else {
+          if (tStr < existing.first) existing.first = tStr
+          if (tStr > existing.last) existing.last = tStr
+          existing.count += 1
+        }
+      })
+
+      let totalMinutes = 0
+      let missingSwipes = 0
+      daysMap.forEach((val, dKey) => {
+        if (val.count > 1) {
+          const s = parse(`${dKey} ${val.first}`, "yyyy-MM-dd HH:mm:ss", new Date())
+          const e = parse(`${dKey} ${val.last}`, "yyyy-MM-dd HH:mm:ss", new Date())
+          totalMinutes += differenceInMinutes(e, s)
+        } else {
+          missingSwipes += 1
+        }
+      })
+
+      const hrs = Math.floor(totalMinutes / 60)
+      const mins = totalMinutes % 60
+      
+      // Absence count
+      const empAbsences = absencesInRange.filter(r => 
+        r.employeeName === emp.name && (r.type === "absence" || r.type === "leave")
+      )
+
+      return {
+        name: emp.name,
+        workingDays: daysMap.size,
+        totalHours: `${hrs}:${mins.toString().padStart(2, '0')}`,
+        absenceDays: empAbsences.length,
+        missingSwipes
+      }
+    })
+
+    generatePerformanceSummaryPDF(reportData, zk_perfStartDate, zk_perfEndDate)
   }
 
   // Planned Leave State
@@ -1031,6 +1249,10 @@ export default function EmployeesHREPage() {
     official_event: [
       { id: "work_visit", labelAr: "زيارة عمل / Work Visit", labelEn: "Work Visit" },
       { id: "training", labelAr: "تدريب / Training", labelEn: "Training" },
+    ],
+    attendance: [
+      { id: "fingerprint", labelAr: "بصمة جهاز / Fingerprint", labelEn: "Fingerprint" },
+      { id: "manual", labelAr: "تسجيل يدوي / Manual", labelEn: "Manual" },
     ]
   }
 
@@ -1569,6 +1791,7 @@ export default function EmployeesHREPage() {
                              <Select value={at_recordType} onValueChange={(v:any) => { setAtRecordType(v); setAtCategory(at_categories[v as keyof typeof at_categories][0].id) }}>
                                <SelectTrigger className="h-12 text-lg font-bold"><SelectValue/></SelectTrigger>
                                <SelectContent>
+                                 <SelectItem value="attendance">حضور / Attendance</SelectItem>
                                  <SelectItem value="absence">غياب / Absence</SelectItem>
                                  <SelectItem value="leave">إجازة / Leave</SelectItem>
                                  <SelectItem value="official_event">مناسبة رسمية / Official</SelectItem>
@@ -1833,7 +2056,16 @@ export default function EmployeesHREPage() {
                  <Card className="shadow-xl border-primary/10">
                    <CardHeader className="bg-primary/5 py-4 border-b">
                      <CardTitle className="text-xl font-bold flex items-center gap-3">
-                       <Plus className="h-6 w-6 text-primary" /> إعدادات الجهاز / Device Settings
+                        <Plus className="h-6 w-6 text-primary" /> 
+                        <span>إعدادات الجهاز / Device Settings</span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={handleApplyUserMappings}
+                          className="mr-auto h-7 text-[10px] text-primary hover:bg-primary/10 border border-primary/20"
+                        >
+                          📦 تطبيق الربط المطلوب
+                        </Button>
                      </CardTitle>
                    </CardHeader>
                    <CardContent className="p-6 space-y-4">
@@ -1858,6 +2090,38 @@ export default function EmployeesHREPage() {
                    </CardContent>
                  </Card>
 
+                 {/* Performance Summary Card */}
+                 <Card className="shadow-xl border-blue-200 bg-blue-50/20">
+                   <CardHeader className="bg-blue-600 text-white py-4 border-b">
+                     <CardTitle className="text-xl font-bold flex items-center gap-3">
+                       <FileText className="h-6 w-6" /> 
+                       <span>تقارير الأداء والشهرية / Performance</span>
+                     </CardTitle>
+                   </CardHeader>
+                   <CardContent className="p-6 space-y-4 text-right">
+                     <div className="grid grid-cols-2 gap-2">
+                       <div className="space-y-1">
+                         <Label className="text-xs font-bold">من تاريخ / From</Label>
+                         <Input type="date" value={zk_perfStartDate} onChange={e => setZkPerfStartDate(e.target.value)} className="h-10 text-sm font-bold" />
+                       </div>
+                       <div className="space-y-1">
+                         <Label className="text-xs font-bold">إلى تاريخ / To</Label>
+                         <Input type="date" value={zk_perfEndDate} onChange={e => setZkPerfEndDate(e.target.value)} className="h-10 text-sm font-bold" />
+                       </div>
+                     </div>
+                     <Button 
+                       onClick={handleGeneratePerformanceReport} 
+                       className="w-full h-12 bg-blue-700 hover:bg-blue-800 font-black flex items-center justify-center gap-2 shadow-lg"
+                     >
+                       <Printer className="h-5 w-5" />
+                       <span>تصدير خلاصة الأداء والتبصيم</span>
+                     </Button>
+                     <p className="text-[10px] text-muted-foreground text-center">
+                       يحسب هذا التقرير إجمالي الساعات، أيام الدوام، وأيام الغياب خلال الفترة المحددة.
+                     </p>
+                   </CardContent>
+                 </Card>
+
                  <Card className="shadow-lg border-blue-100 bg-blue-50/30">
                    <CardHeader className="py-4 border-b">
                      <CardTitle className="text-lg font-bold flex items-center gap-2 text-blue-800">
@@ -1873,48 +2137,195 @@ export default function EmployeesHREPage() {
                  </Card>
                </div>
 
-               <div className="lg:col-span-2">
+               <div className="lg:col-span-2 space-y-8">
                  <Card className="shadow-xl border-slate-200 overflow-hidden">
-                   <CardHeader className="bg-slate-900 text-white py-4 px-6">
+                   <CardHeader className="bg-slate-900 text-white py-4 px-6 flex justify-between items-center">
                      <CardTitle className="font-black">ربط الموظفين بالبصمة / Employee Mapping</CardTitle>
+                     {zk_users.length > 0 && (
+                       <Badge variant="outline" className="text-white border-white/30">
+                         {zk_users.length} مستخدم في الجهاز
+                       </Badge>
+                     )}
                    </CardHeader>
                    <CardContent className="p-0">
-                     <div className="p-4 bg-slate-50 border-b">
-                       <Input placeholder="بحث عن موظف..." className="h-10" />
+                     <div className="p-4 bg-slate-50 border-b flex gap-4">
+                       <Input placeholder="بحث عن موظف..." className="h-10 flex-1" />
+                       {zk_logs.length > 0 && (
+                         <Button 
+                           onClick={handleSaveZkLogs} 
+                           variant="default" 
+                           className="bg-green-600 hover:bg-green-700"
+                           disabled={zk_status === "syncing"}
+                         >
+                           <Save className="h-4 w-4 ml-2" />
+                           اعتماد وحفظ السجلات ({zk_logs.length})
+                         </Button>
+                       )}
                      </div>
-                     <table className="w-full text-right border-collapse">
-                       <thead className="bg-slate-50 border-b">
-                         <tr>
-                           <th className="p-4 font-black">اسم الموظف / Employee</th>
-                           <th className="p-4 text-center font-black">رقم البصمة (Device ID)</th>
-                           <th className="p-4 text-center font-black">الحالة</th>
-                         </tr>
-                       </thead>
-                       <tbody className="divide-y">
-                         {employees.map(emp => (
-                           <tr key={emp.id} className="hover:bg-slate-50">
-                             <td className="p-4 font-bold">{emp.name}</td>
-                             <td className="p-4 text-center">
-                               <Input 
-                                 placeholder="ID" 
-                                 value={emp.fingerprintId || ""} 
-                                 onChange={(e) => handleUpdateFingerprintId(emp.id, e.target.value)}
-                                 className="h-10 w-24 mx-auto text-center font-bold"
-                               />
-                             </td>
-                             <td className="p-4 text-center text-xs">
-                               {emp.fingerprintId ? (
-                                 <Badge className="bg-green-100 text-green-700 border-0">مرتبط / Linked</Badge>
-                               ) : (
-                                 <Badge variant="outline" className="text-muted-foreground">غير مرتبط</Badge>
-                               )}
-                             </td>
+                     <div className="max-h-[400px] overflow-y-auto">
+                       <table className="w-full text-right border-collapse">
+                         <thead className="bg-slate-50 border-b sticky top-0 z-10">
+                           <tr>
+                             <th className="p-4 font-black">اسم الموظف / Employee</th>
+                             <th className="p-4 text-center font-black">رقم البصمة (Device ID)</th>
+                             <th className="p-4 text-center font-black">رقم الجهاز المتوفر</th>
+                             <th className="p-4 text-center font-black">الحالة</th>
                            </tr>
-                         ))}
-                       </tbody>
-                     </table>
+                         </thead>
+                         <tbody className="divide-y">
+                           {employees.map(emp => {
+                              const deviceUser = zk_users.find(u => 
+                                String(u.userId) === String(emp.fingerprintId) || 
+                                String(u.uid) === String(emp.fingerprintId)
+                              );
+
+                             return (
+                               <tr key={emp.id} className="hover:bg-slate-50">
+                                 <td className="p-4">
+                                   <div className="font-bold">{emp.name}</div>
+                                   <div className="text-[10px] text-muted-foreground">{emp.department || "بدون قسم"}</div>
+                                 </td>
+                                 <td className="p-4 text-center">
+                                   <Input 
+                                     placeholder="ID" 
+                                     value={emp.fingerprintId || ""} 
+                                     onChange={(e) => handleUpdateFingerprintId(emp.id, e.target.value)}
+                                     className="h-10 w-24 mx-auto text-center font-bold"
+                                   />
+                                 </td>
+                                 <td className="p-4 text-center">
+                                   {deviceUser ? (
+                                     <span className="text-green-600 font-black">{deviceUser.name}</span>
+                                   ) : (
+                                     <span className="text-muted-foreground text-xs italic">غير مفحوص</span>
+                                   )}
+                                 </td>
+                                 <td className="p-4 text-center text-xs">
+                                   {emp.fingerprintId ? (
+                                     <Badge className="bg-green-100 text-green-700 border-0">مرتبط / Linked</Badge>
+                                   ) : (
+                                     <Badge variant="outline" className="text-muted-foreground">غير مرتبط</Badge>
+                                   )}
+                                 </td>
+                               </tr>
+                             );
+                           })}
+                         </tbody>
+                       </table>
+                     </div>
                    </CardContent>
                  </Card>
+
+                 {/* Daily Summary Table */}
+                 {zk_dailySummary.length > 0 && (
+                   <Card className="shadow-xl border-green-200 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 mt-8">
+                     <CardHeader className="bg-green-800 text-white py-4 px-6 flex flex-row items-center justify-between">
+                       <CardTitle className="font-black flex items-center gap-2">
+                         <Calculator className="h-5 w-5" />
+                         خلاصة الحضور والانصراف اليومي / Daily In-Out Summary
+                       </CardTitle>
+                       <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="bg-white/10 hover:bg-white/20 border-white/20 text-white gap-2 h-9"
+                          onClick={() => generateZkAttendanceReportPDF(zk_dailySummary)}
+                        >
+                          <Printer className="h-4 w-4" />
+                          <span>تصدير PDF / Export</span>
+                        </Button>
+                     </CardHeader>
+                     <CardContent className="p-0 text-right">
+                       <div className="max-h-[400px] overflow-y-auto">
+                         <table className="w-full text-right border-collapse">
+                           <thead className="bg-green-50 border-b sticky top-0 z-10">
+                             <tr>
+                               <th className="p-4 font-black">اسم الموظف / Employee</th>
+                               <th className="p-4 text-center font-black">التاريخ / Date</th>
+                               <th className="p-4 text-center font-black text-blue-700">أول بصمة (حضور)</th>
+                               <th className="p-4 text-center font-black text-orange-600">آخر بصمة (انصراف)</th>
+                               <th className="p-4 text-center font-black">البصمات</th>
+                               <th className="p-4 text-center font-black text-green-700">الساعات / Duration</th>
+                             </tr>
+                           </thead>
+                           <tbody className="divide-y">
+                             {zk_dailySummary.map((sum, i) => (
+                               <tr key={i} className="hover:bg-green-50/50">
+                                 <td className="p-4 font-bold">{sum.employeeName}</td>
+                                 <td className="p-4 text-center">{sum.date}</td>
+                                 <td className="p-4 text-center font-black text-blue-700 bg-blue-50/30">{sum.firstSwipe}</td>
+                                 <td className="p-4 text-center font-black text-orange-600 bg-orange-50/30">
+                                   {sum.count > 1 ? sum.lastSwipe : <span className="text-[10px] text-red-500 font-normal italic">لم يتم التبصيم</span>}
+                                 </td>
+                                 <td className="p-4 text-center">
+                                   <Badge variant="outline">{sum.count}</Badge>
+                                 </td>
+                                 <td className="p-4 text-center font-bold text-green-700">{sum.duration}</td>
+                               </tr>
+                             ))}
+                           </tbody>
+                         </table>
+                       </div>
+                     </CardContent>
+                   </Card>
+                 )}
+
+                 {/* Recently Synced Logs */}
+                 {zk_logs.length > 0 && (
+                   <Card className="shadow-xl border-slate-200 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 mt-8">
+                     <CardHeader className="bg-blue-900 text-white py-4 px-6">
+                       <CardTitle className="font-black flex items-center gap-2">
+                         <Clock className="h-5 w-5" />
+                         حركات البصمة المسحوبة حديثاً / Recently Synced Logs
+                       </CardTitle>
+                     </CardHeader>
+                     <CardContent className="p-0">
+                       <div className="max-h-[300px] overflow-y-auto">
+                         <table className="w-full text-right border-collapse text-sm">
+                           <thead className="bg-slate-50 border-b sticky top-0 z-10">
+                             <tr>
+                               <th className="p-3 font-black">رقم المستخدم / User ID</th>
+                               <th className="p-3 font-black">الاسم بالجهاز</th>
+                               <th className="p-3 text-center font-black">التاريخ والوقت</th>
+                               <th className="p-3 text-center font-black">الحالة</th>
+                             </tr>
+                           </thead>
+                           <tbody className="divide-y">
+                             {zk_logs.slice(0, 100).map((log, i) => {
+                                                               const deviceUser = zk_users.find(u => 
+                                  String(u.userId) === String(log.deviceUserId) || 
+                                  String(u.uid) === String(log.deviceUserId)
+                                );
+                                                               const employee = employees.find(e => 
+                                  String(e.fingerprintId) === String(log.deviceUserId)
+                                );
+                               return (
+                                 <tr key={i} className="hover:bg-blue-50/30">
+                                   <td className="p-3 font-bold">{log.deviceUserId}</td>
+                                                                       <td className="p-3 font-black text-blue-700">{deviceUser?.name || "مجهول"}</td>
+                                   <td className="p-3 text-center">{format(new Date(log.recordTime), "yyyy/MM/dd HH:mm:ss")}</td>
+                                   <td className="p-3 text-center">
+                                     {employee ? (
+                                       <Badge className="bg-blue-100 text-blue-700 border-0">موظف معروف: {employee.name}</Badge>
+                                     ) : (
+                                       <Badge variant="outline" className="text-red-500 border-red-200">غير مرتبط بنظامنا</Badge>
+                                     )}
+                                   </td>
+                                 </tr>
+                               );
+                             })}
+                             {zk_logs.length > 100 && (
+                               <tr>
+                                 <td colSpan={4} className="p-4 text-center text-muted-foreground italic">
+                                   تم عرض أول 100 حركة فقط من أصل {zk_logs.length}...
+                                 </td>
+                               </tr>
+                             )}
+                           </tbody>
+                         </table>
+                       </div>
+                     </CardContent>
+                   </Card>
+                 )}
                </div>
              </div>
           </TabsContent>

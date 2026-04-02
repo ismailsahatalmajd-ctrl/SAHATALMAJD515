@@ -693,11 +693,12 @@ export interface AbsenceRecord {
   employeeId: string
   employeeName: string
   date: string
-  type: 'absence' | 'leave' | 'official_event' // غياب، إجازة، مناسبة رسمية
+  type: 'attendance' | 'absence' | 'leave' | 'official_event' // حضور، غياب، إجازة، مناسبة رسمية
   category: string // بعذر، بدون عذر، مرضية، عيد، إلخ
   excuse?: string // نص العذر
   attachmentUrl?: string // رابط الصورة المرفقة
   notes?: string
+  recordTime?: string
   status: 'pending' | 'approved' | 'rejected'
   createdAt: string
   updatedAt?: string
@@ -743,5 +744,34 @@ export interface BranchNote {
   expiresAt: string; // ISO format
   animation: 'pulse' | 'bounce' | 'fade' | 'none';
   createdAt: string;
+  createdBy?: string;
+}
+
+// ============================================
+// Branch Inventory Reporting System (New)
+// ============================================
+
+export interface BranchInventoryReportItem {
+  id: string; // Unique item ID
+  productId: string;
+  productCode: string;
+  productName: string;
+  quantity: number;
+  unit: string;           // Original Site Unit
+  optionalUnit?: string;  // Second Unit (Selected from dropdown)
+  price?: number;         // Product Price at the time of report (Optional for branch, editable by admin)
+  image?: string;
+  notes?: string;
+}
+
+export interface BranchInventoryReport {
+  id: string;
+  reportCode: string;     // Format: BCODE + BSEQ + GSEQ (e.g. J01000100001)
+  branchId: string;
+  branchName: string;
+  items: BranchInventoryReportItem[];
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
   createdBy?: string;
 }

@@ -67,7 +67,8 @@ import {
   syncWarehouseLocation,
   deleteWarehouseLocationApi,
   syncWarehouseDesignElement,
-  deleteWarehouseDesignElementApi
+  deleteWarehouseDesignElementApi,
+  syncBranchInventoryReport
 } from './firebase-sync-engine'
 
 // Monthly Closing
@@ -900,6 +901,7 @@ export async function addUnit(unit: Omit<Unit, "id">): Promise<Unit> {
   store.cache.units = units
   await db.units.put(newUnit)
   if (typeof window !== 'undefined') await syncUnit(newUnit).catch(console.error)
+  notify('change')
   return newUnit
 }
 

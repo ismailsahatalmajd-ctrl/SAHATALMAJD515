@@ -16,7 +16,10 @@ import type {
   Employee,
   OvertimeReason,
   OvertimeEntry,
-  AbsenceRecord
+  AbsenceRecord,
+  PlannedLeave,
+  WarehouseLocation,
+  WarehouseDesignElement
 } from "./types"
 import type { BranchInvoice } from './branch-invoice-types'
 import type { BranchRequest } from './branch-request-types'
@@ -50,6 +53,9 @@ export class DataStore {
     overtimeReasons: OvertimeReason[]
     overtimeEntries: OvertimeEntry[]
     absenceRecords: AbsenceRecord[]
+    plannedLeaves: PlannedLeave[]
+    warehouseLocations: WarehouseLocation[]
+    warehouseDesignElements: WarehouseDesignElement[]
   } = {
       products: [],
       categories: [],
@@ -73,6 +79,9 @@ export class DataStore {
       overtimeReasons: [],
       overtimeEntries: [],
       absenceRecords: [],
+      plannedLeaves: [],
+      warehouseLocations: [],
+      warehouseDesignElements: [],
     }
 
   initPromise: Promise<void> | null = null
@@ -109,27 +118,30 @@ export class DataStore {
 
         const tasks = [
           { name: "products", label: "المنتجات", query: db.products },
-          { name: "categories", label: "التصنيفات", query: db.categories },
-          { name: "transactions", label: "الحركات", query: db.transactions },
+          { name: "categories", label: "الفئات", query: db.categories },
+          { name: "transactions", label: "المعاملات", query: db.transactions },
           { name: "branches", label: "الفروع", query: db.branches },
           { name: "units", label: "الوحدات", query: db.units },
-          { name: "issues", label: "الصرف", query: db.issues },
-          { name: "returns", label: "المرتجع", query: db.returns },
+          { name: "issues", label: "الإصدارات", query: db.issues },
+          { name: "returns", label: "المرتجعات", query: db.returns },
           { name: "locations", label: "المواقع", query: db.locations },
-          { name: "issueDrafts", label: "المسودات", query: db.issueDrafts },
+          { name: "issueDrafts", label: "مسودات الإصدارات", query: db.issueDrafts },
           { name: "purchaseOrders", label: "أوامر الشراء", query: db.purchaseOrders },
-          { name: "adjustments", label: "التسويات", query: db.inventoryAdjustments },
-          { name: "verificationLogs", label: "سجلات الجرد", query: db.verificationLogs },
+          { name: "adjustments", label: "التعديلات", query: db.inventoryAdjustments },
+          { name: "verificationLogs", label: "سجلات التحقق", query: db.verificationLogs },
           { name: "branchInvoices", label: "فواتير الفروع", query: db.branchInvoices },
           { name: "branchRequests", label: "طلبات الفروع", query: db.branchRequests },
-          { name: "branchRequestDrafts", label: "مسودات الطلبات", query: db.branchRequestDrafts },
+          { name: "branchRequestDrafts", label: "مسودات طلبات الفروع", query: db.branchRequestDrafts },
           { name: "purchaseRequests", label: "طلبات الشراء", query: db.purchaseRequests },
-          { name: "receivingNotes", label: "سندات الاستلام", query: db.receivingNotes },
-          { name: "suppliers", label: "الموردين", query: db.suppliers },
-          { name: "employees", label: "الموظفين", query: db.employees },
+          { name: "receivingNotes", label: "سجلات الاستلام", query: db.receivingNotes },
+          { name: "suppliers", label: "الموردون", query: db.suppliers },
+          { name: "employees", label: "الموظفون", query: db.employees },
           { name: "overtimeReasons", label: "أسباب الساعات الإضافية", query: db.overtimeReasons },
           { name: "overtimeEntries", label: "سجلات الساعات الإضافية", query: db.overtimeEntries },
           { name: "absenceRecords", label: "سجلات الغياب والاجازات", query: db.absenceRecords },
+          { name: "plannedLeaves", label: "الإجازات المخطط لها", query: db.plannedLeaves },
+          { name: "warehouseLocations", label: "مواقع المستودع", query: db.warehouseLocations },
+          { name: "warehouseDesignElements", label: "مخطط المستودع", query: db.warehouseDesignElements },
         ]
 
         let completed = 0;
@@ -146,6 +158,14 @@ export class DataStore {
             // Safety timeout per table fetch (60s for large datasets)
             // Products table can be large, especially with images
             const timeout = task.name === 'products' ? 300000 : 60000; // 5 min for products
+
+            // Check if query exists and has toArray method
+            if (!task.query || typeof task.query.toArray !== 'function') {
+              console.warn(`DataStore: Query for ${task.name} is not available, skipping...`);
+              results.push([]);
+              completed++;
+              continue;
+            }
 
             const tableData = await Promise.race([
               task.query.toArray(),
@@ -187,6 +207,9 @@ export class DataStore {
         this.cache.overtimeReasons = (results[19] as OvertimeReason[]) || []
         this.cache.overtimeEntries = (results[20] as OvertimeEntry[]) || []
         this.cache.absenceRecords = (results[21] as AbsenceRecord[]) || []
+        this.cache.plannedLeaves = (results[22] as PlannedLeave[]) || []
+        this.cache.warehouseLocations = (results[23] as WarehouseLocation[]) || []
+        this.cache.warehouseDesignElements = (results[24] as WarehouseDesignElement[]) || []
 
         broadcastProgress(100, "اكتمل التحميل");
         console.log("DataStore: Initialization complete");
@@ -255,6 +278,9 @@ export function updateStoreCache(table: string, record: any) {
     'overtimeReasons': 'overtimeReasons',
     'overtimeEntries': 'overtimeEntries',
     'absenceRecords': 'absenceRecords',
+    'plannedLeaves': 'plannedLeaves',
+    'warehouseLocations': 'warehouseLocations',
+    'warehouseDesignElements': 'warehouseDesignElements',
   }
 
   const key = map[table]
@@ -283,6 +309,7 @@ export function updateStoreCache(table: string, record: any) {
     'overtimeReasons': 'overtime_reasons_change' as any,
     'overtimeEntries': 'overtime_entries_change' as any,
     'absenceRecords': 'absence_records_change' as any,
+    'warehouseLocations': 'warehouse_locations_change' as any,
   }
   if (eventMap[table]) notify(eventMap[table])
 }
@@ -308,6 +335,9 @@ export function removeFromStoreCache(table: string, id: string) {
     'overtimeReasons': 'overtimeReasons',
     'overtimeEntries': 'overtimeEntries',
     'absenceRecords': 'absenceRecords',
+    'plannedLeaves': 'plannedLeaves',
+    'warehouseLocations': 'warehouseLocations',
+    'warehouseDesignElements': 'warehouseDesignElements',
   }
 
   const key = map[table]

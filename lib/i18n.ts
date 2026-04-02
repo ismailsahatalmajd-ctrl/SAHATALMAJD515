@@ -42,6 +42,8 @@ export const dict: Dict = {
   "nav.warehouseLayout": { ar: "مخطط المستودع", en: "Warehouse Layout" },
   "nav.warehouseHub": { ar: "مركز المستودع Hub", en: "Warehouse Hub" },
   "nav.barcodes": { ar: "الباركود", en: "Barcodes" },
+  "nav.inventory": { ar: "الجرد", en: "Inventory" },
+  "nav.branchInventory": { ar: "جرد الفرع", en: "Branch Inventory" },
 
   // Footer
   "footer.copyright": { ar: "جميع الحقوق محفوظة", en: "All rights reserved" },
@@ -61,6 +63,10 @@ export const dict: Dict = {
   "common.category": { ar: "التصنيف", en: "Category" },
   "common.quantity": { ar: "الكمية", en: "Quantity" },
   "common.unit": { ar: "الوحدة", en: "Unit" },
+  "units.combobox.select": { ar: "اختر الوحدة... / Select Unit...", en: "Select Unit... / اختر الوحدة..." },
+  "units.combobox.search": { ar: "ابحث عن وحدة... / Search unit...", en: "Search unit... / ابحث عن وحدة..." },
+  "units.combobox.add": { ar: "إضافة وحدة: / Add unit:", en: "Add unit: / إضافة وحدة:" },
+  "units.combobox.placeholder": { ar: "اكتب لإضافة وحدة جديدة... / Type to add new unit...", en: "Type to add new unit... / اكتب لإضافة وحدة جديدة..." },
   "common.dir": { ar: "rtl", en: "ltr" },
   "common.price": { ar: "السعر", en: "Price" },
   "common.avgPrice": { ar: "متوسط السعر", en: "Avg Price" },

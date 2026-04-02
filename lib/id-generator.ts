@@ -80,6 +80,16 @@ export async function generateGlobalSequence(type: "IS" | "OR" | "RN" | "RR"): P
                 }
             }
         });
+    } else if (type === "INV" as any) {
+        const items = await db.branchInventoryReports.toArray();
+        items.forEach(i => {
+            if (i.reportCode) {
+                // J01000100001 -> we need the last 5 digits
+                const seqStr = i.reportCode.slice(-5);
+                const seq = parseInt(seqStr, 10);
+                if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+            }
+        });
     }
 
     return (maxSeq + 1).toString().padStart(5, '0');
@@ -88,7 +98,7 @@ export async function generateGlobalSequence(type: "IS" | "OR" | "RN" | "RR"): P
 /**
  * تولد رقم تسلسلي خاص بالفرع (Branch Sequence)
  */
-export async function generateBranchSequence(branchId: string, type: "IS" | "OR" | "RN" | "RR"): Promise<string> {
+export async function generateBranchSequence(branchId: string, type: "IS" | "OR" | "RN" | "RR" | "INV"): Promise<string> {
     let maxSeq = 0;
 
     if (type === "IS") {
@@ -124,6 +134,18 @@ export async function generateBranchSequence(branchId: string, type: "IS" | "OR"
                 }
             }
         });
+    } else if (type === "INV") {
+        const items = await db.branchInventoryReports.where("branchId").equals(branchId).toArray();
+        items.forEach(i => {
+            if (i.reportCode) {
+                // J01 0001 00001 -> we need the middle 4 digits
+                // Code length is usually 3 (J01) + 4 (SEQ) + 5 (GLOBAL) = 12
+                // Middle 4 are from index 3 to 7
+                const seqStr = i.reportCode.slice(3, 7);
+                const seq = parseInt(seqStr, 10);
+                if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+            }
+        });
     }
 
     return (maxSeq + 1).toString().padStart(4, '0');
@@ -143,6 +165,19 @@ export async function formatInvoiceNumber(
     const globalSeq = await generateGlobalSequence(type);
 
     return `${type}-${branchCode}-${branchSeq}-${globalSeq}`;
+}
+
+/**
+ * دالة خاصة لتوليد رقم الجرد الفريد
+ * الصيغة كما طلب العميل: [رمز الفرع][تسلسل جرد الفرع][تسلسل الجرد العام]
+ * مثال: J01000100001
+ */
+export async function formatInventoryNumber(branchId: string): Promise<string> {
+    const branchCode = await getBranchCode(branchId);
+    const branchSeq = await generateBranchSequence(branchId, "INV");
+    const globalSeq = await generateGlobalSequence("INV" as any);
+
+    return `${branchCode}${branchSeq}${globalSeq}`;
 }
 
 /**

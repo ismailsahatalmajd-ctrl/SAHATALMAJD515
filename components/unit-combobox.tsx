@@ -19,6 +19,9 @@ import {
 } from "@/components/ui/popover"
 import { getUnits, addUnit } from "@/lib/storage"
 import type { Unit } from "@/lib/types"
+import { useI18n } from "@/components/language-provider"
+import { useLiveQuery } from "dexie-react-hooks"
+import { db } from "@/lib/db"
 
 interface UnitComboboxProps {
     value: string
@@ -27,17 +30,11 @@ interface UnitComboboxProps {
 }
 
 export function UnitCombobox({ value, onChange, className }: UnitComboboxProps) {
+    const { t } = useI18n()
     const [open, setOpen] = useState(false)
-    const [units, setUnits] = useState<Unit[]>([])
     const [searchValue, setSearchValue] = useState("")
 
-    useEffect(() => {
-        setUnits(getUnits())
-    }, [])
-
-    const refreshUnits = () => {
-        setUnits(getUnits())
-    }
+    const units = useLiveQuery(() => db.units.toArray()) || []
 
     const handleAddUnit = async () => {
         if (!searchValue.trim()) return
@@ -45,7 +42,6 @@ export function UnitCombobox({ value, onChange, className }: UnitComboboxProps) 
             name: searchValue.trim(),
             abbreviation: searchValue.trim().substring(0, 3)
         })
-        refreshUnits()
         onChange(newUnit.name)
         setOpen(false)
         setSearchValue("")
@@ -70,14 +66,14 @@ export function UnitCombobox({ value, onChange, className }: UnitComboboxProps) 
                     aria-expanded={open}
                     className={cn("w-full justify-between bg-transparent border-none focus-visible:ring-0 h-8 text-[10px] font-bold text-slate-500 text-center", className)}
                 >
-                    {value || "Select Unit..."}
+                    {value || t("units.combobox.select")}
                     <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
             <PopoverContent className="w-[200px] p-0">
                 <Command shouldFilter={false}>
                     <CommandInput
-                        placeholder="Search unit..."
+                        placeholder={t("units.combobox.search")}
                         value={searchValue}
                         onValueChange={setSearchValue}
                     />
@@ -116,12 +112,12 @@ export function UnitCombobox({ value, onChange, className }: UnitComboboxProps) 
                                 )}
                             >
                                 <Plus className="h-4 w-4" />
-                                {searchValue.trim() ? `إضافة وحدة: "${searchValue}"` : "اكتب لإضافة وحدة جديدة..."}
+                                {searchValue.trim() ? `${t("units.combobox.add")} "${searchValue}"` : t("units.combobox.placeholder")}
                             </CommandItem>
                         </CommandGroup>
                         {filteredUnits.length === 0 && searchValue.trim() === "" && (
                             <div className="py-6 text-center text-slate-400 text-[10px] font-bold">
-                                لا يوجد وحدات مضافة بعد
+                                {t("common.noData")}
                             </div>
                         )}
                     </CommandList>

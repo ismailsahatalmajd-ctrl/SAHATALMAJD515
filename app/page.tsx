@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useMemo } from "react"
+import { useSearchParams } from "next/navigation"
 import { Plus, Search, Filter, Settings, FileText, Eye, EyeOff, LayoutGrid, AlertTriangle, Settings2, RotateCcw, Calendar, Package, Package2 } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -144,11 +145,15 @@ const mergeDuplicateProducts = (products: Product[]): Product[] => {
 
 export default function Home() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { toast } = useToast()
   const { t } = useI18n()
   const { user } = useAuth()
   const isMobile = useIsMobile()
   const { shouldShow } = useGranularPermissions()
+
+  // Check if user is coming from label designer
+  const fromLabelDesigner = searchParams.get('from') === 'label-designer'
 
   // PROTECT: Redirect Branch users to Branch Requests
   useEffect(() => {
@@ -1207,6 +1212,49 @@ export default function Home() {
     setIsSideSheetOpen(true)
   }
 
+  const handlePrintLabel = (product: Product) => {
+    // Encode product data as URL parameters
+    const params = new URLSearchParams({
+      id: product.id,
+      productCode: product.productCode || '',
+      itemNumber: product.itemNumber || '',
+      productName: product.productName || '',
+      barcode: product.productCode || '', // Using productCode as barcode
+      price: (product.price || 0).toString(),
+    })
+    
+    // Navigate to label designer with product data
+    router.push(`/label-designer?${params.toString()}`)
+  }
+
+  const handleBulkPrint = (ids: string[]) => {
+    // Get selected products
+    const selectedProducts = products.filter(p => ids.includes(p.id))
+    
+    if (selectedProducts.length === 0) {
+      toast({ title: "لا توجد منتجات محددة", description: "يرجى اختيار منتج واحد على الأقل" })
+      return
+    }
+    
+    // Encode multiple products as URL parameters
+    const params = new URLSearchParams()
+    params.set('bulk', 'true')
+    params.set('count', selectedProducts.length.toString())
+    
+    // Add each product's data
+    selectedProducts.forEach((product, index) => {
+      params.set(`product_${index}_id`, product.id)
+      params.set(`product_${index}_productCode`, product.productCode || '')
+      params.set(`product_${index}_itemNumber`, product.itemNumber || '')
+      params.set(`product_${index}_productName`, product.productName || '')
+      params.set(`product_${index}_barcode`, product.productCode || '')
+      params.set(`product_${index}_price`, (product.price || 0).toString())
+    })
+    
+    // Navigate to label designer with bulk data
+    router.push(`/label-designer?${params.toString()}`)
+  }
+
   const handleFormClose = (open: boolean) => {
     setIsSideSheetOpen(open)
     if (!open) {
@@ -1219,6 +1267,29 @@ export default function Home() {
       <Header />
 
       <main className="container mx-auto px-4 py-8">
+        {/* Alert for users coming from label designer */}
+        {fromLabelDesigner && (
+          <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex items-center gap-3">
+              <Package className="w-5 h-5 text-blue-600" />
+              <div>
+                <h3 className="font-semibold text-blue-900">اختر منتج للطباعة</h3>
+                <p className="text-sm text-blue-700">
+                  اضغط على زر الطابعة 🖨️ بجانب أي منتج لطباعة ملصق له
+                </p>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => router.push('/label-designer')}
+                className="mr-auto"
+              >
+                العودة لمصمم الملصقات
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="mb-4">
           <CounterToggle />
         </div>
@@ -1601,6 +1672,8 @@ export default function Home() {
               viewMode={tableViewMode as TableViewMode}
               onEdit={handleEdit}
               onDelete={handleDeleteProduct}
+              onPrintLabel={handlePrintLabel}
+              onBulkPrint={handleBulkPrint}
               onBulkDelete={handleDeleteProducts}
               onBulkUpdate={handleBulkUpdate}
               categories={categories}

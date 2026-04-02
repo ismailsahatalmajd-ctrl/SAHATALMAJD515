@@ -1,6 +1,6 @@
 "use client"
 
-import { Package, BarChart3, Receipt, ShoppingCart, Building2, Barcode, ChevronLeft, Settings, LogOut, Menu, Tag, Wrench, Server, Users, CalendarDays, Map as MapIcon, LayoutDashboard, MessageSquare } from "lucide-react"
+import { Package, BarChart3, Receipt, ShoppingCart, Building2, Barcode, ChevronLeft, Settings, LogOut, Menu, Tag, Wrench, Server, Users, CalendarDays, Map as MapIcon, LayoutDashboard, MessageSquare, ClipboardList } from "lucide-react"
 import Link from "next/link"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import Image from "next/image"
@@ -36,6 +36,7 @@ export function Header() {
     { href: "/issues", key: "nav.issues", label: t("nav.issues"), icon: Receipt },
     { href: "/returns", key: "nav.returns", label: t("nav.returns"), icon: Receipt },
     { href: "/reports", key: "nav.reports", label: t("nav.reports"), icon: BarChart3 },
+    { href: "/inventory", key: "nav.inventory", label: "الجرد", icon: ClipboardList },
     { href: "/branches", key: "nav.branches", label: t("nav.branches"), icon: Building2 },
     { href: "/branch-requests", key: "nav.branchRequests", label: t("nav.branchRequests"), icon: Receipt },
     { href: "/history", key: "nav.history", label: "سجل الباركود", icon: Receipt },

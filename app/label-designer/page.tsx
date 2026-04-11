@@ -9,8 +9,10 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Printer, Layout, Tag, Type, Barcode, ArrowLeft } from "lucide-react"
-import { jsPDF } from "jspdf"
+import JsBarcode from "jsbarcode"
 import BarcodeDisplay from "@/components/barcode-display"
+import { getProducts } from "@/lib/storage"
+import type { Product } from "@/lib/types"
 
 export default function LabelDesignerPage() {
     const searchParams = useSearchParams()
@@ -18,6 +20,10 @@ export default function LabelDesignerPage() {
     
     // Check if this is bulk printing
     const isBulkPrinting = searchParams.get('bulk') === 'true'
+    const allProducts = useMemo(() => getProducts(), [])
+    const [productSearchTerm, setProductSearchTerm] = useState("")
+    const [searchResults, setSearchResults] = useState<Product[]>([])
+    const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
     const productCount = parseInt(searchParams.get('count') || '1')
     
     // Parse multiple products for bulk printing
@@ -53,12 +59,64 @@ export default function LabelDesignerPage() {
     const [showPrice, setShowPrice] = useState(hasProductData ? true : false)
     const [price, setPrice] = useState(searchParams.get('price') || "0.00")
 
-    // Dynamic Preview Data from URL parameters or fallback to default
+    const [titleFontSizeState, setTitleFontSizeState] = useState(8)
+    const [nameArFontSizeState, setNameArFontSizeState] = useState(14)
+    const [nameEnFontSizeState, setNameEnFontSizeState] = useState(8)
+    const [barcodeFontSizeState, setBarcodeFontSizeState] = useState(7)
+    const [barcodeWidthPercent, setBarcodeWidthPercent] = useState(75)
+    const [barcodeHeightState, setBarcodeHeightState] = useState(30)
+    const [barcodeStripeWidthState, setBarcodeStripeWidthState] = useState(2)
+    const [internalCodeFontSizeState, setInternalCodeFontSizeState] = useState(10)
+    const [priceFontSizeState, setPriceFontSizeState] = useState(12)
+    const [elementOrder, setElementOrder] = useState<Array<'title' | 'nameAr' | 'nameEn' | 'barcode' | 'internalCode' | 'price'>>([
+        'title',
+        'nameAr',
+        'nameEn',
+        'barcode',
+        'internalCode',
+        'price'
+    ])
+    const barcodeSvgRef = useRef<SVGSVGElement | null>(null)
+
+    const moveElement = (index: number, direction: 'up' | 'down') => {
+        const nextIndex = direction === 'up' ? index - 1 : index + 1
+        if (nextIndex < 0 || nextIndex >= elementOrder.length) return
+        const newOrder = [...elementOrder]
+        const temp = newOrder[index]
+        newOrder[index] = newOrder[nextIndex]
+        newOrder[nextIndex] = temp
+        setElementOrder(newOrder)
+    }
+
+    useEffect(() => {
+        const term = productSearchTerm.trim().toLowerCase()
+        if (!term) {
+            setSearchResults([])
+            return
+        }
+
+        const results = allProducts.filter((product) => {
+            const name = String(product.productName || "").toLowerCase()
+            const code = String(product.productCode || "").toLowerCase()
+            const item = String(product.itemNumber || "").toLowerCase()
+            return name.includes(term) || code.includes(term) || item.includes(term)
+        }).slice(0, 8)
+
+        setSearchResults(results)
+    }, [productSearchTerm, allProducts])
+
+    const handleSelectProduct = (product: Product) => {
+        setSelectedProduct(product)
+        setProductSearchTerm(product.productName || product.productCode || "")
+        setSearchResults([])
+        setPrice(String(product.price ?? 0))
+    }
+
     const previewData = {
-        internalCode: searchParams.get('itemNumber') || searchParams.get('productCode') || "BOX-MIXB-BRN-25-0001",
-        barcode: searchParams.get('barcode') || searchParams.get('productCode') || "6281057012517",
-        fullNameArabic: searchParams.get('productName') || "علبة ميكس براند بني (تجربة)",
-        fullNameEnglish: searchParams.get('productName') || "Mix Brand Box Brown (Demo)",
+        internalCode: selectedProduct?.itemNumber || searchParams.get('itemNumber') || searchParams.get('productCode') || "BOX-MIXB-BRN-25-0001",
+        barcode: selectedProduct?.productCode || searchParams.get('barcode') || searchParams.get('productCode') || "6281057012517",
+        fullNameArabic: selectedProduct?.productName || searchParams.get('productName') || "علبة ميكس براند بني (تجربة)",
+        fullNameEnglish: selectedProduct?.productName || searchParams.get('productName') || "Mix Brand Box Brown (Demo)",
         titleArabic: "بطاقة المنتج"
     }
 
@@ -67,213 +125,240 @@ export default function LabelDesignerPage() {
     const previewWidth = width * pxPerMm
     const previewHeight = height * pxPerMm
 
-    const handlePrint = () => {
-        if (isBulkPrinting && bulkProducts.length > 0) {
-            // Print multiple labels on one page
-            const doc = new jsPDF({
-                orientation: 'portrait',
-                unit: 'mm',
-                format: 'a4'
+    const isSmallLabel = width < 50 || height < 30
+    const previewPadding = isSmallLabel ? 6 : 10
+    const barcodeContainerWidth = Math.max(40, Math.min(previewWidth - previewPadding * 2, previewWidth * (barcodeWidthPercent / 100)))
+    const barcodeContainerHeight = Math.max(16, Math.min(previewHeight * 0.25, barcodeHeightState))
+    const barcodeLineCount = isSmallLabel ? 8 : 12
+    const cardGap = isSmallLabel ? 0.5 : 1
+
+    useEffect(() => {
+        if (!barcodeSvgRef.current || !showBarcode || !previewData.barcode) return
+
+        try {
+            JsBarcode(barcodeSvgRef.current, previewData.barcode, {
+                format: "CODE128",
+                lineColor: "#000",
+                background: "#fff",
+                width: barcodeStripeWidthState,
+                height: Math.max(20, barcodeContainerHeight - 4),
+                margin: 0,
+                displayValue: false,
             })
-
-            const pageWidth = doc.internal.pageSize.getWidth()
-            const pageHeight = doc.internal.pageSize.getHeight()
-            const margin = 10
-            const labelsPerRow = Math.floor((pageWidth - 2 * margin) / (width + 5))
-            const labelsPerColumn = Math.floor((pageHeight - 2 * margin) / (height + 5))
-            
-            let currentX = margin
-            let currentY = margin
-            let labelCount = 0
-
-            bulkProducts.forEach((product, index) => {
-                if (labelCount > 0 && labelCount % labelsPerRow === 0) {
-                    currentX = margin
-                    currentY += height + 5
-                }
-
-                if (currentY + height > pageHeight - margin) {
-                    doc.addPage()
-                    currentX = margin
-                    currentY = margin
-                    labelCount = 0
-                }
-
-                // Draw label border
-                doc.setDrawColor(200, 200, 200)
-                doc.rect(currentX, currentY, width, height)
-
-                const centerX = currentX + width / 2
-                let labelY = currentY + 3
-
-                // Product Name
-                doc.setFontSize(8)
-                doc.setTextColor(0, 0, 0)
-                doc.setFont('helvetica', 'bold')
-                const productName = product.productName || 'Product Name'
-                const maxChars = Math.floor(width / 3)
-                const displayName = productName.length > maxChars ? productName.substring(0, maxChars) + '...' : productName
-                doc.text(displayName, centerX, labelY, { align: 'center' })
-                labelY += 6
-
-                // Barcode
-                if (showBarcode && product.barcode) {
-                    doc.setFontSize(6)
-                    doc.setTextColor(0, 0, 0)
-                    doc.text(product.barcode, centerX, labelY, { align: 'center' })
-                    labelY += 5
-                }
-
-                // Internal Code
-                if (showInternalCode && product.itemNumber) {
-                    doc.setFontSize(6)
-                    doc.setTextColor(0, 0, 0)
-                    doc.text(product.itemNumber, centerX, labelY, { align: 'center' })
-                    labelY += 4
-                }
-
-                // Price
-                if (showPrice && product.price) {
-                    doc.setFontSize(7)
-                    doc.setTextColor(0, 100, 0)
-                    doc.setFont('helvetica', 'bold')
-                    doc.text(`${product.price} SAR`, centerX, labelY, { align: 'center' })
-                }
-
-                currentX += width + 5
-                labelCount++
-            })
-
-            doc.save(`bulk-labels-${bulkProducts.length}-products.pdf`)
-        } else {
-            // Single product printing (existing logic)
-            const doc = new jsPDF({
-                orientation: width > height ? 'landscape' : 'portrait',
-                unit: 'mm',
-                format: [width, height]
-            })
-
-            // Center alignment helper
-            const centerX = width / 2
-            const margin = 3 // Margin from edges
-
-            // Add a subtle border for better appearance
-            doc.setDrawColor(200, 200, 200)
-            doc.rect(1, 1, width - 2, height - 2)
-
-            let currentY = margin + 2
-
-            // Logo / Header - smaller and more elegant
-            if (showTitleAr) {
-                doc.setFontSize(7)
-                doc.setTextColor(100, 100, 100)
-                try {
-                    doc.text(previewData.titleArabic, centerX, currentY, { align: 'center' })
-                } catch (error) {
-                    // Fallback to simple text if Arabic causes issues
-                    doc.text("Product Label", centerX, currentY, { align: 'center' })
-                }
-                currentY += 4
-            }
-
-            // Product Name Arabic - prominent
-            if (showNameAr) {
-                doc.setFontSize(11)
-                doc.setTextColor(0, 0, 0)
-                doc.setFont('helvetica', 'bold')
-                
-                // Handle long product names by splitting if needed
-                const maxCharsPerLine = Math.floor((width - 6) / 3) // Approximate character count per line
-                let productName = previewData.fullNameArabic
-                
-                // For Arabic text, we need to handle it differently
-                // Try to display as is, but if it causes issues, we can use English
-                try {
-                    if (productName.length > maxCharsPerLine) {
-                        // Split name into two lines if too long
-                        const midPoint = Math.floor(productName.length / 2)
-                        const firstLine = productName.substring(0, midPoint)
-                        const secondLine = productName.substring(midPoint)
-                        
-                        doc.text(firstLine, centerX, currentY, { align: 'center' })
-                        currentY += 4
-                        doc.text(secondLine, centerX, currentY, { align: 'center' })
-                        currentY += 5
-                    } else {
-                        doc.text(productName, centerX, currentY, { align: 'center' })
-                        currentY += 5
-                    }
-                } catch (error) {
-                    // Fallback to English if Arabic causes issues
-                    const fallbackName = previewData.fullNameEnglish || productName
-                    doc.text(fallbackName, centerX, currentY, { align: 'center' })
-                    currentY += 5
-                }
-                doc.setFont('helvetica', 'normal')
-            }
-
-            // Product Name English - smaller and subtle
-            if (showNameEn) {
-                doc.setFontSize(7)
-                doc.setTextColor(80, 80, 80)
-                doc.text(previewData.fullNameEnglish, centerX, currentY, { align: 'center' })
-                currentY += 6
-            }
-
-            // Barcode - better representation
-            if (showBarcode) {
-                // Draw a more realistic barcode representation
-                const barcodeWidth = Math.min(width - 10, 40)
-                const barcodeHeight = 8
-                const barcodeX = centerX - barcodeWidth / 2
-                
-                // Draw barcode lines
-                doc.setFillColor(0, 0, 0)
-                const barCode = previewData.barcode
-                for (let i = 0; i < barCode.length; i++) {
-                    if (i % 2 === 0) {
-                        const barWidth = barcodeWidth / barCode.length
-                        doc.rect(barcodeX + (i * barWidth), currentY, barWidth * 0.8, barcodeHeight, 'F')
-                    }
-                }
-                
-                // Add barcode text below
-                currentY += barcodeHeight + 2
-                doc.setFontSize(6)
-                doc.text(previewData.barcode, centerX, currentY, { align: 'center' })
-                currentY += 5
-            }
-
-            // Internal Code - more prominent
-            if (showInternalCode) {
-                doc.setFontSize(8)
-                doc.setTextColor(0, 0, 0)
-                doc.setFont('helvetica', 'bold')
-                doc.text(previewData.internalCode, centerX, currentY, { align: 'center' })
-                currentY += 4
-                doc.setFont('helvetica', 'normal')
-            }
-
-            // Price - highlight with background
-            if (showPrice) {
-                const priceText = `${price} SAR` // Use SAR instead of Arabic symbols for better compatibility
-                const priceFontSize = 10
-                
-                doc.setFontSize(priceFontSize)
-                doc.setTextColor(0, 100, 0)
-                doc.setFont('helvetica', 'bold')
-                
-                // Add price background for emphasis
-                const textWidth = doc.getTextWidth(priceText)
-                const padding = 2
-                doc.setFillColor(240, 255, 240)
-                doc.rect(centerX - textWidth/2 - padding, currentY - 3, textWidth + (padding * 2), 5, 'F')
-                
-                doc.text(priceText, centerX, currentY, { align: 'center' })
-            }
-
-            doc.save("label-template.pdf")
+        } catch (error) {
+            // ignore invalid code render errors
         }
+    }, [previewData.barcode, barcodeContainerHeight, isSmallLabel, showBarcode, barcodeStripeWidthState])
+
+    const renderPreviewElement = (element: 'title' | 'nameAr' | 'nameEn' | 'barcode' | 'internalCode' | 'price') => {
+        switch (element) {
+            case 'title':
+                return showTitleAr ? (
+                    <div key="title" style={{ fontSize: `${titleFontSizeState}px` }} className="text-gray-500 font-medium break-words whitespace-normal">{previewData.titleArabic}</div>
+                ) : null
+            case 'nameAr':
+                return showNameAr ? (
+                    <div key="nameAr" style={{ fontSize: `${nameArFontSizeState}px` }} className="font-bold leading-tight text-black break-words whitespace-normal max-w-full">{previewData.fullNameArabic}</div>
+                ) : null
+            case 'nameEn':
+                return showNameEn ? (
+                    <div key="nameEn" style={{ fontSize: `${nameEnFontSizeState}px` }} className="text-gray-600 leading-tight break-words whitespace-normal max-w-full">{previewData.fullNameEnglish}</div>
+                ) : null
+            case 'barcode':
+                return showBarcode ? (
+                    <div key="barcode" className="flex flex-col items-center">
+                        <div style={{ width: `${barcodeContainerWidth}px`, minHeight: `${barcodeContainerHeight}px`, background: '#fff', padding: '4px', boxSizing: 'border-box', borderRadius: '4px' }} className="flex items-center justify-center border border-slate-200">
+                            <svg ref={barcodeSvgRef} style={{ width: '100%', height: '100%' }} />
+                        </div>
+                        <span style={{ fontSize: `${barcodeFontSizeState}px` }} className="font-mono text-gray-700 mt-1 break-all">{previewData.barcode}</span>
+                    </div>
+                ) : null
+            case 'internalCode':
+                return showInternalCode ? (
+                    <div key="internalCode" style={{ fontSize: `${internalCodeFontSizeState}px` }} className="font-mono font-bold tracking-wider text-black break-all">{previewData.internalCode}</div>
+                ) : null
+            case 'price':
+                return showPrice ? (
+                    <div key="price" style={{ fontSize: `${priceFontSizeState}px` }} className="font-bold text-green-700 bg-green-50 px-2 py-1 rounded inline-block mt-1 break-words whitespace-normal">{price} SAR</div>
+                ) : null
+            default:
+                return null
+        }
+    }
+
+    const orderedPreviewElements = elementOrder.map(renderPreviewElement).filter(Boolean)
+
+    const openPrintWindow = (html: string) => {
+        const printWindow = window.open("", "", "width=900,height=700")
+        if (!printWindow) return
+        printWindow.document.write(html)
+        printWindow.document.close()
+    }
+
+    const buildPrintHtml = (products: Array<{ id: string; productCode: string; itemNumber: string; productName: string; barcode: string; price: string }>) => {
+        const buildPrintElement = (element: 'title' | 'nameAr' | 'nameEn' | 'barcode' | 'internalCode' | 'price', product: { barcode: string; itemNumber: string; productName: string; price: string }, index: number) => {
+            switch (element) {
+                case 'title':
+                    return showTitleAr ? `<div class="label-title" style="font-size: ${titleFontSizeState}px;">${previewData.titleArabic}</div>` : ''
+                case 'nameAr':
+                    return showNameAr ? `<div class="product-name-ar" style="font-size: ${nameArFontSizeState}px;">${product.productName}</div>` : ''
+                case 'nameEn':
+                    return showNameEn ? `<div class="product-name-en" style="font-size: ${nameEnFontSizeState}px;">${previewData.fullNameEnglish}</div>` : ''
+                case 'barcode':
+                    return showBarcode && product.barcode ? `<div class="barcode-area" style="width: ${barcodeWidthPercent}%; max-width: 100%;"><svg id="barcode-${index}" style="width: 100%; height: ${barcodeHeightState}px;"></svg></div><div class="barcode-text" style="font-size: ${barcodeFontSizeState}px;">${product.barcode}</div>` : ''
+                case 'internalCode':
+                    return showInternalCode && product.itemNumber ? `<div class="internal-code" style="font-size: ${internalCodeFontSizeState}px;">${product.itemNumber}</div>` : ''
+                case 'price':
+                    return showPrice && product.price ? `<div class="price" style="font-size: ${priceFontSizeState}px;">${product.price} SAR</div>` : ''
+                default:
+                    return ''
+            }
+        }
+
+        const cardsHtml = products.map((product, index) => `
+            <div class="label-card">
+                ${elementOrder.map((element) => buildPrintElement(element, product, index)).join('')}
+            </div>
+        `).join('')
+
+        return `
+            <!DOCTYPE html>
+            <html dir="rtl" lang="ar">
+            <head>
+                <meta charset="UTF-8">
+                <title>طباعة الملصقات</title>
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700&display=swap');
+                    body {
+                        margin: 0;
+                        padding: 16px;
+                        font-family: 'Noto Sans Arabic', Arial, sans-serif;
+                        background: #f7f7f7;
+                    }
+                    .label-card {
+                        width: ${width}mm;
+                        height: ${height}mm;
+                        max-width: ${width}mm;
+                        border: 1px solid #ccc;
+                        border-radius: 10px;
+                        background: #fff;
+                        padding: 12px;
+                        margin: 0 auto;
+                        box-shadow: 0 4px 18px rgba(0,0,0,0.05);
+                        box-sizing: border-box;
+                        display: block;
+                        page-break-after: always;
+                    }
+                    .label-title {
+                        font-size: 12px;
+                        color: #444;
+                        text-align: center;
+                        margin-bottom: 8px;
+                        font-weight: 700;
+                    }
+                    .product-name-ar {
+                        font-size: 18px;
+                        text-align: center;
+                        font-weight: 700;
+                        line-height: 1.25;
+                        margin: 10px 0 8px;
+                    }
+                    .product-name-en {
+                        font-size: 12px;
+                        text-align: center;
+                        color: #4b5563;
+                        margin-bottom: 12px;
+                    }
+                    .barcode-area {
+                        display: flex;
+                        justify-content: center;
+                        margin-bottom: 10px;
+                    }
+                    .barcode-area svg,
+                    .barcode-area canvas {
+                        max-width: 100%;
+                        width: 100%;
+                        height: 70px;
+                    }
+                    .barcode-text,
+                    .internal-code,
+                    .price {
+                        text-align: center;
+                        font-size: 12px;
+                        font-weight: 700;
+                        margin: 4px 0;
+                    }
+                    .price {
+                        color: #047857;
+                    }
+                    @page {
+                        size: ${width}mm ${height}mm;
+                        margin: 0;
+                    }
+                    @media print {
+                        body {
+                            padding: 0;
+                            background: white;
+                        }
+                        .label-card {
+                            page-break-inside: avoid;
+                            page-break-after: always;
+                            box-shadow: none;
+                            margin: 0;
+                            border-color: #999;
+                        }
+                    }
+                </style>
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.12.1/JsBarcode.all.min.js"></script>
+            </head>
+            <body>
+                ${cardsHtml}
+                <script>
+                    const products = ${JSON.stringify(products)};
+                    products.forEach((product, index) => {
+                        const svg = document.getElementById('barcode-' + index);
+                        if (!svg) return;
+                        try {
+                            JsBarcode(svg, String(product.barcode || product.productCode || ''), {
+                                format: 'CODE128',
+                                lineColor: '#000',
+                                background: '#fff',
+                                width: ${barcodeStripeWidthState},
+                                height: ${Math.max(20, barcodeHeightState - 4)},
+                                margin: 0,
+                                displayValue: false,
+                            });
+                        } catch (err) {
+                            console.warn('Barcode render error', err);
+                        }
+                    });
+                    window.print();
+                </script>
+            </body>
+            </html>
+        `
+    }
+
+    const handlePrint = () => {
+        const products = isBulkPrinting && bulkProducts.length > 0
+            ? bulkProducts.map((product) => ({
+                id: product.id,
+                productCode: product.barcode || product.productCode,
+                itemNumber: product.itemNumber,
+                productName: product.productName || product.productCode,
+                barcode: product.barcode,
+                price: product.price,
+            }))
+            : [{
+                id: 'single',
+                productCode: previewData.barcode,
+                itemNumber: previewData.internalCode,
+                productName: previewData.fullNameArabic,
+                barcode: previewData.barcode,
+                price,
+            }]
+
+        openPrintWindow(buildPrintHtml(products))
     }
 
     return (
@@ -371,6 +456,35 @@ export default function LabelDesignerPage() {
                                 </div>
                             </div>
 
+                            <div className="space-y-4 border-b pb-4">
+                                <Label className="font-bold">بحث عن منتج</Label>
+                                <Input
+                                    placeholder="اكتب اسم المنتج أو الكود أو الباركود"
+                                    value={productSearchTerm}
+                                    onChange={(e) => setProductSearchTerm(e.target.value)}
+                                />
+                                {searchResults.length > 0 && (
+                                    <div className="max-h-52 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-sm">
+                                        {searchResults.map((product) => (
+                                            <button
+                                                key={product.id}
+                                                type="button"
+                                                onClick={() => handleSelectProduct(product)}
+                                                className="w-full text-right px-3 py-2 hover:bg-slate-100"
+                                            >
+                                                <div className="font-semibold">{product.productName}</div>
+                                                <div className="text-[11px] text-slate-500">{product.productCode} · {product.itemNumber}</div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                                {selectedProduct && (
+                                    <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-right text-sm text-slate-700">
+                                        تم اختيار: <span className="font-semibold">{selectedProduct.productName}</span> · {selectedProduct.productCode}
+                                    </div>
+                                )}
+                            </div>
+
                             {/* Content Toggles */}
                             <div className="space-y-4">
                                 <Label className="font-bold">المحتوى</Label>
@@ -411,7 +525,127 @@ export default function LabelDesignerPage() {
                                         <Input value={price} onChange={(e) => setPrice(e.target.value)} />
                                     </div>
                                 )}
+                            </div>
 
+                            <div className="space-y-4 border-b pb-4">
+                                <Label className="font-bold">حجم الخط لكل عنصر</Label>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-2">
+                                        <Label className="text-xs">عنوان الشركة</Label>
+                                        <Input
+                                            type="number"
+                                            value={titleFontSizeState}
+                                            onChange={(e) => setTitleFontSizeState(Number(e.target.value))}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-xs">الاسم العربي</Label>
+                                        <Input
+                                            type="number"
+                                            value={nameArFontSizeState}
+                                            onChange={(e) => setNameArFontSizeState(Number(e.target.value))}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-xs">الاسم الإنجليزي</Label>
+                                        <Input
+                                            type="number"
+                                            value={nameEnFontSizeState}
+                                            onChange={(e) => setNameEnFontSizeState(Number(e.target.value))}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-xs">نص الباركود</Label>
+                                        <Input
+                                            type="number"
+                                            value={barcodeFontSizeState}
+                                            onChange={(e) => setBarcodeFontSizeState(Number(e.target.value))}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-xs">عرض الباركود (%)</Label>
+                                        <Input
+                                            type="number"
+                                            value={barcodeWidthPercent}
+                                            min={40}
+                                            max={100}
+                                            onChange={(e) => setBarcodeWidthPercent(Number(e.target.value))}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-xs">ارتفاع الباركود (px)</Label>
+                                        <Input
+                                            type="number"
+                                            value={barcodeHeightState}
+                                            min={16}
+                                            max={120}
+                                            onChange={(e) => setBarcodeHeightState(Number(e.target.value))}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-xs">سمك شريط الباركود</Label>
+                                        <Input
+                                            type="number"
+                                            value={barcodeStripeWidthState}
+                                            min={1}
+                                            max={6}
+                                            onChange={(e) => setBarcodeStripeWidthState(Number(e.target.value))}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-xs">الكود الداخلي</Label>
+                                        <Input
+                                            type="number"
+                                            value={internalCodeFontSizeState}
+                                            onChange={(e) => setInternalCodeFontSizeState(Number(e.target.value))}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-xs">السعر</Label>
+                                        <Input
+                                            type="number"
+                                            value={priceFontSizeState}
+                                            onChange={(e) => setPriceFontSizeState(Number(e.target.value))}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="space-y-4 border-b pb-4">
+                                <Label className="font-bold">ترتيب العناصر</Label>
+                                {elementOrder.map((element, index) => {
+                                    const labels: Record<string, string> = {
+                                        title: 'عنوان الشركة',
+                                        nameAr: 'الاسم العربي',
+                                        nameEn: 'الاسم الإنجليزي',
+                                        barcode: 'الباركود',
+                                        internalCode: 'الكود الداخلي',
+                                        price: 'السعر',
+                                    }
+                                    return (
+                                        <div key={element} className="flex items-center justify-between gap-2 rounded-md border px-2 py-2 bg-slate-50">
+                                            <span className="text-sm">{labels[element]}</span>
+                                            <div className="flex items-center gap-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => moveElement(index, 'up')}
+                                                    disabled={index === 0}
+                                                    className="rounded border px-2 py-1 text-xs disabled:opacity-40"
+                                                >
+                                                    أعلى
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => moveElement(index, 'down')}
+                                                    disabled={index === elementOrder.length - 1}
+                                                    className="rounded border px-2 py-1 text-xs disabled:opacity-40"
+                                                >
+                                                    أسفل
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
                             </div>
                         </CardContent>
                     </Card>
@@ -419,57 +653,19 @@ export default function LabelDesignerPage() {
                     {/* Preview Panel */}
                     <Card className="lg:col-span-2 shadow-md bg-slate-200/50 flex items-center justify-center p-8 overflow-auto">
                         <div
-                            className="bg-white shadow-xl rounded-sm relative transition-all duration-300 flex flex-col items-center justify-center text-center p-2 border border-gray-200"
+                            className="bg-white shadow-xl rounded-sm relative transition-all duration-300 flex flex-col items-center justify-center text-center border border-gray-200"
                             style={{
                                 width: `${previewWidth}px`,
                                 height: `${previewHeight}px`,
                                 minWidth: `${previewWidth}px`, // prevent shrinking
-                                minHeight: `${previewHeight}px`
+                                minHeight: `${previewHeight}px`,
+                                padding: `${previewPadding}px`,
+                                boxSizing: 'border-box'
                             }}
                         >
                             {/* Visual Representation of Label - Enhanced */}
-                            <div className="w-full h-full flex flex-col justify-between overflow-hidden text-center">
-
-                                {showTitleAr && (
-                                    <div className="text-[8px] text-gray-500 font-medium">{previewData.titleArabic}</div>
-                                )}
-
-                                <div className="flex-1 flex flex-col justify-center gap-1">
-                                    {showNameAr && (
-                                        <div className="font-bold text-[14px] leading-tight text-black">{previewData.fullNameArabic}</div>
-                                    )}
-                                    {showNameEn && (
-                                        <div className="text-[8px] text-gray-600 leading-tight">{previewData.fullNameEnglish}</div>
-                                    )}
-                                </div>
-
-                                <div className="mb-1 space-y-1">
-                                    {showBarcode && (
-                                        <div className="flex flex-col items-center">
-                                            <div className="w-3/4 h-6 bg-black flex items-center justify-center relative">
-                                                {/* Simulate barcode lines */}
-                                                <div className="w-full h-full flex items-center justify-center">
-                                                    {[...Array(12)].map((_, i) => (
-                                                        <div 
-                                                            key={i} 
-                                                            className={`w-0.5 h-full ${i % 2 === 0 ? 'bg-black' : 'bg-white'}`}
-                                                            style={{ width: `${Math.random() * 2 + 1}px` }}
-                                                        />
-                                                    ))}
-                                                </div>
-                                            </div>
-                                            <span className="font-mono text-[7px] text-gray-700 mt-1">{previewData.barcode}</span>
-                                        </div>
-                                    )}
-                                    {showInternalCode && (
-                                        <div className="font-mono text-[10px] font-bold tracking-wider text-black">{previewData.internalCode}</div>
-                                    )}
-                                    {showPrice && (
-                                        <div className="font-bold text-[12px] text-green-700 bg-green-50 px-2 py-1 rounded inline-block mt-1">
-                                            {price} SAR
-                                        </div>
-                                    )}
-                                </div>
+                            <div className="w-full h-full flex flex-col justify-start overflow-hidden text-center gap-1">
+                                {orderedPreviewElements}
                             </div>
                         </div>
                     </Card>

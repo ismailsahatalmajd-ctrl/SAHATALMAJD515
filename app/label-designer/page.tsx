@@ -119,8 +119,6 @@ export default function LabelDesignerPage() {
         fullNameEnglish: selectedProduct?.productName || searchParams.get('productName') || "Mix Brand Box Brown (Demo)",
         titleArabic: "بطاقة المنتج"
     }
-        titleArabic: "بطاقة المنتج"
-    }
 
     // Calculate pixel dimensions for screen preview (approx 3.78 px per mm)
     const pxPerMm = 3.78

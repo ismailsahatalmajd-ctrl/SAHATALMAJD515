@@ -75,7 +75,12 @@ export async function generatePurchaseRequestPDF(req: PurchaseRequest, lang: Lan
     .total-section { margin-top: 30px; text-align: left; background: #f8fafcff; padding: 20px; border-radius: 8px; }
     .total-row { display: flex; justify-content: space-between; margin: 10px 0; font-size: 18px; }
     .status { margin-top: 10px; font-weight: 600; color: #2563eb; }
-    @media print { body { padding: 20px; } }
+    @page { size: landscape; margin: 10mm; }
+    @media print { 
+      body { padding: 0; }
+      th, td { font-size: 12px; padding: 8px 5px; }
+      .header { margin-bottom: 20px; }
+    }
   </style>
   </head>
   <body>
@@ -111,7 +116,7 @@ export async function generatePurchaseRequestPDF(req: PurchaseRequest, lang: Lan
           <th>كود المنتج<br>Product Code</th>
           <th>اسم المنتج<br>Product Name</th>
           <th>الوحدة<br>Unit</th>
-          <th>الكمية الطلوبة<br>Requested Qty</th>
+          <th>الكمية المطلوبة<br>Requested Qty</th>
           <th>الكمية المتبقية<br>Remaining Qty</th>
           <th>مدة الاستخدام<br>Usage Duration</th>
           <th>ملاحظات<br>Notes</th>

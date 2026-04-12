@@ -35,23 +35,21 @@ function createWindow() {
     });
 
     if (isDev) {
-        mainWindow.loadURL('http://localhost:3000');
+        console.log('DEV MODE: Loading local application from http://localhost:3000');
+        mainWindow.loadURL('http://localhost:3000').catch(err => {
+            console.error('FAILED to load localhost:3000. Is "npm run dev" running?', err);
+        });
         mainWindow.webContents.openDevTools();
     } else {
         // Load the live production site to ensure it's always up-to-date
         // This makes the desktop app a reflection of the current website
         const LIVE_URL = 'https://sahatcom.cards';
 
-        console.log(`Loading live application from: ${LIVE_URL}`);
+        console.log(`PRODUCTION MODE: Loading live application from: ${LIVE_URL}`);
 
         mainWindow.loadURL(LIVE_URL).catch(err => {
             console.error(`CRITICAL: Failed to load ${LIVE_URL}`, err);
-            // Fallback to local if offline or error? 
-            // For now, retry or show error is better than stale local version if "reflection" is the goal.
         });
-
-        // Optional: Remove DevTools in production for cleaner look
-        // mainWindow.webContents.openDevTools(); 
     }
 
     mainWindow.once('ready-to-show', () => {
@@ -216,23 +214,37 @@ app.on('window-all-closed', () => {
 ipcMain.handle('zk-sync', async (event, { ip, port }) => {
     console.log(`Starting ZKTeco sync (Using node-zklib) for IP: ${ip}, Port: ${port}`);
     
+    // Validate IP/Hostname
+    if (!ip) return { success: false, error: 'يرجى إدخال عنوان الـ IP أو الرابط.' };
+
     const ZKLib = require('node-zklib');
     const zk = new ZKLib(ip, port || 4370, 10000, 4000);
 
     try {
-        console.log('Attempting to connect via node-zklib...');
+        console.log(`Attempting to connect to ${ip}...`);
+        
+        // Some ZK devices require a few attempts or a specific handshake
         await zk.createSocket();
         
-        console.log('Connection established. Fetching data...');
-        // Some devices need a short delay after connection
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        console.log('Connection established! Waiting for handshake...');
+        
+        // Give the device a moment to stabilize the socket
+        await new Promise(resolve => setTimeout(resolve, 1500));
 
+        console.log('Fetching users list...');
         const users = await zk.getUsers();
+        
+        console.log('Fetching attendance logs...');
         const attendances = await zk.getAttendances();
         
-        console.log(`Success! Fetched ${users.data.length} users and ${attendances.data.length} logs.`);
+        console.log(`Synchronization Successful! Users: ${users.data.length}, Logs: ${attendances.data.length}`);
         
-        await zk.disconnect();
+        // Important: Always disconnect to free the socket for the next run
+        try {
+            await zk.disconnect();
+        } catch (e) {
+            console.warn('Disconnect error (non-fatal):', e);
+        }
         
         return {
             success: true,
@@ -242,24 +254,28 @@ ipcMain.handle('zk-sync', async (event, { ip, port }) => {
             }
         };
     } catch (error) {
-        console.error('node-zklib Error:', error);
+        console.error('Final ZKTeco Error:', error);
         
         let errorMessage = 'فشل الاتصال: ';
-        if (error.code === 'ETIMEDOUT') {
-            errorMessage += 'انتهت المهلة (Timed out). تأكد من توصيل الكيبل ومن الـ IP.';
-        } else if (error.message && error.message.includes('EF_ATTLOG')) {
-            errorMessage += 'خطأ في جلب بيانات الحضور (بروتوكول غير متوافق).';
+        const errStr = String(error.message || error.code || '');
+
+        if (errStr.includes('ETIMEDOUT')) {
+            errorMessage += 'انتهت المهلة. تأكد أن الجهاز يعمل على IP: ' + ip;
+        } else if (errStr.includes('ECONNREFUSED')) {
+            errorMessage += 'تم رفض الاتصال. تأكد من فتح المنفذ (Port) 4370.';
+        } else if (errStr.includes('EHOSTUNREACH')) {
+            errorMessage += 'لا يمكن الوصول للجهاز. تأكد أنه متصل بنفس الشبكة.';
         } else {
-            errorMessage += error.message || 'الجهاز لا يستجيب للطلب.';
+            errorMessage += 'الجهاز لا يستجيب. (تأكد من إعدادات الـ IP والكيبل)';
         }
 
         return {
             success: false,
             error: errorMessage,
             diagnostic: {
-                code: error.code,
-                message: error.message,
-                ip: ip
+                rawError: errStr,
+                ip: ip,
+                port: port
             }
         };
     }

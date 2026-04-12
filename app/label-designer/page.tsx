@@ -152,6 +152,18 @@ export default function LabelDesignerPage() {
         }
     }, [previewData.barcode, barcodeContainerHeight, isSmallLabel, showBarcode, barcodeStripeWidthState])
 
+    // Calculate pixel dimensions for screen preview (approx 3.78 px per mm)
+    const pxPerMm = 3.78
+    const previewWidth = width * pxPerMm
+    const previewHeight = height * pxPerMm
+
+    const isSmallLabel = width < 50 || height < 30
+    const previewPadding = isSmallLabel ? 6 : 10
+    const barcodeContainerWidth = Math.max(40, Math.min(previewWidth - previewPadding * 2, previewWidth * (barcodeWidthPercent / 100)))
+    const barcodeContainerHeight = Math.max(16, Math.min(previewHeight * 0.25, barcodeHeightState))
+    const barcodeLineCount = isSmallLabel ? 8 : 12
+    const cardGap = isSmallLabel ? 0.5 : 1
+
     const renderPreviewElement = (element: 'title' | 'nameAr' | 'nameEn' | 'barcode' | 'internalCode' | 'price') => {
         switch (element) {
             case 'title':
@@ -655,11 +667,7 @@ export default function LabelDesignerPage() {
                     {/* Preview Panel */}
                     <Card className="lg:col-span-2 shadow-md bg-slate-200/50 flex items-center justify-center p-8 overflow-auto">
                         <div
-<<<<<<< HEAD
-                            className="bg-white shadow-xl rounded-sm relative transition-all duration-300 flex flex-col items-center justify-center text-center p-2 border border-gray-200"
-=======
                             className="bg-white shadow-xl rounded-sm relative transition-all duration-300 flex flex-col items-center justify-center text-center border border-gray-200"
->>>>>>> d9d07f30ca7ede716b13f9dc145ac79dbb7b0191
                             style={{
                                 width: `${previewWidth}px`,
                                 height: `${previewHeight}px`,
@@ -670,53 +678,8 @@ export default function LabelDesignerPage() {
                             }}
                         >
                             {/* Visual Representation of Label - Enhanced */}
-<<<<<<< HEAD
-                            <div className="w-full h-full flex flex-col justify-between overflow-hidden text-center">
-
-                                {showTitleAr && (
-                                    <div className="text-[8px] text-gray-500 font-medium">{previewData.titleArabic}</div>
-                                )}
-
-                                <div className="flex-1 flex flex-col justify-center gap-1">
-                                    {showNameAr && (
-                                        <div className="font-bold text-[14px] leading-tight text-black">{previewData.fullNameArabic}</div>
-                                    )}
-                                    {showNameEn && (
-                                        <div className="text-[8px] text-gray-600 leading-tight">{previewData.fullNameEnglish}</div>
-                                    )}
-                                </div>
-
-                                <div className="mb-1 space-y-1">
-                                    {showBarcode && (
-                                        <div className="flex flex-col items-center">
-                                            <div className="w-3/4 h-6 bg-black flex items-center justify-center relative">
-                                                {/* Simulate barcode lines */}
-                                                <div className="w-full h-full flex items-center justify-center">
-                                                    {[...Array(12)].map((_, i) => (
-                                                        <div 
-                                                            key={i} 
-                                                            className={`w-0.5 h-full ${i % 2 === 0 ? 'bg-black' : 'bg-white'}`}
-                                                            style={{ width: `${Math.random() * 2 + 1}px` }}
-                                                        />
-                                                    ))}
-                                                </div>
-                                            </div>
-                                            <span className="font-mono text-[7px] text-gray-700 mt-1">{previewData.barcode}</span>
-                                        </div>
-                                    )}
-                                    {showInternalCode && (
-                                        <div className="font-mono text-[10px] font-bold tracking-wider text-black">{previewData.internalCode}</div>
-                                    )}
-                                    {showPrice && (
-                                        <div className="font-bold text-[12px] text-green-700 bg-green-50 px-2 py-1 rounded inline-block mt-1">
-                                            {price} SAR
-                                        </div>
-                                    )}
-                                </div>
-=======
                             <div className="w-full h-full flex flex-col justify-start overflow-hidden text-center gap-1">
                                 {orderedPreviewElements}
->>>>>>> d9d07f30ca7ede716b13f9dc145ac79dbb7b0191
                             </div>
                         </div>
                     </Card>

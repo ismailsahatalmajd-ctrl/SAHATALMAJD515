@@ -63,6 +63,7 @@ export const dict: Dict = {
   "common.category": { ar: "التصنيف", en: "Category" },
   "common.quantity": { ar: "الكمية", en: "Quantity" },
   "common.unit": { ar: "الوحدة", en: "Unit" },
+  "common.selectUnit": { ar: "اختر الوحدة", en: "Select Unit" },
   "units.combobox.select": { ar: "اختر الوحدة... / Select Unit...", en: "Select Unit... / اختر الوحدة..." },
   "units.combobox.search": { ar: "ابحث عن وحدة... / Search unit...", en: "Search unit... / ابحث عن وحدة..." },
   "units.combobox.add": { ar: "إضافة وحدة: / Add unit:", en: "Add unit: / إضافة وحدة:" },

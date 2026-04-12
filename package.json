@@ -7,8 +7,8 @@
   "main": "electron-main.js",
   "scripts": {
     "build": "next build",
-    "dev": "next dev --webpack",
-    "dev:turbo": "next dev --turbo",
+    "dev": "cross-env NODE_OPTIONS=\"--max-old-space-size=3072\" next dev",
+    "dev:turbo": "cross-env NODE_OPTIONS=\"--max-old-space-size=3072\" next dev --turbo",
     "lint": "eslint .",
     "start": "next start",
     "export": "node scripts/build-electron.js",

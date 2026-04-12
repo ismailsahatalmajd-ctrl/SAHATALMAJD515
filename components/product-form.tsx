@@ -402,6 +402,23 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
                 />
               </div>
               <div className="space-y-2">
+                <Label htmlFor="unit"><DualText k="common.unit" /></Label>
+                <Select value={formData.unit} onValueChange={(value) => handleChange("unit", value)}>
+                  <SelectTrigger id="unit">
+                    <SelectValue placeholder={t("common.selectUnit")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {unitsList && unitsList.length > 0 ? (
+                      unitsList.map((u) => (
+                        <SelectItem key={u.id} value={u.name}>
+                          {u.name}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="قطعة">قطعة / Piece</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 

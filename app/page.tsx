@@ -1207,8 +1207,21 @@ export default function Home() {
     }
   }
 
-  const handleEdit = (product: Product) => {
-    setEditingProduct(product)
+  const handleEdit = async (product: Product) => {
+    try {
+      // Fetch fresh product data from database to ensure we have the latest values
+      const freshProduct = await db.products.get(product.id)
+      if (freshProduct) {
+        setEditingProduct(freshProduct)
+      } else {
+        // Fallback to original product if not found in DB
+        setEditingProduct(product)
+      }
+    } catch (error) {
+      console.error("Error fetching fresh product data:", error)
+      // Fallback to original product on error
+      setEditingProduct(product)
+    }
     setIsSideSheetOpen(true)
   }
 

@@ -150,18 +150,6 @@ export default function LabelDesignerPage() {
         }
     }, [previewData.barcode, barcodeContainerHeight, isSmallLabel, showBarcode, barcodeStripeWidthState])
 
-    // Calculate pixel dimensions for screen preview (approx 3.78 px per mm)
-    const pxPerMm = 3.78
-    const previewWidth = width * pxPerMm
-    const previewHeight = height * pxPerMm
-
-    const isSmallLabel = width < 50 || height < 30
-    const previewPadding = isSmallLabel ? 6 : 10
-    const barcodeContainerWidth = Math.max(40, Math.min(previewWidth - previewPadding * 2, previewWidth * (barcodeWidthPercent / 100)))
-    const barcodeContainerHeight = Math.max(16, Math.min(previewHeight * 0.25, barcodeHeightState))
-    const barcodeLineCount = isSmallLabel ? 8 : 12
-    const cardGap = isSmallLabel ? 0.5 : 1
-
     const renderPreviewElement = (element: 'title' | 'nameAr' | 'nameEn' | 'barcode' | 'internalCode' | 'price') => {
         switch (element) {
             case 'title':

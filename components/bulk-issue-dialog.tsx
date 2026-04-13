@@ -286,8 +286,10 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
     return () => window.removeEventListener('beforeunload', handler)
   }, [open, issueToEdit, selectedBranchId, issueProducts, notes, extractorName, inspectorName, branches, currentDraftId])
 
+  const submittingRef = useRef(false)
+
   const handleSubmit = async () => {
-    if (isSubmitting) return
+    if (isSubmitting || submittingRef.current) return
 
     if (!selectedBranchId) {
       toast({ title: getDualString("common.error"), description: getDualString("bulkIssue.error.selectBranch"), variant: "destructive" })
@@ -331,6 +333,7 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
 
     const totalValue = issueProducts.reduce((sum, p) => sum + p.totalPrice, 0)
 
+    submittingRef.current = true
     setIsSubmitting(true)
 
     // Yield to main thread so UI can update (show loading state, etc.)
@@ -418,6 +421,7 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
       // Don't reset form on error - let user try again
       return
     } finally {
+      submittingRef.current = false
       setIsSubmitting(false)
     }
 
@@ -449,13 +453,6 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
           <DialogDescription>
             <DualText k={issueToEdit ? "bulkIssue.editDescription" : "bulkIssue.description"} />
           </DialogDescription>
-          {/* Manual save indicator for edited invoices */}
-          {issueToEdit && hasUnsavedChanges && (
-            <div className="mt-2 flex items-center gap-2 text-sm text-amber-600">
-              <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
-              <span>لديك تغييرات غير محفوظة - اضغط "تحديث الفاتورة" للحفظ</span>
-            </div>
-          )}
           {!issueToEdit && (
             <div className="mt-2 flex items-center gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => {
@@ -709,7 +706,7 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
                           )}
                           {settings.showTotal && (
                             <TableCell className="font-bold text-black text-base">
-                              {issueProduct.totalPrice.toFixed(2)}
+                              {(Number(issueProduct.totalPrice) || 0).toFixed(2)}
                             </TableCell>
                           )}
                           <TableCell className="p-0">
@@ -755,7 +752,7 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
                   <p className="text-sm text-gray-600 mb-1">
                     <DualText k="bulkIssue.totalValue" />
                   </p>
-                  <p className="text-3xl font-bold text-black">{totalValue.toFixed(2)} {getDualString("common.currency", undefined, lang)}</p>
+                  <p className="text-3xl font-bold text-black">{(Number(totalValue) || 0).toFixed(2)} {getDualString("common.currency", undefined, lang)}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-sm text-gray-600 mb-1">
@@ -773,13 +770,6 @@ export function BulkIssueDialog({ open, onOpenChange, onSuccess, issueToEdit }: 
             <DualText k="bulkIssue.cancel" />
           </Button>
           
-          {/* Show unsaved changes indicator */}
-          {issueToEdit && hasUnsavedChanges && (
-            <div className="flex items-center gap-2 text-sm text-amber-600 mr-4">
-              <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></div>
-              <span>تغييرات غير محفوظة</span>
-            </div>
-          )}
           
           <Button onClick={handleSubmit} disabled={isSubmitting || issueProducts.length === 0 || !selectedBranchId} className="h-11 px-6">
             {isSubmitting ? (

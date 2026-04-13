@@ -154,7 +154,7 @@ export function ProductCombobox({ products, value, onChange, disabled, className
                                                         <span className="text-green-600 font-semibold">
                                                             <DualText k="common.available" />: {product.currentStock}
                                                         </span>
-                                                        <span>{product.price.toFixed(2)} <DualText k="common.riyal" /></span>
+                                                        <span>{(Number(product.price) || 0).toFixed(2)} <DualText k="common.riyal" /></span>
                                                     </div>
                                                 </div>
                                                 {product.id === value && <Check className="h-5 w-5 ml-auto text-green-600 shrink-0" />}

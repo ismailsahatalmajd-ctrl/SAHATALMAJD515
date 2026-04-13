@@ -197,42 +197,50 @@ export default function IssuesPage() {
     setIsIssueDialogOpen(true)
   }
 
+  const submittingRef = useRef(false)
+
   const handleConfirmDelivered = async () => {
-    if (!deliverDialogIssueId) return
+    if (!deliverDialogIssueId || submittingRef.current) return
 
-    // Update Local (Optimistic)
-    const updated = await setIssueDelivered(deliverDialogIssueId, "admin")
+    try {
+      submittingRef.current = true
 
-    if (updated) {
-      if (user) {
-        // Cloud Sync
-        try {
-          const issue = getIssues().find(i => i.id === deliverDialogIssueId)
-          if (issue) {
-            await syncIssue(issue)
-            // Sync updated products (stock deducted)
-            for (const ip of issue.products) {
-              const p = getProducts().find(prod => prod.id === ip.productId)
-              if (p) await syncProduct(p)
+      // Update Local (Optimistic)
+      const updated = await setIssueDelivered(deliverDialogIssueId, "admin")
+
+      if (updated) {
+        if (user) {
+          // Cloud Sync
+          try {
+            const issue = getIssues().find(i => i.id === deliverDialogIssueId)
+            if (issue) {
+              await syncIssue(issue)
+              // Sync updated products (stock deducted)
+              for (const ip of issue.products) {
+                const p = getProducts().find(prod => prod.id === ip.productId)
+                if (p) await syncProduct(p)
+              }
             }
+          } catch (e) {
+            console.error("Cloud sync failed", e)
           }
-        } catch (e) {
-          console.error("Cloud sync failed", e)
         }
-      }
 
-      toast({
-        title: getDualString("issues.toast.delivered"),
-        description: getDualString("issues.toast.deliveredDesc")
-      })
-    } else {
-      toast({
-        title: getDualString("common.error"),
-        description: getDualString("issues.toast.deliveryError"),
-        variant: "destructive"
-      })
+        toast({
+          title: getDualString("issues.toast.delivered"),
+          description: getDualString("issues.toast.deliveredDesc")
+        })
+      } else {
+        toast({
+          title: getDualString("common.error"),
+          description: getDualString("issues.toast.deliveryError"),
+          variant: "destructive"
+        })
+      }
+    } finally {
+      submittingRef.current = false
+      setDeliverDialogIssueId(null)
     }
-    setDeliverDialogIssueId(null)
   }
 
   const handleDeleteIssue = async (issue: Issue) => {

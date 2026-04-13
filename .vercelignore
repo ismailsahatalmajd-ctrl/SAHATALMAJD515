@@ -37,3 +37,13 @@ yarn-error.log*
 api_backup_outside_app
 src-tauri/
 نسخة احتياطية
+zkteco-adms-main-unzipped/
+zkteco-connector-by-node-unzipped/
+zkteco-standalone/
+inventory_app/
+mobile_app/
+release-suhail/
+sahatcom_static_build.zip
+*.log
+replay_pid*
+hs_err_pid*

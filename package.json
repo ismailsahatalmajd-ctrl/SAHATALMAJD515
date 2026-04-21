@@ -8,6 +8,7 @@
   "scripts": {
     "build": "next build",
     "dev": "cross-env NODE_OPTIONS=\"--max-old-space-size=3072\" next dev",
+    "dev:3000": "cross-env NODE_OPTIONS=\"--max-old-space-size=3072\" next dev -p 3000",
     "dev:turbo": "cross-env NODE_OPTIONS=\"--max-old-space-size=3072\" next dev --turbo",
     "lint": "eslint .",
     "start": "next start",
@@ -15,7 +16,9 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "desktop:build": "npm run export && npm run tauri:build",
-    "electron:dev": "cross-env NODE_ENV=development electron .",
+    "electron:dev": "cross-env NODE_ENV=development .\\node_modules\\.bin\\electron .",
+    "electron:wait-for-web": "wait-on tcp:3000 && npm run electron:dev",
+    "electron:dev:all": "concurrently -n WEB,ELECTRON \"npm run dev:3000\" \"npm run electron:wait-for-web\"",
     "electron:build": "npm run export && electron-builder --win",
     "electron:build-portable": "npm run export && electron-builder --win portable",
     "electron:build-standalone": "npm run clean && npm run desktop:server-build && electron-builder --win",
@@ -31,13 +34,19 @@
       "output": "release_new"
     },
     "files": [
+      "electron-main.js",
       "electron.js",
+      "electron/**/*",
       "out/**/*",
       "public/**/*",
       "package.json",
       "!**/*.map"
     ],
     "asar": true,
+    "asarUnpack": [
+      "**/*.node",
+      "node_modules/node-zklib/**/*"
+    ],
     "win": {
       "target": [
         "nsis",
@@ -149,6 +158,7 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "electron": "^31.7.7",
     "electron-builder": "^26.4.0",
@@ -157,6 +167,7 @@
     "eslint-config-next": "^16.1.1",
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wait-on": "^9.0.5"
   }
 }

@@ -11,7 +11,7 @@ export function DataStoreInitializer({ children }: { children: React.ReactNode }
   const [initialized, setInitialized] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState(0)
-  const [message, setMessage] = useState("بدء التحميل...")
+  const [message, setMessage] = useState("Starting upload...<br/>بدء التحميل...")
   const pathname = usePathname()
 
   const isLoginPage = pathname === "/login" || pathname === "/logout" || pathname.includes("branch-login")
@@ -52,7 +52,7 @@ export function DataStoreInitializer({ children }: { children: React.ReactNode }
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
 
           <div className="text-center space-y-2">
-            <h2 className="text-2xl font-bold">جاري تحميل البيانات</h2>
+            <h2 className="text-2xl font-bold">جاري تحميل البيانات<br/>uploading</h2>
             <p className="text-muted-foreground text-sm">{message}</p>
           </div>
 

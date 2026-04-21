@@ -14,12 +14,17 @@ export async function exportInventoryReportToExcel(report: BranchInventoryReport
       return {
         "Product Code / كود الصنف": item.productCode || "-",
         "Item Name / اسم الصنف": item.productName,
-        "Base Unit / الوحدة": item.unit,
-        "Optional Unit / الوحدة الإضافية": item.optionalUnit || "-",
-        "Count / الكمية": item.quantity,
+        "Unit / الوحدة": item.unit,
+         "Qty  / الكمية": item.quantity,
+        " Unit  / وحدة الجرد": item.optionalUnit || "-",
         "Unit Price / سعر الوحدة": itemPrice,
         "Total Value / الإجمالي": itemPrice * item.quantity,
-        "Notes / ملاحظات": item.notes || "-"
+        "Notes / ملاحظات": item.notes,
+        "Branch / الفرع": report.branchName,
+        "Date / التاريخ": format(new Date(report.createdAt), "yyyy-MM-dd HH:mm"),
+        "Global Notes / ملاحظات عامة": report.notes || "-",
+        "Report Code / كود التقرير": report.reportCode || "-",
+
       }
     })
   )
@@ -30,24 +35,16 @@ export async function exportInventoryReportToExcel(report: BranchInventoryReport
 
   // Add summary info at the top
   const header = [
-    ["Report Code / كود التقرير", report.reportCode],
-    ["Branch / الفرع", report.branchName],
-    ["Date / التاريخ", format(new Date(report.createdAt), "yyyy-MM-dd HH:mm")],
-    ["Global Notes / ملاحظات عامة", report.notes || "-"],
-    [], // Empty row
   ]
-  XLSX.utils.sheet_add_aoa(ws, header, { origin: "A1" })
-
-  // Re-add the data table below the header
-  XLSX.utils.sheet_add_json(ws, itemsWithPrices, { origin: "A7", skipHeader: false })
-
+  // header is empty, so skip writing it
+  
   // Column widths
   ws["!cols"] = [
     { wch: 18 }, // Code
-    { wch: 30 }, // Name
+    { wch: 100 }, // Name
     { wch: 10 }, // Base Unit
     { wch: 15 }, // Optional Unit
-    { wch: 10 }, // Count
+    { wch: 10 }, // Qty 
     { wch: 12 }, // Price
     { wch: 15 }, // Total
     { wch: 30 }, // Notes

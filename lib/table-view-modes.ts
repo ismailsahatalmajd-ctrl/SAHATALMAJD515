@@ -18,7 +18,7 @@ export const TABLE_VIEW_MODES: TableViewConfig[] = [
         icon: Star,
         columns: [
             'image', 'productCode', 'itemNumber', 'productName', 'category', 'location',
-            'unit', 'openingStock', 'purchases', 'issues',
+            'unit', 'openingStock', 'purchases', 'returns', 'adjustments', 'issues',
             'inventoryCount', 'currentStock', 'difference',
             'price', 'averagePrice', 'currentStockValue', 'issuesValue', 'turnoverRate',
             'status', 'actions'
@@ -36,14 +36,14 @@ export const TABLE_VIEW_MODES: TableViewConfig[] = [
         label: 'Financial View',
         labelAr: 'عرض مالي',
         icon: DollarSign,
-        columns: ['productName', 'currentStock', 'price', 'averagePrice', 'currentStockValue', 'issuesValue', 'actions']
+        columns: ['productName', 'currentStock', 'price', 'averagePrice', 'currentStockValue', 'issuesValue', 'adjustmentsValue', 'actions']
     },
     {
         id: 'inventory',
         label: 'Inventory Tracking',
         labelAr: 'تتبع المخزون',
         icon: Box,
-        columns: ['image', 'productName', 'openingStock', 'purchases', 'returns', 'issues', 'currentStock', 'status', 'actions']
+        columns: ['image', 'productName', 'openingStock', 'purchases', 'returns', 'adjustments', 'issues', 'currentStock', 'status', 'actions']
     },
     {
         id: 'analytics',
@@ -60,9 +60,9 @@ export const TABLE_VIEW_MODES: TableViewConfig[] = [
         columns: [
             'image', 'productCode', 'itemNumber', 'productName', 'category', 'location',
             'unit', 'quantityPerCarton', 'cartonDimensions',
-            'openingStock', 'purchases', 'returns', 'issues',
+            'openingStock', 'purchases', 'returns', 'adjustments', 'issues',
             'inventoryCount', 'currentStock', 'difference',
-            'price', 'averagePrice', 'currentStockValue', 'issuesValue', 'turnoverRate',
+            'price', 'averagePrice', 'currentStockValue', 'issuesValue', 'adjustmentsValue', 'turnoverRate',
             'lastActivity', 'status', 'actions'
         ]
     }

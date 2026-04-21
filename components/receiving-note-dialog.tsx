@@ -239,7 +239,7 @@ export function ReceivingNoteDialog({ open, onOpenChange }: ReceivingNoteDialogP
                                 <Input
                                     value={receiverName}
                                     onChange={e => setReceiverName(e.target.value)}
-                                    placeholder="Received by..."
+                                    placeholder="Received by/المستلم"
                                     className="h-9 bg-white text-xs font-bold rounded-xl"
                                 />
                             </div>
@@ -250,7 +250,7 @@ export function ReceivingNoteDialog({ open, onOpenChange }: ReceivingNoteDialogP
                                 <Input
                                     value={driverName}
                                     onChange={e => setDriverName(e.target.value)}
-                                    placeholder="Delivered by..."
+                                    placeholder="Delivered by/السائق..."
                                     className="h-9 bg-white text-xs font-bold rounded-xl"
                                 />
                             </div>
@@ -262,13 +262,13 @@ export function ReceivingNoteDialog({ open, onOpenChange }: ReceivingNoteDialogP
                                     <TableHeader className="bg-slate-800">
                                         <TableRow className="hover:bg-transparent border-none">
                                             <TableHead className="w-12 text-center text-[10px] font-black uppercase text-slate-400">#</TableHead>
-                                            <TableHead className="w-16 text-center text-[10px] font-black uppercase text-white">الصورة</TableHead>
-                                            <TableHead className="min-w-[200px] text-right text-[10px] font-black uppercase text-white">المنتج / Product</TableHead>
-                                            <TableHead className="w-20 text-center text-[10px] font-black uppercase text-slate-400">الوحدة</TableHead>
-                                            <TableHead className="w-24 text-center text-[10px] font-black uppercase text-blue-400">العدد</TableHead>
-                                            <TableHead className="w-24 text-center text-[10px] font-black uppercase text-slate-400">السعر</TableHead>
-                                            <TableHead className="w-24 text-center text-[10px] font-black uppercase text-slate-400">الإجمالي</TableHead>
-                                            <TableHead className="min-w-[150px] text-right text-[10px] font-black uppercase text-slate-400">ملاحظات / Notes</TableHead>
+                                            <TableHead className="w-16 text-center text-[10px] font-black uppercase text-white">الصورة<br />Image</TableHead>
+                                            <TableHead className="min-w-[200px] text-center text-[10px] font-black uppercase text-white">المنتج<br />Product</TableHead> 
+                                            <TableHead className="w-20 text-center text-[10px] font-black uppercase text-slate-400">الوحدة<br />Unit</TableHead>
+                                            <TableHead className="w-24 text-center text-[10px] font-black uppercase text-blue-400">العدد<br />Quantity</TableHead>
+                                            <TableHead className="w-24 text-center text-[10px] font-black uppercase text-slate-400">السعر<br />Price</TableHead>
+                                            <TableHead className="w-24 text-center text-[10px] font-black uppercase text-slate-400">الإجمالي<br />Total</TableHead>                     
+                                            <TableHead className="min-w-[150px] text-center text-[10px] font-black uppercase text-slate-400">ملاحظات<br />Notes</TableHead>
                                             <TableHead className="w-12"></TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -278,7 +278,7 @@ export function ReceivingNoteDialog({ open, onOpenChange }: ReceivingNoteDialogP
                                                 <TableCell colSpan={8} className="h-40 text-center text-slate-400">
                                                     <div className="flex flex-col items-center gap-2">
                                                         <ImageIcon className="h-8 w-8 opacity-20" />
-                                                        <p className="text-xs font-bold">لم يتم إضافة منتجات بعد</p>
+                                                        <p className="text-xs font-bold">لم يتم إضافة منتجات بعد<br />No items added yet</p>
                                                         <p className="text-[10px] opacity-60 uppercase">Add items from the left list</p>
                                                     </div>
                                                 </TableCell>
@@ -373,7 +373,7 @@ export function ReceivingNoteDialog({ open, onOpenChange }: ReceivingNoteDialogP
                                     onClick={() => onOpenChange(false)}
                                     className="text-slate-400 hover:text-white hover:bg-white/5 font-bold h-10 px-4 rounded-xl"
                                 >
-                                    إلغاء
+                                    إلغاء<br/>Cancel
                                 </Button>
                                 <Button
                                     variant="outline"
@@ -382,7 +382,7 @@ export function ReceivingNoteDialog({ open, onOpenChange }: ReceivingNoteDialogP
                                     disabled={isSubmitting}
                                 >
                                     <Printer className="h-4 w-4" />
-                                    <span>حفظ وطباعة</span>
+                                    <span>حفظ وطباعة<br/>Save and print</span>
                                 </Button>
                                 <Button
                                     className="h-10 px-6 gap-2 bg-blue-600 hover:bg-blue-700 font-bold rounded-xl shadow-lg shadow-blue-900/20 transition-all active:scale-95"
@@ -390,7 +390,7 @@ export function ReceivingNoteDialog({ open, onOpenChange }: ReceivingNoteDialogP
                                     disabled={isSubmitting}
                                 >
                                     <Save className="h-4 w-4" />
-                                    <span>تأكيد الحفظ</span>
+                                    <span>تأكيد الحفظ<br/>Confirm save</span>
                                 </Button>
                             </div>
                         </div>

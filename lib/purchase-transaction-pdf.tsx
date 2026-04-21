@@ -98,7 +98,7 @@ export async function generatePurchaseTransactionPDF(transactions: Transaction[]
       <tr>
         <th style="width: 50px">#</th>
         <th style="width: 60px">صورة / Image</th>
-        <th>المنتج / Product</th>
+        <th style="width: 180px; text-align: center;">المنتج / Product</th>
         <th style="width: 80px">الوحدة / Unit</th>
         <th style="width: 60px">الكمية / Qty</th>
         <th style="width: 100px">السعر / Unit Price</th>

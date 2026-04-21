@@ -12,7 +12,7 @@ import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
 // (reverted) إزالة أدوات تشخيص تسلسل الفواتير
-import { Settings, Package, ShoppingCart, Receipt, BarChart3, Building2, Barcode, Cloud, Users } from "lucide-react"
+import { Settings, Package, ShoppingCart, Receipt, BarChart3, Building2, Barcode, Cloud, Users, ClipboardList } from "lucide-react"
 import Link from "next/link"
 import { Checkbox } from "@/components/ui/checkbox"
 import { BackupRestoreDialog } from "@/components/backup-restore-dialog"
@@ -793,6 +793,22 @@ export default function SettingsPage() {
                     <Button variant="outline" className="gap-2">
                       <Users className="w-4 h-4" />
                       إدارة المستخدمين
+                    </Button>
+                  </Link>
+                </div>
+                <Separator />
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>سجل طلبات العمليات</Label>
+                    <p className="text-sm text-muted-foreground">
+                      عرض معرفات الطلبات وحالات المزامنة (مشتريات، مرتجعات، تأكيد استلام، تعديل منتج)
+                    </p>
+                  </div>
+                  <Link href="/settings/operation-requests">
+                    <Button variant="outline" className="gap-2">
+                      <ClipboardList className="w-4 h-4" />
+                      فتح السجل
                     </Button>
                   </Link>
                 </div>

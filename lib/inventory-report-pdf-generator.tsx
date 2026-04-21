@@ -35,11 +35,12 @@ export async function generateInventoryReportPDF(report: BranchInventoryReport):
     return `
       <tr>
         <td>${i + 1}</td>
-        <td style="text-align:right; font-weight:bold;">${item.productName}</td>
+        <td style="font-family: monospace; font-weight: bold; color: #db2777;">${item.productCode || '-'}</td>
+         <td style="text-align:right; font-weight:bold;">${item.productName}</td>
         <td style="font-weight:bold;">${item.quantity}</td>
         <td style="color: #6366f1; font-weight:bold;">${item.unit}</td>
-        <td style="color: #c05621; font-weight:bold;">${item.optionalUnit || '-'}</td>
         <td style="font-weight:bold; color: #10b981;">${itemPrice}</td>
+        <td style="color: #c05621; font-weight:bold;">${item.optionalUnit || '-'}</td>
         <td style="font-weight:bold; color: #059669;">${rowTotal.toFixed(2)}</td>
         <td style="font-size: 11px; text-align:right;">${item.notes || '-'}</td>
       </tr>
@@ -75,7 +76,7 @@ export async function generateInventoryReportPDF(report: BranchInventoryReport):
       <body>
         <div class="header">
           <div style="text-align: right;">
-            <div style="font-weight: bold; font-size: 14px;">مستودع ساحة المجد</div>
+            <div style="font-weight: bold; font-size: 14px;">شركة ساحة المجد<br/>SAHAT ALMAJD COMPANY</div>
             <div style="font-size: 11px;">Branch Operations | جرد الفروع</div>
           </div>
           <img src="${logoUrl}" class="logo" />
@@ -86,12 +87,12 @@ export async function generateInventoryReportPDF(report: BranchInventoryReport):
         </div>
         
         <div class="report-banner">
-          <h1 style="margin:0; font-size: 24px;">تقرير جرد المنتجات في الفرع</h1>
+          <h1 style="margin:0; font-size: 24px;">تقرير جرد </h1>
           <div style="font-size: 16px; font-weight: bold; margin-top: 5px;">Branch: ${report.branchName}</div>
         </div>
 
         <div class="report-info">
-          <div>تاريخ الجرد: ${convertNumbersToEnglish(new Date(report.createdAt).toLocaleDateString('ar-EG'))}</div>
+          <div>تاريخ الجرد:/ ${convertNumbersToEnglish(new Date(report.createdAt).toLocaleDateString('ar-EG'))}</div>
           <div>الفرع: ${report.branchName}</div>
           <div>معرف التقرير: ${report.id}</div>
         </div>
@@ -100,21 +101,21 @@ export async function generateInventoryReportPDF(report: BranchInventoryReport):
           <thead>
             <tr>
               <th style="width:30px;">#</th>
-              <th>اسم المنتج</th>
-              <th style="width:60px;">الكمية</th>
-              <th style="width:80px;">الواحدة 1</th>
-              <th style="width:100px;">الواحدة 2</th>
-              <th style="width:80px;">السعر</th>
-              <th style="width:100px;">الإجمالي</th>
-              <th>ملاحظات</th>
+               <th style="width:100px;">كود المنتج <br/> Product Code</th>
+               <th>اسم المنتج لكمية<br/> Product Name</th>
+              <th colspan="2" style="width:170px;">كمية وحدة المستودع<br/> Qty & Unit</th>
+              <th style="width:80px;">سعرالجرد<br/>Price</th>
+               <th style="width:100px;">وحدة الجرد <br/> Unit</th>
+              <th style="width:100px;">الإجمالي<br/>Total Price</th>
+              <th>ملاحظات<br/>Notes</th>
             </tr>
           </thead>
           <tbody>
-            ${rowsHtml || '<tr><td colspan="8">لا توجد سجلات مضافة</td></tr>'}
+            ${rowsHtml || '<tr><td colspan="9">لا توجد سجلات مضافة</td></tr>'}
           </tbody>
           <tfoot>
             <tr style="background: #fef2f2; font-weight: bold; font-size: 16px;">
-              <td colspan="6" style="text-align: left; padding: 15px;">إجمالي القيمة / Grand Total:</td>
+              <td colspan="7" style="text-align: left; padding: 15px;">إجمالي القيمة / Grand Total:</td>
               <td style="color: #db2777; border: 2px solid #db2777;">${totalValue.toFixed(2)}</td>
               <td></td>
             </tr>
@@ -125,15 +126,15 @@ export async function generateInventoryReportPDF(report: BranchInventoryReport):
 
         <div class="footer">
           <div class="sig-box">
-            <div style="font-weight:bold;">معد الجرد (الفرع)</div>
+            <div style="font-weight:bold;"> مسؤول (الفرع)<br/>Branch Manager</div>
             <div style="margin-top:20px; font-size: 12px; color: #888;">التوقيع</div>
           </div>
           <div class="sig-box">
-            <div style="font-weight:bold;">مدير المستودع</div>
+            <div style="font-weight:bold;">مدير المخازن<br/>Warehouse Manager</div>
             <div style="margin-top:20px; font-size: 12px; color: #888;">الختم والاعتماد</div>
           </div>
         </div>
-      </body>
+      </body>ٍ
     </html>
   `
   openPrintWindow(html, `Inventory Report - ${report.reportCode}`)

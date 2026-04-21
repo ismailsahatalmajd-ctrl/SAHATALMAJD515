@@ -429,7 +429,7 @@ export function BranchManager() {
           </Button>
           <Button variant="outline" onClick={downloadTemplate} title="تحميل نموذج الإكسل">
             <FileText className="ml-2 h-4 w-4" />
-            نموذج
+            نموذج<br/>Template
           </Button>
           <div className="relative">
             <input
@@ -441,21 +441,21 @@ export function BranchManager() {
             />
             <Button variant="secondary" onClick={handleImportClick} disabled={isLoading}>
               <Upload className="ml-2 h-4 w-4" />
-              {isLoading ? "جاري الاستيراد..." : "استيراد إكسل"}
+              {isLoading ? "جاري الاستيراد / Importing..." : "استيراد إكسل / Import Excel"}
             </Button>
           </div>
           <Dialog open={isOpen} onOpenChange={(open) => { setIsOpen(open); if (!open) resetForm(); }}>
             <DialogTrigger asChild>
               <Button>
                 <Plus className="ml-2 h-4 w-4" />
-                إضافة فرع
+                إضافة فرع<br/>Add branch
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-[95vw] w-full sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>{editingBranch ? "تعديل بيانات الفرع" : "إضافة فرع جديد"}</DialogTitle>
+                <DialogTitle>{editingBranch ? "تعديل بيانات الفرع<br/>Edit branch details/Add branch" : "إضافة فرع جديد<br/>Add branch"}</DialogTitle>
                 <DialogDescription>
-                  قم بإدخال تفاصيل الفرع ومعلومات تسجيل الدخول أدناه.
+                  قم بإدخال تفاصيل الفرع ومعلومات تسجيل الدخول أدناه<br/>Enter the branch details and login information below
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -472,7 +472,7 @@ export function BranchManager() {
                     <p className="text-xs text-muted-foreground">يترك فارغاً للتوليد التلقائي (أول حرف + رقم)</p>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="name">اسم الفرع *</Label>
+                    <Label htmlFor="name">اسم الفرع/Name/Name</Label>
                     <Input
                       id="name"
                       value={formData.name}
@@ -481,7 +481,7 @@ export function BranchManager() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="location">الموقع *</Label>
+                    <Label htmlFor="location">الموقع / Location</Label>
                     <Input
                       id="location"
                       value={formData.location}
@@ -493,7 +493,7 @@ export function BranchManager() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="manager">المدير المسؤول</Label>
+                    <Label htmlFor="manager">المدير المسؤول/Manager/Manager</Label>
                     <Input
                       id="manager"
                       value={formData.manager}
@@ -501,7 +501,7 @@ export function BranchManager() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="phone">رقم الهاتف</Label>
+                    <Label htmlFor="phone">رقم الهاتف/Phone number</Label>
                     <Input
                       id="phone"
                       value={formData.phone}
@@ -513,11 +513,11 @@ export function BranchManager() {
                 <div className="border-t pt-4 mt-4">
                   <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
                     <User className="h-4 w-4" />
-                    بيانات الدخول
+                    بيانات الدخول/Login details
                   </h4>
                   <div className="grid gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="username">اسم المستخدم {editingBranch ? "(اختياري)" : "*"}</Label>
+                      <Label htmlFor="username">اسم المستخدم/Username {editingBranch ? "(اختياري)" : "*"}</Label>
                       <Input
                         id="username"
                         value={formData.username}
@@ -529,7 +529,7 @@ export function BranchManager() {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="password">
-                        كلمة المرور {editingBranch ? "(اتركها فارغة للإبقاء على الحالية)" : "*"}
+                        كلمة المرور/Password {editingBranch ? "(اتركها فارغة للإبقاء على الحالية)" : "*"}
                       </Label>
                       <Input
                         id="password"
@@ -546,10 +546,10 @@ export function BranchManager() {
 
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
-                    إلغاء
+                    إلغاء/Cancel 
                   </Button>
                   <Button type="submit" disabled={isLoading}>
-                    {isLoading ? "جاري الحفظ..." : (editingBranch ? "حفظ التغييرات" : "إضافة الفرع")}
+                    {isLoading ? "جاري الحفظ/Saving..." : (editingBranch ? "حفظ التغييرات/Save changes" : "إضافة الفرع/Add branch")}
                   </Button>
                 </DialogFooter>
               </form>
@@ -574,22 +574,22 @@ export function BranchManager() {
                   </CardDescription>
                 </div>
                 <Badge variant={branch.username ? "default" : "secondary"}>
-                  {branch.username ? "مفعل" : "بدون حساب"}
+                  {branch.username ? "مفعل/Active" : "بدون/No account created"}
                 </Badge>
               </div>
             </CardHeader>
             <CardContent className="pt-4">
               <div className="space-y-2 text-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">المدير:</span>
+                  <span className="text-muted-foreground">المدير<br/>Manager:</span>
                   <span className="font-medium">{branch.manager || "-"}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">الهاتف:</span>
+                  <span className="text-muted-foreground">رقم الهاتف<br/>Phone number:</span>
                   <span className="font-medium" dir="ltr">{branch.phone || "-"}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">اسم المستخدم:</span>
+                  <span className="text-muted-foreground">اسم المستخدم<br/>Username:</span>
                   <span className="font-medium font-mono">{branch.username || "-"}</span>
                 </div>
               </div>
@@ -597,11 +597,11 @@ export function BranchManager() {
               <div className="flex items-center gap-2 mt-4 pt-4 border-t">
                 <Button variant="outline" size="sm" className="flex-1" onClick={() => handleEdit(branch)}>
                   <Pencil className="mr-2 h-3 w-3" />
-                  تعديل
+                  تعديل<br/>edit
                 </Button>
                 <Button variant="destructive" size="sm" className="flex-1" onClick={() => setDeleteId(branch.id)}>
                   <Trash2 className="mr-2 h-3 w-3" />
-                  حذف
+                  حذف<br/>delete
                 </Button>
               </div>
             </CardContent>
@@ -623,13 +623,13 @@ export function BranchManager() {
               تأكيد الحذف
             </AlertDialogTitle>
             <AlertDialogDescription>
-              هل أنت متأكد من رغبتك في حذف هذا الفرع؟ لا يمكن التراجع عن هذا الإجراء، وسيتم حذف جميع البيانات المرتبطة به.
-            </AlertDialogDescription>
+             Are you sure you want to delete this branch ? you can not that this action is irreversible
+             <br/>هل أنت متأكد من رغبتك في حذف هذا الفرع؟ لا يمكن التراجع عن هذا الإجراء </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>إلغاء</AlertDialogCancel>
+            <AlertDialogCancel>إلغاء<br/>cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">
-              حذف نهائي
+              حذف نهائي<br/>delete final
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

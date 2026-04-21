@@ -512,9 +512,17 @@ export async function updateProduct(id: string, updates: Partial<Product>): Prom
         updatedAt: new Date().toISOString()
       }
 
-      // Recalc logic
-      if (updates.openingStock !== undefined || updates.purchases !== undefined || updates.issues !== undefined) {
-        updated.currentStock = (updated.openingStock || 0) + (updated.purchases || 0) - (updated.issues || 0)
+      // Recalculate stock only when ledger fields actually changed.
+      const ledgerFieldChanged = (
+        (updates.openingStock !== undefined && Number(updated.openingStock || 0) !== Number(originalProduct.openingStock || 0)) ||
+        (updates.purchases !== undefined && Number(updated.purchases || 0) !== Number(originalProduct.purchases || 0)) ||
+        (updates.issues !== undefined && Number(updated.issues || 0) !== Number(originalProduct.issues || 0)) ||
+        (updates.returns !== undefined && Number(updated.returns || 0) !== Number(originalProduct.returns || 0)) ||
+        (updates.adjustments !== undefined && Number(updated.adjustments || 0) !== Number(originalProduct.adjustments || 0))
+      )
+
+      if (ledgerFieldChanged) {
+        updated.currentStock = (Number(updated.openingStock) || 0) + (Number(updated.purchases) || 0) + (Number(updated.returns) || 0) + (Number(updated.adjustments) || 0) - (Number(updated.issues) || 0)
       }
 
       products[index] = updated;
@@ -570,6 +578,19 @@ export async function updateProduct(id: string, updates: Partial<Product>): Prom
       }
 
       const updated = { ...fromDb, ...updates, updatedAt: new Date().toISOString() };
+
+      const ledgerFieldChanged = (
+        (updates.openingStock !== undefined && Number(updated.openingStock || 0) !== Number(fromDb.openingStock || 0)) ||
+        (updates.purchases !== undefined && Number(updated.purchases || 0) !== Number(fromDb.purchases || 0)) ||
+        (updates.issues !== undefined && Number(updated.issues || 0) !== Number(fromDb.issues || 0)) ||
+        (updates.returns !== undefined && Number(updated.returns || 0) !== Number(fromDb.returns || 0)) ||
+        (updates.adjustments !== undefined && Number(updated.adjustments || 0) !== Number(fromDb.adjustments || 0))
+      )
+
+      if (ledgerFieldChanged) {
+        updated.currentStock = (Number(updated.openingStock) || 0) + (Number(updated.purchases) || 0) + (Number(updated.returns) || 0) + (Number(updated.adjustments) || 0) - (Number(updated.issues) || 0)
+      }
+
       await db.products.put(updated);
 
       // Also update cache
@@ -752,7 +773,7 @@ export async function addTransaction(transaction: Omit<Transaction, "id" | "crea
         case "purchase":
           // Calculate Weighted Average Price (WAP)
           // Formula: ((CurrentStock * OldAvg) + (NewQty * NewPrice)) / (CurrentStock + NewQty)
-          const currentSysStock = (product.openingStock || 0) + (product.purchases || 0) + (product.returns || 0) - (product.issues || 0)
+          const currentSysStock = (Number(product.openingStock) || 0) + (Number(product.purchases) || 0) + (Number(product.returns) || 0) + (Number(product.adjustments) || 0) - (Number(product.issues) || 0)
           const oldAvg = Number(product.averagePrice || product.price || 0)
           const newQty = Number(transaction.quantity || 0)
           const newPrice = Number(transaction.unitPrice || 0)
@@ -780,9 +801,9 @@ export async function addTransaction(transaction: Omit<Transaction, "id" | "crea
           break
         case "return":
           // Internal Return: Increase 'returns' (Inbound)
-          // This mathematically increases currentStock = opening + purchases + returns - issues
+          // This mathematically increases currentStock = opening + purchases + returns + adjustments - issues
 
-          const currentStockForReturn = (product.openingStock || 0) + (product.purchases || 0) + (product.returns || 0) - (product.issues || 0)
+          const currentStockForReturn = (Number(product.openingStock) || 0) + (Number(product.purchases) || 0) + (Number(product.returns) || 0) + (Number(product.adjustments) || 0) - (Number(product.issues) || 0)
           const oldAvgReturn = Number(product.averagePrice || product.price || 0)
           const returnQty = Number(transaction.quantity || 0)
           const returnValue = Number(transaction.unitPrice || 0)
@@ -804,11 +825,9 @@ export async function addTransaction(transaction: Omit<Transaction, "id" | "crea
           product.returnsValue = (product.returnsValue || 0) + (transaction.totalAmount || 0)
           break
         case "adjustment":
-          // Adjustment is physical count validation - update only if explicitly needed
-          // But keep it separate from transaction logic
-          // For adjustment, we usually want to set the text value, but simple transaction adding
-          // shouldn't forcibly reset stock unless it's a "Stocktake" type.
-          // Assuming "adjustment" just records it.
+          // Adjustment is a manual fix (+) or (-)
+          product.adjustments = (Number(product.adjustments) || 0) + Number(transaction.quantity)
+          product.adjustmentsValue = (Number(product.adjustmentsValue) || 0) + (Number(transaction.totalAmount) || 0)
           break
       }
 
@@ -817,8 +836,8 @@ export async function addTransaction(transaction: Omit<Transaction, "id" | "crea
 
       // Removed incorrect global update: product.purchases = ... + quantityChange
 
-      // Formula: currentStock = openingStock + purchases + returns - issues
-      product.currentStock = (Number(product.openingStock) || 0) + (Number(product.purchases) || 0) + (Number(product.returns) || 0) - (Number(product.issues) || 0)
+      // Formula: currentStock = openingStock + purchases + returns + adjustments - issues
+      product.currentStock = (Number(product.openingStock) || 0) + (Number(product.purchases) || 0) + (Number(product.returns) || 0) + (Number(product.adjustments) || 0) - (Number(product.issues) || 0)
 
       product.currentStockValue = (Number(product.currentStock) || 0) * (Number(product.averagePrice) || 0)
 
@@ -995,11 +1014,11 @@ export function savePurchaseOrders(orders: PurchaseOrder[]): void {
 export function calculateProductValues(product: Product) {
   const openingStock = Number(product.openingStock || 0)
   const purchases = Number(product.purchases || 0)
-  const returns = Number(product.returns || 0)
+  const adjustments = Number(product.adjustments || 0)
   const issues = Number(product.issues || 0)
 
-  // New Formula: Stock = Opening + Purchases + Returns - Issues
-  product.currentStock = openingStock + purchases + returns - issues
+  // New Formula: Stock = Opening + Purchases + Returns + Adjustments - Issues
+  product.currentStock = openingStock + purchases + (Number(product.returns) || 0) + adjustments - issues
   product.currentStockValue = product.currentStock * (product.averagePrice || product.price || 0)
 
   return product
@@ -1040,14 +1059,15 @@ export async function addAdjustment(adjustment: Omit<InventoryAdjustment, "id" |
   try {
     const p = await db.products.get(adjustment.productId);
     if (p) {
-      // The adjustment sets the inventoryCount (physical count from audit)
-      // The openingStock should only be updated after month closing
-      // For now, store the physical count and let the formula calculate currentStock
-      p.inventoryCount = adjustment.newQuantity
+      const diff = adjustment.newQuantity - adjustment.oldQuantity
+      p.adjustments = (Number(p.adjustments) || 0) + diff
+      p.adjustmentsValue = (Number(p.adjustmentsValue) || 0) + (diff * (p.averagePrice || p.price || 0))
+      
+      // Notes
+      p.lastAdjustmentNote = adjustment.reason || ""
 
-      // Recalculate currentStock using formula: opening + purchases - issues
-      // This should match the physical count after adjustment
-      p.currentStock = (p.openingStock || 0) + (p.purchases || 0) - (p.issues || 0)
+      // Recalculate currentStock using formula: opening + purchases + returns + adjustments - issues
+      p.currentStock = (Number(p.openingStock) || 0) + (Number(p.purchases) || 0) + (Number(p.returns) || 0) + (Number(p.adjustments) || 0) - (Number(p.issues) || 0)
       p.currentStockValue = p.currentStock * (p.averagePrice || p.price || 0)
       p.updatedAt = new Date().toISOString()
       p.lastModifiedBy = getDeviceId()
@@ -1183,7 +1203,7 @@ export async function updateIssue(id: string, updates: Partial<Issue>): Promise<
             p.issues = (p.issues || 0) - qty
             p.issuesValue = (p.issuesValue || 0) - ip.totalPrice
             // Recalc Stock
-            p.currentStock = (p.openingStock || 0) + (p.purchases || 0) + (p.returns || 0) - (p.issues || 0)
+            p.currentStock = (Number(p.openingStock) || 0) + (Number(p.purchases) || 0) + (Number(p.returns) || 0) + (Number(p.adjustments) || 0) - (Number(p.issues) || 0)
             p.currentStockValue = p.currentStock * (p.averagePrice || p.price || 0)
             p.updatedAt = new Date().toISOString()
             p.lastModifiedBy = getDeviceId()
@@ -1223,7 +1243,7 @@ export async function updateIssue(id: string, updates: Partial<Issue>): Promise<
             p.issues = (p.issues || 0) + qty
             p.issuesValue = (p.issuesValue || 0) + ip.totalPrice
             // Recalc Stock
-            p.currentStock = (p.openingStock || 0) + (p.purchases || 0) + (p.returns || 0) - (p.issues || 0)
+            p.currentStock = (Number(p.openingStock) || 0) + (Number(p.purchases) || 0) + (Number(p.returns) || 0) + (Number(p.adjustments) || 0) - (Number(p.issues) || 0)
             p.currentStockValue = p.currentStock * (p.averagePrice || p.price || 0)
             p.updatedAt = new Date().toISOString()
             p.lastModifiedBy = getDeviceId()
@@ -1362,8 +1382,8 @@ export async function setIssueDelivered(issueId: string, deliveredBy: string): P
         p.issues = (p.issues || 0) + qtyToDeduct
         p.issuesValue = (p.issuesValue || 0) + ip.totalPrice
 
-        // Recalculate currentStock using formula: opening + purchases + returns - issues
-        p.currentStock = (p.openingStock || 0) + (p.purchases || 0) + (p.returns || 0) - (p.issues || 0)
+        // Recalculate currentStock using formula: opening + purchases + returns + adjustments - issues
+        p.currentStock = (Number(p.openingStock) || 0) + (Number(p.purchases) || 0) + (Number(p.returns) || 0) + (Number(p.adjustments) || 0) - (Number(p.issues) || 0)
         p.currentStockValue = p.currentStock * (p.averagePrice || p.price || 0)
         p.updatedAt = new Date().toISOString()
         p.lastModifiedBy = getDeviceId()
@@ -1536,6 +1556,7 @@ export async function approveReturn(returnId: string, approvedBy: string): Promi
 
   ret.status = 'approved'
   ret.approvedBy = approvedBy
+  ret.receivedAt = new Date().toISOString()
   ret.updatedAt = new Date().toISOString()
   ret.lastModifiedBy = getDeviceId()
 
@@ -1570,7 +1591,7 @@ export async function approveReturn(returnId: string, approvedBy: string): Promi
         }
 
         // New stock after return
-        p.currentStock = (p.openingStock || 0) + (p.purchases || 0) + (p.returns || 0) - (p.issues || 0)
+        p.currentStock = (Number(p.openingStock) || 0) + (Number(p.purchases) || 0) + (Number(p.returns) || 0) + (Number(p.adjustments) || 0) - (Number(p.issues) || 0)
         const newStock = Number(p.currentStock || 0)
 
         // Recalculate value and average price using weighted method
@@ -1608,6 +1629,103 @@ export async function approveReturn(returnId: string, approvedBy: string): Promi
   await db.returns.put(ret)
   if (typeof window !== 'undefined') await syncReturn(ret).catch(console.error)
 
+  if (ret.requestId) {
+    try {
+      const br = await import('./branch-request-storage')
+      const updatedReq = br.updateBranchRequest(ret.requestId, { status: 'received' })
+      br.appendRequestHistory(ret.requestId, {
+        action: 'edited',
+        message: `تم استلام المرتجع ${ret.returnCode || ret.id} وإرجاع الكميات للمخزن`,
+        actor: approvedBy,
+      })
+      if (updatedReq && typeof window !== 'undefined') {
+        await syncBranchRequest(updatedReq).catch(console.error)
+      }
+    } catch (e) {
+      console.error('approveReturn: failed to update linked branch request', e)
+    }
+  }
+
+  return true
+}
+
+export async function updateReturn(
+  returnId: string,
+  updates: Partial<Omit<Return, 'id' | 'createdAt'>>,
+): Promise<Return | null> {
+  const ret = await db.returns.get(returnId)
+  if (!ret) return null
+  if (ret.status && ret.status !== 'pending') return null
+
+  const next: Return = {
+    ...ret,
+    ...updates,
+    id: ret.id,
+    createdAt: ret.createdAt,
+    updatedAt: new Date().toISOString(),
+    lastModifiedBy: getDeviceId(),
+  }
+  if (updates.products !== undefined) {
+    next.totalValue = updates.totalValue ?? next.products.reduce((s, p) => s + (p.totalPrice || 0), 0)
+  }
+
+  const rIdx = store.cache.returns.findIndex((r) => r.id === returnId)
+  if (rIdx !== -1) store.cache.returns[rIdx] = next
+  await db.returns.put(next)
+  notify('returns_change')
+  if (typeof window !== 'undefined') await syncReturn(next).catch(console.error)
+  return next
+}
+
+export async function markReturnPrinted(returnId: string, printedBy: string): Promise<Return | null> {
+  const ret = await db.returns.get(returnId)
+  if (!ret) return null
+  if (ret.status && ret.status !== 'pending') return null
+
+  const next: Return = {
+    ...ret,
+    printedAt: new Date().toISOString(),
+    printedBy,
+    updatedAt: new Date().toISOString(),
+    lastModifiedBy: getDeviceId(),
+  }
+  const rIdx = store.cache.returns.findIndex((r) => r.id === returnId)
+  if (rIdx !== -1) store.cache.returns[rIdx] = next
+  await db.returns.put(next)
+  notify('returns_change')
+  if (typeof window !== 'undefined') await syncReturn(next).catch(console.error)
+  return next
+}
+
+export async function deleteReturn(returnId: string, actor?: string): Promise<boolean> {
+  const ret = await db.returns.get(returnId)
+  if (!ret) return false
+  if (ret.status && ret.status !== 'pending') return false
+
+  if (ret.requestId) {
+    try {
+      const br = await import('./branch-request-storage')
+      const updatedReq = br.updateBranchRequest(ret.requestId, { status: 'submitted' })
+      br.appendRequestHistory(ret.requestId, {
+        action: 'edited',
+        message: 'تم حذف سجل المرتجع المرتبط؛ عاد الطلب لحالة المراجعة',
+        actor: actor || 'admin',
+      })
+      if (updatedReq && typeof window !== 'undefined') {
+        await syncBranchRequest(updatedReq).catch(console.error)
+      }
+    } catch (e) {
+      console.error('deleteReturn: failed to revert branch request', e)
+    }
+  }
+
+  const filtered = store.cache.returns.filter((r) => r.id !== returnId)
+  store.cache.returns = filtered
+  await db.returns.delete(returnId)
+  notify('returns_change')
+  if (typeof window !== 'undefined') {
+    await deleteAllReturnsApi([returnId]).catch(console.error)
+  }
   return true
 }
 

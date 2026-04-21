@@ -41,6 +41,8 @@ const BILINGUAL_HEADERS: Record<string, string> = {
   issuesValue: "Issued Value / قيمة المنصرف",
   purchasesValue: "Purchases Value / قيمة المشتريات", // Added missing
   returnsValue: "Returns Value / قيمة المرتجعات", // Added missing
+  adjustments: "Adjustments / التسويات",
+  adjustmentsValue: "Adj Value / قيمة التسويات",
   turnoverRate: "Turnover / معدل الدوران",
   status: "Status / الحالة",
   stockStatus: "Stock Status / حالة المخزون", // Added missing
@@ -68,8 +70,8 @@ export async function generateProductsPDF({ products, visibleColumns, columnLabe
   // Define column order (same as table)
   const order = [
     'image', 'productCode', 'itemNumber', 'productName', 'location', 'category', 'unit', 'cartonDimensions',
-    'openingStock', 'purchases', 'issues', 'returns', 'inventoryCount', 'currentStock', 'difference',
-    'price', 'averagePrice', 'currentStockValue', 'purchasesValue', 'issuesValue', 'returnsValue', 'turnoverRate', 'status', 'stockStatus', 'lastActivity'
+    'openingStock', 'purchases', 'issues', 'returns', 'adjustments', 'inventoryCount', 'currentStock', 'difference',
+    'price', 'averagePrice', 'currentStockValue', 'purchasesValue', 'issuesValue', 'returnsValue', 'adjustmentsValue', 'turnoverRate', 'status', 'stockStatus', 'lastActivity'
   ]
 
   // Get columns for current view
@@ -299,8 +301,9 @@ export async function generateProductsPDF({ products, visibleColumns, columnLabe
         const opening = Number(p.openingStock) || 0
         const purchases = Number(p.purchases) || 0
         const returns = Number(p.returns) || 0
+        const adjustments = Number(p.adjustments) || 0
         const issues = Number(p.issues) || 0
-        value = (opening + purchases + returns - issues)
+        value = (opening + purchases + returns + adjustments - issues)
       }
 
       // 2. Turnover Status (Calculated - not stored in DB, same logic as table)
@@ -340,7 +343,8 @@ export async function generateProductsPDF({ products, visibleColumns, columnLabe
         // Calculate Low Stock Threshold based on Percentage
         const opening = Number(p.openingStock) || 0
         const purchases = Number(p.purchases) || 0
-        const totalIn = opening + purchases
+        const adjustments = Number(p.adjustments) || 0
+        const totalIn = opening + purchases + adjustments
         const percentage = Number(p.lowStockThresholdPercentage) || 0
 
         let isLow = false
@@ -385,10 +389,20 @@ export async function generateProductsPDF({ products, visibleColumns, columnLabe
       }
 
       if (col === 'issuesValue') {
-        // issuesValue is usually stored, but let's recalculate if missing to be safe
-        if (!value) {
+        if (p.issuesValue !== undefined && p.issuesValue !== 0) {
+          value = p.issuesValue
+        } else {
           const qty = Number(p.issues) || 0
-          const price = Number(p.price) || 0 // Issues usually valued at selling price
+          const price = Number(p.price) || 0
+          value = qty * price
+        }
+      }
+
+      if (col === 'adjustmentsValue') {
+        if (p.adjustmentsValue !== undefined) value = p.adjustmentsValue
+        else {
+          const qty = Number(p.adjustments) || 0
+          const price = Number(p.averagePrice || p.price || 0)
           value = qty * price
         }
       }
@@ -400,7 +414,7 @@ export async function generateProductsPDF({ products, visibleColumns, columnLabe
       }
 
       // 6. Quantity columns - plain number only (no carton breakdown)
-      if (['openingStock', 'purchases', 'issues', 'returns', 'inventoryCount', 'currentStock', 'difference'].includes(col)) {
+      if (['openingStock', 'purchases', 'issues', 'returns', 'adjustments', 'inventoryCount', 'currentStock', 'difference'].includes(col)) {
         value = formatNumberWithSeparators(Number(value || 0))
       } else if (col === 'cartonDimensions') {
         const L = p.cartonLength
@@ -409,7 +423,7 @@ export async function generateProductsPDF({ products, visibleColumns, columnLabe
         const parts = [L, W, H].filter(v => v !== undefined && v !== null && v !== 0)
         const base = parts.length ? parts.join(" × ") : ''
         value = base ? (p.cartonUnit ? `${base} ${p.cartonUnit}` : base) : ''
-      } else if (['price', 'averagePrice', 'currentStockValue', 'issuesValue', 'purchasesValue', 'returnsValue'].includes(col)) {
+      } else if (['price', 'averagePrice', 'currentStockValue', 'issuesValue', 'purchasesValue', 'returnsValue', 'adjustmentsValue'].includes(col)) {
         value = formatCurrency(Number(value || 0))
       } else if (col === 'lastActivity') {
         try {

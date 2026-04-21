@@ -21,7 +21,7 @@ import { DualText, getDualString } from "@/components/ui/dual-text"
 import { useI18n } from "@/components/language-provider"
 import { storage } from "@/lib/firebase"
 import { getSafeImageSrc, normalize, getApiUrl } from "@/lib/utils"
-import { Upload, X, Loader2 } from 'lucide-react'
+import { Upload, X, Loader2, PlusCircle, Box, Languages } from 'lucide-react'
 import { db } from "@/lib/db"
 // import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
 
@@ -71,6 +71,100 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
   const imageSectionRef = useRef<HTMLDivElement>(null)
   const autoCloseTimerRef = useRef<number | null>(null)
 
+  const [isSettlementOpen, setIsSettlementOpen] = useState(false)
+  const [settlementType, setSettlementType] = useState<'plus' | 'minus'>('plus')
+  const [settlementQty, setSettlementQty] = useState(0)
+  const [settlementNote, setSettlementNote] = useState("")
+  const [isTranslatingNote, setIsTranslatingNote] = useState(false)
+
+  const handleTranslateNote = async () => {
+    if (!settlementNote.trim()) return
+    setIsTranslatingNote(true)
+    try {
+      const isArabic = /[\u0600-\u06FF]/.test(settlementNote)
+      const langPair = isArabic ? "ar|en" : "en|ar"
+      
+      // Local dictionary for better context (Warehouse terms)
+      const warehouseTerms: Record<string, string> = {
+        "صرف": "Issue",
+        "الصرف": "Issues",
+        "مرتجع": "Return",
+        "المرتجعات": "Returns",
+        "جرد": "Inventory",
+        "تلف": "Damaged",
+        "تالف": "Damaged",
+        "خطأ": "Error",
+        "خطأ إدخال": "Entry Error",
+        "مشتريات": "Purchases",
+        "زيادة": "Plus / Increase",
+        "نقص": "Minus / Decrease"
+      }
+
+      let translated = ""
+      const normalized = settlementNote.trim()
+      
+      if (isArabic && warehouseTerms[normalized]) {
+        translated = warehouseTerms[normalized]
+      } else {
+        const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(settlementNote)}&langpair=${langPair}`)
+        const data = await res.json()
+        translated = data.responseData?.translatedText || ""
+      }
+      
+      if (translated) {
+        let finalNote = ""
+        if (isArabic) {
+          finalNote = `${settlementNote} / ${translated}`
+        } else {
+          finalNote = `${translated} / ${settlementNote}`
+        }
+        setSettlementNote(finalNote)
+        toast({ 
+          title: "تمت الترجمة / Translated", 
+          description: `النتيجة: ${translated}` 
+        })
+      }
+    } catch (error) {
+      toast({ title: t("common.error"), description: "فشلت الترجمة", variant: "destructive" })
+    } finally {
+      setIsTranslatingNote(false)
+    }
+  }
+
+  const handleApplySettlement = async () => {
+    const delta = settlementType === "plus" ? settlementQty : -settlementQty
+    const currentAdjustments = Number(formData.adjustments) || 0
+    const newAdjustments = currentAdjustments + delta
+    
+    // Update formData with new cumulative adjustments
+    setFormData(prev => {
+      const op = Number(prev.openingStock) || 0
+      const pu = Number(prev.purchases) || 0
+      const ret = Number(prev.returns) || 0
+      const iss = Number(prev.issues) || 0
+      const newCalcStock = op + pu + ret + newAdjustments - iss
+      
+      return {
+        ...prev,
+        adjustments: newAdjustments,
+        lastAdjustmentNote: settlementNote,
+        currentStock: newCalcStock,
+        quantity: newCalcStock,
+        inventoryCount: newCalcStock
+      }
+    })
+    
+    // Reset settlement fields
+    setIsSettlementOpen(false)
+    setSettlementQty(0)
+    setSettlementNote("")
+    
+    toast({
+      title: "تم تطبيق التسوية / Settlement Applied",
+      description: `تم تعديل المخزون بـ ${delta > 0 ? "+" : ""}${delta} وحدة.`,
+    })
+  }
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -81,55 +175,30 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
   useEffect(() => {
     if (open) {
       if (product) {
-        console.log("[v0] Loading product data for editing:", product.productName)
+        console.log("[v0] Mirroring product data from table:", product.productName)
 
-        // حساب القيم المحدثة من المعاملات
-        const loadDynamicData = async () => {
-          try {
-            // جلب المعاملات من قاعدة البيانات
-            const transactions = await db.transactions.where('productId').equals(product.id).toArray()
-            const issues = await db.issues.where('productId').equals(product.id).toArray()
-            const returns = await db.returns.where('productId').equals(product.id).toArray()
+        // [MIRROR LOGIC] استخدام بيانات المنتج المباشرة كما في الجدول تماماً
+        const op = Number(product.openingStock) || 0
+        const pu = Number(product.purchases) || 0
+        const iss = Number(product.issues) || 0
+        const adj = Number(product.adjustments) || 0
+        const ret = Number(product.returns) || 0
+        
+        // حساب الرصيد باستخدام نفس معادلة الجدول
+        const calculatedStock = op + pu + ret + adj - iss
 
-            // حساب المجاميع من خلال البحث عن المنتج داخل كل عملية
-            const totalPurchases = transactions
-              .filter(t => t.type === 'purchase')
-              .reduce((sum, t) => sum + (Number(t.quantity) || 0), 0)
-
-            const totalIssues = issues.reduce((sum, i) => {
-              const p = i.products?.find((pp: any) => String(pp.productId) === String(product.id))
-              return sum + (Number(p?.quantity) || 0)
-            }, 0)
-
-            const totalReturns = returns.reduce((sum, r) => {
-              const p = r.products?.find((pp: any) => String(pp.productId) === String(product.id))
-              return sum + (Number(p?.quantity) || 0)
-            }, 0)
-
-            // حساب الرصيد الحالي بناءً على المعادلة: ابتدائي + مشتريات + مرتجعات - مصروفات
-            const currentStock = (Number(product.openingStock) || 0) + totalPurchases + totalReturns - totalIssues
-
-            // تحديث البيانات مع القيم المحسوبة
-            const updatedProduct = {
-              ...product,
-              purchases: totalPurchases,
-              issues: totalIssues,
-              returns: totalReturns,
-              currentStock: currentStock,
-              quantity: currentStock // Sync quantity with calculated stock for display/edit
-            }
-
-            setFormData(updatedProduct)
-            setImagePreview(product.image)
-          } catch (error) {
-            console.error("[v0] Error loading dynamic data:", error)
-            // في حالة الخطأ، استخدم البيانات الأصلية
-            setFormData(product)
-            setImagePreview(product.image)
-          }
-        }
-
-        loadDynamicData()
+        setFormData({
+          ...product,
+          openingStock: op,
+          purchases: pu,
+          issues: iss,
+          returns: ret,
+          adjustments: adj,
+          inventoryCount: calculatedStock, // Mirror table forcing
+          currentStock: calculatedStock,
+          quantity: calculatedStock // Sync quantity for display
+        })
+        setImagePreview(product.image)
       } else {
         console.log("[v0] Resetting form for new product")
         setFormData({
@@ -146,17 +215,19 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
           openingStock: 0,
           purchases: 0,
           issues: 0,
+          returns: 0,
+          adjustments: 0,
           inventoryCount: 0,
           price: 0,
           category: "",
           image: undefined,
-          minStockLimit: 10, // Default min stock limit
+          minStockLimit: 10,
           lowStockThresholdPercentage: 33.33,
         })
         setImagePreview(undefined)
       }
 
-      // Focus image section if requested
+      // Focus/Auto-close logic
       try {
         const focusSection = sessionStorage.getItem("productFormFocusSection")
         const autoCloseMs = Number(sessionStorage.getItem("productFormAutoCloseMs") || "0")
@@ -180,7 +251,8 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (isSaving) return // Prevent double submission
+    // [IDEMPOTENCY GUARD] منع الضغط المتكرر
+    if (isSaving) return 
 
     try {
       setIsSaving(true)
@@ -198,54 +270,56 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
         return
       }
 
-      // Check for duplicates (Disabled by user request)
-
-
-      // Ensure quantityPerCarton is at least 1
-      // Ensure quantityPerCarton is at least 1
-      // Handle Stock Adjustment Logic for Existing Products
-      let openingStockFinal = Number(formData.openingStock || 0);
-
+      // عند تعديل منتج: لا نرسل حقول الحركات التاريخية (مشتريات/صرف/مرتجع)
+      // حتى لا يُعاد تطبيق أثرها على المخزون عند حفظ الفورم.
       if (product) {
-        // If editing an existing product, check if user changed the "Quantity" (Current Stock)
-        // If so, adjust Opening Stock to match the target.
-        // Target = Opening + Purchases + Returns - Issues
-        // => NewOpening = Target - (Purchases + Returns - Issues)
+        const editRequestId = self.crypto.randomUUID()
+        const oldAdj = Number(product.adjustments || 0)
+        const newAdj = Number(formData.adjustments || 0)
+        const adjustmentsChanged = oldAdj !== newAdj
 
-        const targetStock = Number(formData.quantity || 0);
-        const originalStock = Number(product.currentStock || 0); // Approx check, but better to recalc
-
-        // We use formData values for P, R, I as they might have been edited? (Actually they are disabled usually)
-        // But let's trust formData as source of truth for the equation.
-        const P = Number(formData.purchases || 0);
-        const R = Number(formData.returns || 0);
-        const I = Number(formData.issues || 0);
-
-        // Recalculate what opening stock SHOULD be to hit the target
-        const requiredOpening = targetStock - (P + R - I);
-
-        // Only update if the result is different from current opening stock
-        // and if it's a valid number.
-        if (!isNaN(requiredOpening)) {
-          openingStockFinal = requiredOpening;
+        const editPayload: Partial<Product> & { __requestId?: string } = {
+          __requestId: editRequestId,
+          productCode: formData.productCode,
+          cartonBarcode: formData.cartonBarcode,
+          itemNumber: formData.itemNumber,
+          location: formData.location,
+          productName: formData.productName,
+          unit: formData.unit,
+          cartonUnit: formData.cartonUnit,
+          cartonLength: Number(formData.cartonLength || 0),
+          cartonWidth: Number(formData.cartonWidth || 0),
+          cartonHeight: Number(formData.cartonHeight || 0),
+          quantityPerCarton: (formData.quantityPerCarton || 0) === 0 ? 1 : Number(formData.quantityPerCarton || 1),
+          price: Number(formData.price || 0),
+          category: formData.category,
+          image: formData.image,
+          minStockLimit: Number(formData.minStockLimit || 0),
+          lowStockThresholdPercentage: Number(formData.lowStockThresholdPercentage || 33.33),
+          warehouseLocationId: formData.warehouseLocationId,
+          warehousePositionCode: formData.warehousePositionCode,
         }
+
+        if (adjustmentsChanged) {
+          editPayload.adjustments = newAdj
+          editPayload.lastAdjustmentNote = formData.lastAdjustmentNote || settlementNote || product.lastAdjustmentNote
+        }
+
+        await onSubmit(editPayload)
       } else {
-        // New Product Logic (unchanged)
-        const qty = typeof formData.quantity === "number" && formData.quantity >= 0 ? Number(formData.quantity) : 0;
-        openingStockFinal = qty;
+        // [GLOBAL ADJUSTMENT LOGIC] مخزن التسويات
+        // عند إنشاء منتج جديد نستخدم الكمية الافتتاحية من حقل الكمية.
+        const qty = typeof formData.quantity === "number" && formData.quantity >= 0 ? Number(formData.quantity) : 0
+        const dataToSubmit = {
+          ...formData,
+          quantityPerCarton: (formData.quantityPerCarton || 0) === 0 ? 1 : formData.quantityPerCarton,
+          openingStock: qty,
+        }
+
+        const calculatedData = calculateProductValues(dataToSubmit as Product)
+        await onSubmit(calculatedData as Product)
       }
 
-      const dataToSubmit = {
-        ...formData,
-        quantityPerCarton: (formData.quantityPerCarton || 0) === 0 ? 1 : formData.quantityPerCarton,
-        openingStock: openingStockFinal
-      }
-      const calculatedData = calculateProductValues(dataToSubmit as Product)
-
-      // Wait for onSubmit to complete before closing
-      await onSubmit(calculatedData as Product)
-
-      // Only update state if still mounted
       if (isMountedRef.current) {
         onOpenChange(false)
         setImagePreview(undefined)
@@ -531,76 +605,240 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="openingStock"><DualText k="products.form.openingStock" /></Label>
-                <Input
-                  id="openingStock"
-                  type="number"
-                  step="any"
-                  value={formData.openingStock}
-                  onChange={(e) => handleChange("openingStock", e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="purchases"><DualText k="products.form.purchases" /></Label>
-                <Input
-                  id="purchases"
-                  type="number"
-                  step="any"
-                  value={formData.purchases}
-                  onChange={(e) => handleChange("purchases", e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="issues"><DualText k="products.form.issues" /></Label>
-                <Input
-                  id="issues"
-                  type="number"
-                  step="any"
-                  value={formData.issues}
-                  onChange={(e) => handleChange("issues", e.target.value)}
-                  required
-                />
+            <div className="bg-gray-50/50 p-4 rounded-xl border border-dashed border-gray-200">
+              <h3 className="text-xs font-bold text-gray-500 mb-3 uppercase tracking-wider flex items-center gap-2">
+                <Box className="h-3 w-3" />
+                سجل الحركة التاريخي / Historical Ledger
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="space-y-1 opacity-80 text-center">
+                  <Label htmlFor="openingStock" className="text-[10px] text-muted-foreground block mb-1">إفتتاحي / Opening</Label>
+                  <Input
+                    id="openingStock"
+                    type="number"
+                    step="any"
+                    value={formData.openingStock}
+                    readOnly
+                    className="bg-white/50 cursor-not-allowed font-mono text-center h-8"
+                  />
+                </div>
+                <div className="space-y-1 opacity-80 text-center">
+                  <Label htmlFor="purchases" className="text-[10px] text-muted-foreground block mb-1">مشتريات / Purchases</Label>
+                  <Input
+                    id="purchases"
+                    type="number"
+                    step="any"
+                    value={formData.purchases}
+                    readOnly
+                    className="bg-white/50 cursor-not-allowed font-mono text-center h-8"
+                  />
+                </div>
+                <div className="space-y-1 opacity-80 text-center">
+                  <Label htmlFor="returns" className="text-[10px] text-muted-foreground block mb-1">مرتجع / Returns</Label>
+                  <Input
+                    id="returns"
+                    type="number"
+                    step="any"
+                    value={formData.returns || 0}
+                    readOnly
+                    className="bg-white/50 cursor-not-allowed font-mono text-center h-8"
+                  />
+                </div>
+                <div className="space-y-1 opacity-80 text-center">
+                  <Label htmlFor="issues" className="text-[10px] text-muted-foreground block mb-1">صرف / Issues</Label>
+                  <Input
+                    id="issues"
+                    type="number"
+                    step="any"
+                    value={formData.issues}
+                    readOnly
+                    className="bg-white/50 cursor-not-allowed font-mono text-center h-8"
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="inventoryCount"><DualText k="products.form.inventory" /></Label>
-                <Input
-                  id="inventoryCount"
-                  type="number"
-                  step="any"
-                  value={formData.inventoryCount}
-                  onChange={(e) => handleChange("inventoryCount", e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="price"><DualText k="common.price" /></Label>
+                <Label htmlFor="price" className="font-semibold"><DualText k="common.price" /></Label>
                 <Input
                   id="price"
                   type="number"
                   step="any"
                   value={formData.price}
                   onChange={(e) => handleChange("price", e.target.value)}
+                  className="bg-blue-50/20 border-blue-100"
                   required
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="quantity">
-                  {product ? <DualText k="products.form.currentStockAdjust" /> : <DualText k="common.quantity" />}
-                </Label>
+                <Label htmlFor="category" className="font-semibold"><DualText k="products.form.category" /></Label>
+                <Select
+                  value={formData.category}
+                  onValueChange={(v) => handleChange("category", v)}
+                >
+                  <SelectTrigger className="bg-blue-50/20 border-blue-100">
+                    <SelectValue placeholder={t("products.form.categoryPlaceholder")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* قسم الرصيد والتسويات -Balance & Settlements */}
+            <div className="border-t pt-4 mt-2">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="quantity" className="text-green-700 font-bold block mb-1">
+                    {product ? "الرصيد الحالي / Current Stock" : "الكمية الابتدائية / Initial Qty"}
+                  </Label>
+                  <Input
+                    id="quantity"
+                    type="number"
+                    step="any"
+                    value={formData.quantity}
+                    onChange={(e) => handleChange("quantity", e.target.value)}
+                    readOnly={!!product}
+                    className={`font-mono font-bold text-lg ${product ? "bg-green-50/50 cursor-not-allowed border-green-200 text-green-700" : "border-green-300"}`}
+                    required
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="adjustments" className="text-blue-600 font-bold block mb-1">إجمالي التسويات / Total Adjustments</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="adjustments"
+                      type="number"
+                      step="any"
+                      value={formData.adjustments || 0}
+                      readOnly
+                      className="bg-blue-50/50 cursor-not-allowed font-bold text-blue-700 border-blue-200"
+                    />
+                    {product && (
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => setIsSettlementOpen(!isSettlementOpen)}
+                        className="whitespace-nowrap bg-blue-600 text-white hover:bg-blue-700 h-10 px-4"
+                      >
+                        {isSettlementOpen ? "إلغاء / Cancel" : "تسوية / Adjust"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {isSettlementOpen && (
+                <div className="mt-4 p-4 bg-blue-50 border-2 border-blue-200 rounded-lg animate-in fade-in slide-in-from-top-2">
+                  <h4 className="text-sm font-bold text-blue-800 mb-3 flex items-center gap-2">
+                    <PlusCircle className="h-4 w-4" />
+                    تسوية مخزنية جديدة / New Inventory Settlement
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">نوع الحركة / Action Type</Label>
+                      <div className="flex bg-white rounded-md p-1 border shadow-sm">
+                        <Button 
+                          type="button" 
+                          variant={settlementType === 'plus' ? 'default' : 'ghost'} 
+                          size="sm" 
+                          className={`flex-1 text-xs h-8 ${settlementType === 'plus' ? 'bg-blue-600 text-white' : ''}`}
+                          onClick={() => setSettlementType('plus')}
+                        >
+                          زيادة / Plus (+)
+                        </Button>
+                        <Button 
+                          type="button" 
+                          variant={settlementType === 'minus' ? 'destructive' : 'ghost'} 
+                          size="sm" 
+                          className="flex-1 text-xs h-8"
+                          onClick={() => setSettlementType('minus')}
+                        >
+                          نقص / Minus (-)
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">كمية الفرق / Qty to Change</Label>
+                      <Input 
+                        type="number" 
+                        placeholder="0"
+                        className="h-10 bg-white font-bold text-center text-blue-800 border-blue-300" 
+                        value={settlementQty || ""} 
+                        onChange={(e) => setSettlementQty(Math.abs(Number(e.target.value)))} 
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="mt-3 space-y-2">
+                    <Label className="text-xs font-semibold">ملاحظة التسوية / Settlement Note</Label>
+                    <div className="relative">
+                      <Input 
+                        placeholder="سبب التسوية (مثلاً: تالف، جرد، خطأ إدخال)..."
+                        className="h-10 bg-white border-blue-300 pr-10" 
+                        value={settlementNote} 
+                        onChange={(e) => setSettlementNote(e.target.value)} 
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0 text-blue-600 hover:text-blue-800"
+                        onClick={handleTranslateNote}
+                        disabled={isTranslatingNote || !settlementNote.trim()}
+                        title="ترجمة / Translate"
+                      >
+                        {isTranslatingNote ? <Loader2 className="h-4 w-4 animate-spin" /> : <Languages className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4">
+                    <Button 
+                      type="button" 
+                      size="sm" 
+                      className="w-full bg-blue-700 hover:bg-blue-800 h-10 font-bold" 
+                      onClick={handleApplySettlement}
+                      disabled={settlementQty <= 0}
+                    >
+                      تطبيق التسوية الآن / Apply Settlement Now
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-blue-600 mt-2 italic text-center">
+                    * سيتم إضافة هذا الفرق إلى إجمالي سجل التسويات لضمان دقة التقارير التاريخية.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2 opacity-80">
+                <Label htmlFor="inventoryCount" className="text-muted-foreground"><DualText k="products.form.inventory" /></Label>
                 <Input
-                  id="quantity"
+                  id="inventoryCount"
                   type="number"
                   step="any"
-                  value={formData.quantity}
-                  onChange={(e) => handleChange("quantity", e.target.value)}
+                  value={formData.inventoryCount}
+                  readOnly
+                  className="bg-gray-50 cursor-not-allowed font-mono text-xs h-8"
                   required
+                />
+              </div>
+              <div className="space-y-2 opacity-80">
+                <Label htmlFor="lastAdjustmentNote" className="text-muted-foreground">آخر ملاحظة تسوية / Last Adj Note</Label>
+                <Input
+                  id="lastAdjustmentNote"
+                  value={formData.lastAdjustmentNote || "-"}
+                  readOnly
+                  className="bg-gray-50 cursor-not-allowed text-xs h-8 italic"
                 />
               </div>
             </div>

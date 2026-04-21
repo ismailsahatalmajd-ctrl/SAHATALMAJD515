@@ -61,24 +61,14 @@ export const enableOfflinePersistence = async () => {
             isPersistenceEnabled = true;
             console.log("✅ Firebase Multi-Tab Persistence Enabled");
         } catch (err: any) {
-            if (err.code == 'failed-precondition') {
-                console.warn("⚠️ Persistence failed: Multiple tabs already active.");
-            } else if (err.code == 'unimplemented') {
-                console.warn("⚠️ Persistence failed: Browser not supported.");
+            if (err.code === 'failed-precondition') {
+                // Multiple tabs open, persistence can only be enabled in one tab at a time.
+                console.warn("⚠️ Persistence failed: Multiple tabs open");
+            } else if (err.code === 'unimplemented') {
+                // The current browser does not support all of the features required to enable persistence
+                console.warn("⚠️ Persistence not supported by browser");
             } else {
                 console.error("⚠️ Persistence FATAL Error:", err);
-
-                // 🛠️ AUTO-FIX FOR DEVELOPMENT:
-                if (process.env.NODE_ENV === 'development') {
-                    console.log("🛠️ Dev Mode: Attempting to clear corrupted Persistence...");
-                    try {
-                        await terminate(db);
-                        await clearIndexedDbPersistence(db);
-                        console.log("✨ Persistence cleared successfully. Please refresh the page.");
-                    } catch (clearErr) {
-                        console.error("Failed to clear persistence:", clearErr);
-                    }
-                }
             }
         }
     }

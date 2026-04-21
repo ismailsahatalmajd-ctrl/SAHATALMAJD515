@@ -497,6 +497,8 @@ export const dict: Dict = {
   "products.columns.difference": { ar: "الفرق", en: "Difference" },
   "products.columns.price": { ar: "السعر", en: "Price" },
   "products.columns.averagePrice": { ar: "متوسط السعر", en: "Average Price" },
+  "products.columns.adjustments": { ar: "التسوية", en: "Adjustment" },
+  "products.columns.adjustmentsValue": { ar: "قيمة التسوية", en: "Adjustments Value" },
 
   "products.columns.currentStockValue": { ar: "قيمة المخزون الحالي", en: "Current Stock Value" },
   "products.columns.issuesValue": { ar: "قيمة المصروفات", en: "Issues Value" },
@@ -509,6 +511,7 @@ export const dict: Dict = {
   "products.status.outOfStock": { ar: "نفاذ", en: "Out of Stock" },
 
   "products.columns.actions": { ar: "الإجراءات", en: "Actions" },
+  "products.columns.warehousePositionCode": { ar: "كود موقع المستودع", en: "Warehouse Position Code" },
   "products.empty": { ar: "لا توجد منتجات. قم بإضافة منتج جديد للبدء.", en: "No products. Add a new product to get started." },
   // Export and Filters
   "products.table.export.menu": { ar: "تصدير", en: "Export" },
@@ -616,6 +619,7 @@ export const dict: Dict = {
   "returns.history.columns.status": { ar: "الحالة", en: "Status" },
   "returns.history.columns.date": { ar: "التاريخ", en: "Date" },
   "returns.history.columns.print": { ar: "طباعة", en: "Print" },
+  "returns.history.columns.actions": { ar: "عمليات", en: "Actions" },
 
   // Branch Return Requests
   "returns.requests.title": { ar: "طلبات استرجاع من الفروع", en: "Branch Return Requests" },
@@ -624,7 +628,29 @@ export const dict: Dict = {
   "returns.request.notes": { ar: "ملاحظات", en: "Notes" },
   "returns.request.date": { ar: "تاريخ الطلب", en: "Request Date" },
   "returns.request.approved": { ar: "تم قبول طلب المرتجع", en: "Return request approved" },
+  "returns.request.convertButton": { ar: "تحويل لمستند مرتجع", en: "Convert to return document" },
+  "returns.request.editButton": { ar: "تعديل الطلب", en: "Edit request" },
+  "returns.request.editTitle": { ar: "تعديل طلب المرتجع (قبل التحويل)", en: "Edit branch return request (before convert)" },
+  "returns.request.editHint": {
+    ar: "عدّل الأصناف والكميات ثم احفظ. بعدها استخدم «تحويل لمستند مرتجع» — لا يُنصح بالتعديل على السند بعد التحويل.",
+    en: "Edit lines and save, then use «Convert to return document». Editing the document after convert is not the intended flow.",
+  },
+  "returns.request.editSave": { ar: "حفظ تعديلات الطلب", en: "Save request changes" },
+  "returns.request.editSaved": { ar: "تم حفظ تعديلات طلب الفرع", en: "Branch request updated" },
+  "returns.request.editNeedOneLine": { ar: "يجب الإبقاء على صنف واحد على الأقل بكمية أكبر من صفر", en: "Keep at least one line with quantity greater than zero" },
+  "returns.request.editDuplicateProduct": { ar: "هذا الصنف موجود بالفعل في الطلب", en: "This product is already on the request" },
+  "returns.request.editAddProduct": { ar: "إضافة صنف من كتالوج المنتجات", en: "Add product from catalog" },
+  "returns.request.editQty": { ar: "الكمية المطلوبة", en: "Requested qty" },
   "returns.request.rejected": { ar: "تم رفض طلب المرتجع", en: "Return request rejected" },
+  "returns.createdPending": { ar: "تم إنشاء المرتجع قيد الاستلام (المخزون عند قبول الاستلام فقط)", en: "Return created as pending (stock updates only when received)" },
+  "returns.receive.button": { ar: "قبول الاستلام", en: "Confirm receipt" },
+  "returns.receive.success": { ar: "تم استلام المرتجع وتحديث المخزون", en: "Return received and inventory updated" },
+  "returns.edit.button": { ar: "تعديل", en: "Edit" },
+  "returns.edit.title": { ar: "تعديل المرتجع", en: "Edit return" },
+  "returns.edit.save": { ar: "حفظ التعديلات", en: "Save changes" },
+  "returns.edit.saved": { ar: "تم حفظ تعديلات المرتجع", en: "Return changes saved" },
+  "returns.delete.confirm": { ar: "حذف هذا المرتجع؟ إن وُجد طلب فرع مرتبط سيعود للمراجعة.", en: "Delete this return? Linked branch request will go back for review." },
+  "returns.status.awaitingReceipt": { ar: "قيد استلام المخزن", en: "Awaiting warehouse receipt" },
   "common.approve": { ar: "قبول", en: "Approve" },
   "common.reject": { ar: "رفض", en: "Reject" },
 

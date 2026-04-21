@@ -71,7 +71,7 @@ export function BranchInventoryReportComponent({ branchId, branchName }: BranchI
       result = result.filter(p => p.location === selectedLocation)
     }
 
-    return result.slice(0, 50) // Limit to 50 for performance
+    return result
   }, [allProducts, productSearch, selectedCategory, selectedLocation])
 
   const addItem = (p: Product) => {
@@ -147,121 +147,114 @@ export function BranchInventoryReportComponent({ branchId, branchName }: BranchI
 
   return (
     <div className="space-y-6">
-      {/* 1. Product Selection Section */}
-      <Card>
-        <CardHeader className="pb-3 border-b bg-slate-50/50">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <CardTitle className="text-xl flex items-center gap-2">
-              <Package className="w-6 h-6 text-blue-600" />
-              Available Products / المنتجات المتاحة
-            </CardTitle>
-            <div className="flex bg-blue-600 text-white px-4 py-2 rounded-full font-bold shadow-lg items-center gap-2">
-              <ShoppingCart className="w-5 h-5" />
-              <span>{items.length} Selected / صنف مختار</span>
-            </div>
+      {/* 1. Product Selection Section - Matching Order/Return System Style */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <div className="md:col-span-1">
+          <Label>Unified Search / بحث موحد</Label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Input
+              className="pl-10"
+              placeholder="Search or Scan / ابحث أو امسح الباركود"
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+            />
           </div>
-        </CardHeader>
-        <CardContent className="pt-6 space-y-6">
-          {/* Filters */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
-            <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase tracking-wider text-slate-500">Unified Search / البحث الشامل</Label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input
-                  className="pl-10"
-                  placeholder="Name, Code, Barcode... / الاسم، الكود، الباركود..."
-                  value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase tracking-wider text-slate-500">Category / التصنيف</Label>
-              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All Categories" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Categories / الكل</SelectItem>
-                  {categories.map(c => (
-                    <SelectItem key={c} value={c}>{c}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase tracking-wider text-slate-500">Location / الموقع</Label>
-              <Select value={selectedLocation} onValueChange={setSelectedLocation}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All Locations" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Locations / الكل</SelectItem>
-                  {locations.map(l => (
-                    <SelectItem key={l} value={l}>{l}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+        </div>
+        <div>
+          <Label>Category / تصنيف</Label>
+          <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+            <SelectTrigger>
+              <SelectValue placeholder="All / الكل" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All / الكل</SelectItem>
+              {categories.map(c => (
+                <SelectItem key={c} value={c}>{c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label>Location / الموقع</Label>
+          <Select value={selectedLocation} onValueChange={setSelectedLocation}>
+            <SelectTrigger>
+              <SelectValue placeholder="All / الكل" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All / الكل</SelectItem>
+              {locations.map(l => (
+                <SelectItem key={l} value={l}>{l}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex justify-end">
+          <div className="flex bg-blue-600 text-white px-4 py-2 rounded font-bold shadow-sm items-center gap-2">
+            <ShoppingCart className="w-4 h-4" />
+            <span>Cart / السلة: {items.length}</span>
           </div>
+        </div>
+      </div>
 
-          {/* Products Table */}
-          <div className="border rounded-lg overflow-hidden border-slate-200">
-            <div className="max-h-[400px] overflow-auto">
-              <Table>
-                <TableHeader className="bg-slate-50 sticky top-0 z-10 shadow-sm">
-                  <TableRow>
-                    <TableHead className="w-[80px]">Image</TableHead>
-                    <TableHead>Code / الكود</TableHead>
-                    <TableHead>Name / الاسم</TableHead>
-                    <TableHead>Unit / الوحدة</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredProducts.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="h-40 text-center text-slate-400">
-                        {allProducts.length === 0 ? "Loading products..." : "No products matching filters / لا توجد منتجات تطابق البحث"}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    filteredProducts.map(p => (
-                      <TableRow key={p.id} className="hover:bg-blue-50/30 transition-colors group">
-                        <TableCell>
-                          <ProductImageThumbnail src={p.image} className="w-12 h-12 shadow-sm rounded-md border" />
-                        </TableCell>
-                        <TableCell className="font-mono text-xs font-bold text-slate-500 group-hover:text-blue-600">
-                          {p.productCode}
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-semibold text-slate-900 line-clamp-1">{p.productName}</div>
-                          <div className="text-[10px] text-slate-400 font-mono">{p.itemNumber}</div>
-                        </TableCell>
-                        <TableCell className="text-slate-500 font-medium">
-                          {p.unit}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button 
-                            size="sm" 
-                            className="bg-blue-600 hover:bg-blue-700 h-8 px-4 gap-2 shadow-sm"
-                            onClick={() => addItem(p)}
-                            disabled={items.some(i => i.productId === p.id)}
-                          >
-                            <Plus className="w-4 h-4" />
-                            Add / إضافة
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="overflow-auto border rounded max-h-[600px]">
+        <Table>
+          <TableHeader className="bg-slate-50 sticky top-0 z-10 shadow-sm">
+            <TableRow>
+              <TableHead>Image / الصورة</TableHead>
+              <TableHead>Code / الكود</TableHead>
+              <TableHead>Name / الاسم</TableHead>
+              <TableHead>Stock / المخزون</TableHead>
+              <TableHead>Unit / الوحدة</TableHead>
+              <TableHead className="text-right">Add / إضافة</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filteredProducts.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="h-40 text-center text-slate-400">
+                  {allProducts.length === 0 ? "Loading products..." : "No products matching filters / لا توجد منتجات تطابق البحث"}
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredProducts.map(p => (
+                <TableRow key={p.id} className="hover:bg-slate-50 transition-colors">
+                  <TableCell>
+                    <ProductImageThumbnail src={p.image} className="w-10 h-10 object-cover rounded border" />
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">{p.productCode}</TableCell>
+                  <TableCell>
+                    <div className="font-semibold text-sm">{p.productName}</div>
+                  </TableCell>
+                  <TableCell>
+                    {p.quantity > 0 ? (
+                      <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100">
+                        Available / متوفر
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100">
+                        Out of Stock / نفذت الكمية
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-slate-500">
+                    {p.unit}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button 
+                      size="sm" 
+                      onClick={() => addItem(p)}
+                      disabled={items.some(i => i.productId === p.id)}
+                    >
+                      Add / أضف
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
       {/* 2. Inventory Report (Cart) Section */}
       {items.length > 0 && (
@@ -309,10 +302,10 @@ export function BranchInventoryReportComponent({ branchId, branchName }: BranchI
                     <TableHead className="w-[50px]">#</TableHead>
                     <TableHead className="w-[80px]">Image</TableHead>
                     <TableHead>Product / المنتج</TableHead>
-                    <TableHead className="w-[140px] text-center">Qty / الكمية</TableHead>
-                    <TableHead className="w-[140px] text-center">Primary Unit / وحدة (1)</TableHead>
-                    <TableHead className="w-[180px] text-center">Sec. Unit / وحدة (2) (اختياري)</TableHead>
-                    <TableHead>Notes / ملاحظات</TableHead>
+                    <TableHead className="w-[140px] text-center">Qty <br/> الكمية</TableHead>
+                    <TableHead className="w-[140px] text-center">Warehouse Unit <br/> وحدة المستودع</TableHead>
+                    <TableHead className="w-[180px] text-center">Inventory Unit <br/> وحدة الجرد</TableHead>
+                    <TableHead>Notes <br/> ملاحظات</TableHead>
                     <TableHead className="text-right"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -324,7 +317,7 @@ export function BranchInventoryReportComponent({ branchId, branchName }: BranchI
                         <ProductImageThumbnail src={item.image} className="w-10 h-10 rounded border bg-white" />
                       </TableCell>
                       <TableCell>
-                        <div className="font-bold text-sm text-slate-900">{item.productName}</div>
+                        <div className="font-bold text-sm text-slate-1200 line-clamp-1">{item.productName}</div>
                         <div className="text-[10px] text-slate-400 font-mono uppercase">{item.productCode}</div>
                       </TableCell>
                       <TableCell>

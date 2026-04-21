@@ -310,8 +310,8 @@ export function ProductsTable({
           // Use currentStock as weight for weighted average
           // Products with currentStock = 0 do NOT affect the average price (zero weight)
           // but their quantities are still summed normally
-          const existingCalcStock = (Number(existing.openingStock) || 0) + (Number(existing.purchases) || 0) + (Number(existing.returns) || 0) - (Number(existing.issues) || 0)
-          const newCalcStock = (Number(p.openingStock) || 0) + (Number(p.purchases) || 0) + (Number(p.returns) || 0) - (Number(p.issues) || 0)
+          const existingCalcStock = (Number(existing.openingStock) || 0) + (Number(existing.purchases) || 0) + (Number(existing.returns) || 0) + (Number(existing.adjustments) || 0) - (Number(existing.issues) || 0)
+          const newCalcStock = (Number(p.openingStock) || 0) + (Number(p.purchases) || 0) + (Number(p.returns) || 0) + (Number(p.adjustments) || 0) - (Number(p.issues) || 0)
 
           const oldPrice = Number(existing.averagePrice || existing.price || 0)
           const newPrice = Number(p.averagePrice || p.price || 0)
@@ -332,6 +332,7 @@ export function ProductsTable({
           existing.openingStock = (Number(existing.openingStock) || 0) + (Number(p.openingStock) || 0)
           existing.purchases = (Number(existing.purchases) || 0) + (Number(p.purchases) || 0)
           existing.returns = (Number(existing.returns) || 0) + (Number(p.returns) || 0)
+          existing.adjustments = (Number(existing.adjustments) || 0) + (Number(p.adjustments) || 0)
           existing.issues = (Number(existing.issues) || 0) + (Number(p.issues) || 0)
           existing.currentStock = (Number(existing.currentStock) || 0) + (Number(p.currentStock) || 0)
           existing.inventoryCount = (Number(existing.inventoryCount) || 0) + (Number(p.inventoryCount) || 0)
@@ -347,7 +348,7 @@ export function ProductsTable({
           existing.price = newAvgPrice
 
           // Recalculate currentStockValue based on merged current stock × weighted avg price
-          const mergedCurrentStock = existing.openingStock + existing.purchases + existing.returns - existing.issues
+          const mergedCurrentStock = existing.openingStock + existing.purchases + existing.returns + (Number(existing.adjustments) || 0) - existing.issues
           existing.currentStockValue = mergedCurrentStock * newAvgPrice
 
           // Preserve image: if existing has no image, use the new product's image
@@ -366,8 +367,9 @@ export function ProductsTable({
         const op = Number(p.openingStock) || 0
         const pu = Number(p.purchases) || 0
         const ret = Number(p.returns) || 0
+        const adj = Number(p.adjustments) || 0
         const iss = Number(p.issues) || 0
-        const stock = op + pu + ret - iss
+        const stock = op + pu + ret + adj - iss
         if (stock === 0) return false
       }
 
@@ -446,6 +448,7 @@ export function ProductsTable({
     openingStock: true,
     purchases: true,
     returns: false,
+    adjustments: false,
     issues: true,
     inventoryCount: true,
     currentStock: true,
@@ -457,6 +460,7 @@ export function ProductsTable({
     feedIssuesValue: false,
     purchasesValue: false,
     returnsValue: false,
+    adjustmentsValue: false,
     turnoverRate: true,
     status: true,
     stockStatus: false,
@@ -504,7 +508,7 @@ export function ProductsTable({
       try {
         const setting = await db.settings.get(VISIBLE_COLUMNS_KEY)
         if (setting?.value) {
-          setVisibleColumns(setting.value)
+          setVisibleColumns(prev => ({ ...prev, ...setting.value }))
         }
       } catch { } finally {
         setColumnsLoaded(true)
@@ -652,7 +656,7 @@ export function ProductsTable({
   function getComparableValue(p: Product, col: SortColumn): string | number {
     if (!col) return 0
     if (col === "turnoverRate") {
-      const r = calculateTurnover(p)
+      const r = calculateTurnoverRate(p)
       return isFinite(r) && !isNaN(r) ? r : 0
     }
     if (col === "itemNumber") {
@@ -667,14 +671,15 @@ export function ProductsTable({
     }
 
     // Explicitly handle numeric columns for sorting
-    if (['openingStock', 'purchases', 'returns', 'issues', 'inventoryCount', 'currentStock', 'difference', 'price', 'averagePrice', 'currentStockValue', 'issuesValue', 'quantityPerCarton'].includes(col)) {
+    if (['openingStock', 'purchases', 'returns', 'adjustments', 'issues', 'inventoryCount', 'currentStock', 'difference', 'price', 'averagePrice', 'currentStockValue', 'issuesValue', 'adjustmentsValue', 'quantityPerCarton'].includes(col)) {
       if (col === 'currentStock') {
         // Dynamic Calc for Sorting
         const op = Number(p.openingStock) || 0
         const pu = Number(p.purchases) || 0
         const ret = Number(p.returns) || 0
+        const adj = Number(p.adjustments) || 0
         const iss = Number(p.issues) || 0
-        return op + pu + ret - iss
+        return op + pu + ret + adj - iss
       }
       if (col === 'difference') {
         const op = Number(p.openingStock) || 0
@@ -840,8 +845,8 @@ export function ProductsTable({
       const XLSX = await import('xlsx')
       const order: Array<keyof typeof visibleColumns | 'actions'> = [
         'image', 'productCode', 'itemNumber', 'productName', 'location', 'category', 'unit', 'quantityPerCarton', 'cartonDimensions',
-        'openingStock', 'purchases', 'issues', 'inventoryCount', 'currentStock', 'difference',
-        'price', 'averagePrice', 'currentStockValue', 'issuesValue', 'turnoverRate', 'status', 'lastActivity'
+        'openingStock', 'purchases', 'returns', 'adjustments', 'inventoryCount', 'currentStock', 'difference',
+        'price', 'averagePrice', 'currentStockValue', 'purchasesValue', 'issuesValue', 'returnsValue', 'adjustmentsValue', 'turnoverRate', 'status', 'lastActivity'
       ]
       const active = order.filter((k) => k !== 'actions' && (visibleColumns as any)[k])
       const headers = active.map((k) => getColumnLabel(k))
@@ -878,46 +883,70 @@ export function ProductsTable({
               const base = parts.length ? parts.join(" × ") : ''
               return base ? (p.cartonUnit ? `${base} ${p.cartonUnit}` : base) : ''
             }
-            case 'openingStock': return p.openingStock
-            case 'purchases': return p.purchases
             case 'openingStock': return Number(p.openingStock || 0)
             case 'purchases': return Number(p.purchases || 0)
+            case 'returns': return Number(p.returns || 0)
+            case 'adjustments': return Number(p.adjustments || 0)
             case 'issues': return Number(p.issues || 0)
-            case 'inventoryCount': {
-              const op = Number(p.openingStock) || 0
-              const pu = Number(p.purchases) || 0
-              const ret = Number(p.returns) || 0
-              const iss = Number(p.issues) || 0
-              // [User Request] ALWAYS use Equation (System Stock) regardless of manual entry
-              return op + pu + ret - iss
-            }
+            case 'inventoryCount':
             case 'currentStock': {
               const op = Number(p.openingStock) || 0
               const pu = Number(p.purchases) || 0
               const ret = Number(p.returns) || 0
+              const adj = Number(p.adjustments) || 0
               const iss = Number(p.issues) || 0
-              return op + pu + ret - iss
+              return op + pu + ret + adj - iss
             }
-            case 'difference': {
-              // [User Request] Since Inventory is forced to System Stock, Difference is always 0
-              return 0
-            }
+            case 'difference': return 0
             case 'price': return Number(p.price || 0)
-            case 'averagePrice': return Number(p.averagePrice || 0)
-            case 'currentStockValue': return Number(p.currentStockValue || 0)
-            case 'issuesValue': {
-              const issues = Number(p.issues || 0)
-              const price = Number(p.price || 0)
-              return Number((issues * price).toFixed(5))
+            case 'averagePrice': return Number(p.averagePrice || p.price || 0)
+            case 'currentStockValue': {
+              const op = Number(p.openingStock) || 0
+              const pu = Number(p.purchases) || 0
+              const ret = Number(p.returns) || 0
+              const adj = Number(p.adjustments) || 0
+              const iss = Number(p.issues) || 0
+              const stock = op + pu + ret + adj - iss
+              return stock * (Number(p.averagePrice) || Number(p.price) || 0)
             }
+            case 'purchasesValue': {
+              const qty = Number(p.purchases) || 0
+              const price = Number(p.averagePrice || p.price || 0)
+              return qty * price
+            }
+            case 'issuesValue': return Number(p.issuesValue || 0)
+            case 'returnsValue': return Number(p.returnsValue || 0)
+            case 'adjustmentsValue': return Number(p.adjustmentsValue || 0)
             case 'turnoverRate': {
-              const r = calculateTurnover(p)
-              const v = isFinite(r) && !isNaN(r) ? r : 0
-              return `${(v * 100).toFixed(2)}%`
+              const rate = calculateTurnoverRate(p)
+              return `${(rate * 100).toFixed(2)}%`
             }
-            case 'status': return getStatusKey(p)
-            case 'lastActivity': return p.lastActivity ? formatArabicGregorianDateTime(new Date(p.lastActivity)) : '-'
-            case 'warehousePositionCode': return p.warehousePositionCode || '-'
+            case 'status': {
+              // Same logic as table turnover display
+              const os = Number(p.openingStock || 0)
+              const pur = Number(p.purchases || 0)
+              const iss = Number(p.issues || 0)
+              const cur = Number(p.currentStock || 0)
+              let statusKey = 'stagnant'
+              if (os === 0 && pur > 0 && iss === 0) statusKey = 'new'
+              else {
+                const avg = (os + cur) / 2
+                const rate = avg > 0 ? iss / avg : 0
+                if (rate > 1) statusKey = 'fast'
+                else if (rate > 0.35) statusKey = 'normal'
+                else if (rate > 0) statusKey = 'slow'
+                else statusKey = 'stagnant'
+              }
+              const statusLabels: Record<string, string> = {
+                fast: 'Fast / سريع',
+                normal: 'Normal / عادي',
+                slow: 'Slow / بطيء',
+                stagnant: 'Stagnant / راكد',
+                new: 'New / جديد',
+              }
+              return statusLabels[statusKey]
+            }
+            case 'lastActivity': return p.lastActivity ? convertNumbersToEnglish(new Date(p.lastActivity).toLocaleDateString()) : '-'
             default: return (p as any)[k]
           }
         })
@@ -1365,7 +1394,8 @@ export function ProductsTable({
                 })()}
                 {hasPermission(user, 'inventory.edit') && shouldShow('inventoryPage.columns.actions') && (
                   <th className={`text-center p-2 border bg-card whitespace-nowrap sticky z-40 ${isRTL ? "left-0 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]" : "right-0 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]"}`}>{t("products.columns.actions")}</th>
-                )}              </tr >
+                )}
+              </tr>
             </thead >
             <tbody className="text-sm">
               {sortedProducts.length === 0 ? (
@@ -1480,12 +1510,13 @@ export function ProductsTable({
 
                             // Dynamic calculations for derived columns
                             if (key === 'currentStock') {
-                              // Calculate current stock: Opening + Purchases + Returns - Issues
+                              // Calculate current stock: Opening + Purchases + Returns + Adjustments - Issues
                               const opening = Number(product.openingStock) || 0
                               const purchases = Number(product.purchases) || 0
                               const returns = Number(product.returns) || 0
+                              const adjustments = Number(product.adjustments) || 0
                               const issues = Number(product.issues) || 0
-                              const calculatedStock = opening + purchases + returns - issues
+                              const calculatedStock = opening + purchases + returns + adjustments - issues
                               content = calculatedStock
                             }
 
@@ -1499,8 +1530,9 @@ export function ProductsTable({
                               const opening = Number(product.openingStock) || 0
                               const purchases = Number(product.purchases) || 0
                               const returns = Number(product.returns) || 0
+                              const adjustments = Number(product.adjustments) || 0
                               const issues = Number(product.issues) || 0
-                              const calculatedStock = opening + purchases + returns - issues
+                              const calculatedStock = opening + purchases + returns + adjustments - issues
                               content = calculatedStock // FORCE EQUATION
                             }
 
@@ -1525,21 +1557,23 @@ export function ProductsTable({
                               const val = parseFloat(calculatedValue.toFixed(5))
                               content = formatCurrency(val)
                             }
-                            if (['price', 'averagePrice', 'currentStockValue'].includes(key)) {
+                            if (['price', 'averagePrice', 'currentStockValue', 'adjustmentsValue'].includes(key)) {
                               const numericVal = Number(content)
                               content = formatCurrency(isNaN(numericVal) ? 0 : numericVal)
                             }
 
                             // Quantity Formatting
-                            if (['openingStock', 'purchases', 'issues', 'inventoryCount', 'currentStock', 'difference'].includes(key)) {
+                            if (['openingStock', 'purchases', 'issues', 'inventoryCount', 'currentStock', 'difference', 'adjustments'].includes(key)) {
                               let numVal = Number(content || 0)
 
                               // [User Request] For Inventory Count, default to System Stock if undefined
                               if (key === 'inventoryCount' && (product.inventoryCount === undefined || product.inventoryCount === null)) {
                                 const op = Number(product.openingStock) || 0
                                 const pu = Number(product.purchases) || 0
+                                const ret = Number(product.returns) || 0
+                                const adj = Number(product.adjustments) || 0
                                 const iss = Number(product.issues) || 0
-                                numVal = op + pu - iss
+                                numVal = op + pu + ret + adj - iss
                                 content = numVal // Update content for "difference" calculation logic below? No, difference logic is separate above.
                               }
 
@@ -1578,7 +1612,8 @@ export function ProductsTable({
                               // Calculate Low Stock Threshold based on Percentage ONLY
                               const opening = Number(product.openingStock) || 0
                               const purchases = Number(product.purchases) || 0
-                              const totalIn = opening + purchases
+                              const adjustments = Number(product.adjustments) || 0
+                              const totalIn = opening + purchases + adjustments
                               const percentage = Number(product.lowStockThresholdPercentage) || 0
 
                               let isLow = false
@@ -1622,9 +1657,10 @@ export function ProductsTable({
                                         const op = Number(product.openingStock) || 0
                                         const pu = Number(product.purchases) || 0
                                         const ret = Number(product.returns) || 0
+                                        const adj = Number(product.adjustments) || 0
                                         const iss = Number(product.issues) || 0
-                                        const calc = op + pu + ret - iss
-                                        let tooltip = `المعادلة: افتتاحي (${op}) + مشتريات (${pu}) + مرتجعات (${ret}) - مصروفات (${iss}) = ${calc}`
+                                        const calc = op + pu + ret + adj - iss
+                                        let tooltip = `المعادلة: افتتاحي (${op}) + مشتريات (${pu}) + مرتجعات (${ret}) + تسويات (${adj}) - مصروفات (${iss}) = ${calc}`
 
                                         if (key === 'inventoryCount' && product.inventoryCount !== undefined && product.inventoryCount !== null) {
                                           tooltip += `\n (قيمة يدوية: ${product.inventoryCount})`
@@ -1642,17 +1678,17 @@ export function ProductsTable({
                           })}
                           {shouldShow('inventoryPage.columns.actions') && (
                             <td className={`p-2 text-center border align-middle sticky bg-inherit z-10 ${isRTL ? "left-0 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]" : "right-0 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]"}`}>
-                                <div className="flex items-center gap-1 justify-center">
-                                  <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-green-50 hover:text-green-600" onClick={() => onPrintLabel && onPrintLabel(product)} disabled={!hasPermission(user, 'inventory.edit')}>
-                                    <Printer className="h-4 w-4" />
-                                  </Button>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-blue-50 hover:text-blue-600" onClick={() => onEdit(product)} disabled={!hasPermission(user, 'inventory.edit')}>
-                                    <Edit className="h-4 w-4" />
-                                  </Button>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-red-50 hover:text-red-600" onClick={() => setDeleteId(product.id)} disabled={!hasPermission(user, 'inventory.delete')}>
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </div>
+                              <div className="flex items-center gap-1 justify-center">
+                                <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-green-50 hover:text-green-600" onClick={() => onPrintLabel && onPrintLabel(product)} disabled={!hasPermission(user, 'inventory.edit')}>
+                                  <Printer className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-blue-50 hover:text-blue-600" onClick={() => onEdit(product)} disabled={!hasPermission(user, 'inventory.edit')}>
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-red-50 hover:text-red-600" onClick={() => setDeleteId(product.id)} disabled={!hasPermission(user, 'inventory.delete')}>
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
                             </td>
                           )}
                         </tr>

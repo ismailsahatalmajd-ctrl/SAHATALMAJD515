@@ -615,7 +615,10 @@ export default function ReportsPage() {
     }
   }, [period, transactions, stockMovements, startDate, endDate, selectedBranches, selectedStatuses, selectedTypes, selectedCategories, selectedLocations, selectedProducts, searchInvoice, branches, products])
 
-
+  const selectedProductNames = useMemo(() => 
+    selectedProducts.map(id => products.find(p => p.id === id)?.productName).filter(Boolean) as string[],
+    [selectedProducts, products]
+  )
 
   return (
     <div className="min-h-screen bg-background">
@@ -950,7 +953,13 @@ export default function ReportsPage() {
             </div>
           )}
 
-          {shouldShow('reportsPage.stockMovementTable') && <StockMovementReportTable movements={filteredStockMovements} limit={1000} />}
+          {shouldShow('reportsPage.stockMovementTable') && (
+            <StockMovementReportTable 
+              movements={filteredStockMovements} 
+              limit={1000} 
+              filterProductNames={selectedProductNames}
+            />
+          )}
 
           {shouldShow('reportsPage.inventoryAnalysis') && <InventoryMovementAnalysis products={filteredProducts} />}
 

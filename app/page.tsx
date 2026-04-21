@@ -114,7 +114,9 @@ const DEFAULT_COLUMNS = ["itemNumber", "productName", "productCode", "price", "q
 const getStockStatus = (p: Product): StockStatus => {
   if (p.currentStock <= 0) return "out"
   const threshold = p.lowStockThresholdPercentage || 33.33
-  const limit = (p.openingStock + p.purchases) * (threshold / 100)
+  // Total inbound = Opening + Purchases + Returns
+  const totalInbound = (Number(p.openingStock) || 0) + (Number(p.purchases) || 0) + (Number(p.returns) || 0)
+  const limit = totalInbound * (threshold / 100)
   if (p.currentStock <= limit) return "low"
   return "available"
 }
@@ -215,8 +217,10 @@ export default function Home() {
         if (!p.id) continue
         const op = Number(p.openingStock) || 0
         const pu = Number(p.purchases) || 0
+        const ret = Number(p.returns) || 0
+        const adj = Number(p.adjustments) || 0
         const iss = Number(p.issues) || 0
-        const theoretical = op + pu - iss
+        const theoretical = op + pu + ret + adj - iss
         const stored = Number(p.currentStock)
 
         const needsCartonFix = !p.quantityPerCarton || p.quantityPerCarton === 0

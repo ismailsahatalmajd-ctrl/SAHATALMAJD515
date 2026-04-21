@@ -42,7 +42,7 @@ export function GlobalSearch({ products, open, onOpenChange, onProductSelect }: 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[95vw] w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>البحث في المنتجات</DialogTitle>
+          <DialogTitle>بحث في المنتجات/Search products</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">

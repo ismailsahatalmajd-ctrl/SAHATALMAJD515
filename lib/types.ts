@@ -30,6 +30,8 @@ export interface Product {
   purchases: number
   issues: number
   returns: number // New field: Total Returns from Branches (Inbound)
+  adjustments: number // New field: Total Inventory Settlements/Adjustments
+  lastAdjustmentNote?: string // New field: Reason for last adjustment
   inventoryCount: number
   currentStock: number
   difference: number
@@ -38,6 +40,7 @@ export interface Product {
   currentStockValue: number
   issuesValue: number
   returnsValue: number // New field: Value of Returns
+  adjustmentsValue: number // New field: Value of Adjustments
   quantityPerCarton?: number // الكمية في الكرتون
   cartonBarcode?: string // باركود الكرتون
   category: string
@@ -89,6 +92,19 @@ export interface Transaction {
   lastActivity?: string
   updatedAt?: string
   lastModifiedBy?: string
+}
+
+export interface OperationRequest {
+  id: string
+  operationType: "purchase" | "issue_delivery" | "return" | "return_receive" | "product_add" | "product_update"
+  status: "pending" | "applied" | "synced" | "failed"
+  entityId?: string
+  operationNumber?: string
+  payload?: any
+  error?: string
+  createdAt: string
+  updatedAt: string
+  createdBy?: string
 }
 
 export interface ReceivingNoteItem {
@@ -363,6 +379,8 @@ export interface Return {
   returnNumber?: string
   returnCode?: string // New Format: RR-B01-0001 (Warehouse Receipt)
   requestCode?: string // New Format: RN-B01-0001 (Branch Request)
+  /** ربط مباشر بسجل طلب الفرع (نفس id في جدول branchRequests) */
+  requestId?: string
   // مصدر المرتجع: عملية صرف (عودة إلى المخزون) أو عملية شراء (عودة إلى المورد)
   sourceType?: "issue" | "purchase"
   // ربط المرتجع بسجل مصدر محدد
@@ -386,6 +404,11 @@ export interface Return {
   // تتبع حالة طلب الإرجاع
   status?: "pending" | "approved" | "rejected" | "completed"
   approvedBy?: string
+  /** تسجيل طباعة وثيقة المرتجع (لا يغيّر المخزون) */
+  printedAt?: string
+  printedBy?: string
+  /** وقت إتمام استلام المرتجع وتطبيق المخزون */
+  receivedAt?: string
   createdAt: string
   updatedAt?: string
   lastModifiedBy?: string

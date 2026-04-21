@@ -516,16 +516,16 @@ export function PurchaseRequestsSection() {
                 <div className="p-4 border-t bg-gray-50 flex flex-col gap-3 shrink-0">
                   <div>
                     <Label className="text-xs mb-1 block">ملاحظات عامة للطلب / General Notes</Label>
-                    <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="ملاحظات إضافية على كامل الطلب..." className="bg-white border-gray-200" />
+                    <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="ملاحظات إضافية على كامل الطلب.note in all products" className="bg-white border-gray-200" />
                   </div>
                 </div>
               </div>
             </div>
             <DialogFooter className="shrink-0 bg-white p-4 border-t gap-2 justify-end">
-              <Button variant="secondary" onClick={() => setIsDialogOpen(false)}>{t("purchaseRequests.dialog.cancel")}</Button>
-              <Button onClick={persistDraft} className="font-bold"><Save className="ml-2 h-4 w-4" /> {t("purchaseRequests.dialog.saveDraft")}</Button>
+              <Button variant="secondary" onClick={() => setIsDialogOpen(false)}>إلغاء / Cancel</Button>
+              <Button onClick={persistDraft} className="font-bold"><Save className="ml-2 h-4 w-4" /> {t("purchaseRequests.dialog.saveDraft")}Save Draft</Button>
               <Button onClick={submitRequest} variant="default" className="font-bold border-0 text-white" style={{ background: 'linear-gradient(135deg,#2563eb,#3b82f6)' }}>
-                <Send className="ml-2 h-4 w-4" /> {t("purchaseRequests.dialog.submit")}
+                <Send className="ml-2 h-4 w-4" /> {t("purchaseRequests.dialog.submit")}Submit Order
               </Button>
             </DialogFooter>
           </DialogContent>

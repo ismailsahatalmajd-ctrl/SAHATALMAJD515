@@ -80,6 +80,7 @@ export default function IssuesPage() {
   const [editingIssue, setEditingIssue] = useState<Issue | undefined>(undefined)
   const [hasDrafts, setHasDrafts] = useState(false)
   const [deliverDialogIssueId, setDeliverDialogIssueId] = useState<string | null>(null)
+  const [isConfirmingDelivery, setIsConfirmingDelivery] = useState(false)
   const [sessionBranchId, setSessionBranchId] = useState<string>("")
 
   // Smart Assembly Selection State
@@ -198,12 +199,25 @@ export default function IssuesPage() {
   }
 
   const submittingRef = useRef(false)
+  const deliveryInFlightRef = useRef<Set<string>>(new Set())
 
   const handleConfirmDelivered = async () => {
-    if (!deliverDialogIssueId || submittingRef.current) return
+    if (!deliverDialogIssueId || submittingRef.current || isConfirmingDelivery || deliveryInFlightRef.current.has(deliverDialogIssueId)) return
 
+    const operationId = `issue_delivery_${deliverDialogIssueId}`
     try {
       submittingRef.current = true
+      setIsConfirmingDelivery(true)
+      deliveryInFlightRef.current.add(deliverDialogIssueId)
+      await db.operationRequests.put({
+        id: operationId,
+        operationType: "issue_delivery",
+        status: "pending",
+        entityId: deliverDialogIssueId,
+        payload: { issueId: deliverDialogIssueId },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      } as any)
 
       // Update Local (Optimistic)
       const updated = await setIssueDelivered(deliverDialogIssueId, "admin")
@@ -230,14 +244,26 @@ export default function IssuesPage() {
           title: getDualString("issues.toast.delivered"),
           description: getDualString("issues.toast.deliveredDesc")
         })
+        await db.operationRequests.update(operationId, { status: "synced", updatedAt: new Date().toISOString() } as any)
       } else {
         toast({
           title: getDualString("common.error"),
           description: getDualString("issues.toast.deliveryError"),
           variant: "destructive"
         })
+        await db.operationRequests.update(operationId, { status: "failed", error: "delivery_not_applied", updatedAt: new Date().toISOString() } as any)
       }
+    } catch (e: any) {
+      await db.operationRequests.update(operationId, { status: "failed", error: e?.message || "delivery_failed", updatedAt: new Date().toISOString() } as any)
+      console.error("Delivery confirmation failed", e)
+      toast({
+        title: getDualString("common.error"),
+        description: getDualString("issues.toast.deliveryError"),
+        variant: "destructive"
+      })
     } finally {
+      if (deliverDialogIssueId) deliveryInFlightRef.current.delete(deliverDialogIssueId)
+      setIsConfirmingDelivery(false)
       submittingRef.current = false
       setDeliverDialogIssueId(null)
     }
@@ -526,7 +552,7 @@ export default function IssuesPage() {
   const totalProductsCount = aggregatedInvoiceRows.length
   const totalInvoiceAmount = aggregatedInvoiceRows.reduce((sum, r) => sum + r.subtotal, 0)
 
-  const formatCurrency = (val: number) => `${formatEnglishNumber(val.toFixed(2))} ${t("common.currency")}`
+  const formatCurrency = (val: number) => `${formatEnglishNumber(Number(val || 0).toFixed(2))} ${t("common.currency")}`
 
   const handleExportToOdooExcel = (issueOrIssues: Issue | Issue[]) => {
     const data: any[] = []
@@ -1027,10 +1053,10 @@ export default function IssuesPage() {
                       <TableHead className="w-[140px] shrink-0 border-x text-center flex items-center justify-center"><DualText k="issues.table.issues.columns.total" /></TableHead>
                       <TableHead className="w-[180px] shrink-0 border-x text-center flex items-center justify-center"><DualText k="issues.table.issues.columns.date" /></TableHead>
                       <TableHead className="w-[120px] shrink-0 border-x text-center text-xs text-muted-foreground font-bold flex items-center justify-center">
-                        Branch Received / استلام الفرع
+                        استلام الفرع <br/> Branch Received
                       </TableHead>
                       <TableHead className="w-[120px] shrink-0 border-x text-center text-xs text-muted-foreground font-bold flex items-center justify-center">
-                        Warehouse Delivered / تسليم المستودع
+                        تسليم المستودع <br/> Warehouse Delivered
                       </TableHead>
                       <TableHead className="w-[120px] shrink-0 border-x text-center flex items-center justify-center"><DualText k="issues.table.issues.columns.source" /></TableHead>
                       <TableHead className="w-[150px] shrink-0 border-x text-center flex items-center justify-center"><DualText k="issues.table.issues.columns.notes" /></TableHead>
@@ -1271,7 +1297,16 @@ export default function IssuesPage() {
               </DialogHeader>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setDeliverDialogIssueId(null)}><DualText k="common.no" /></Button>
-                <Button onClick={handleConfirmDelivered}><DualText k="common.yes" /></Button>
+                <Button onClick={handleConfirmDelivered} disabled={isConfirmingDelivery}>
+                  {isConfirmingDelivery ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      جارٍ التأكيد...
+                    </span>
+                  ) : (
+                    <DualText k="common.yes" />
+                  )}
+                </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>

@@ -118,14 +118,14 @@ export function SupplierCombobox({ value, onChange, placeholder = "اختر ال
                                 <div className="h-6 w-6 rounded-full bg-blue-100 flex items-center justify-center mr-1">
                                     <Plus className="h-3.5 w-3.5" />
                                 </div>
-                                {searchValue.trim() ? `إضافة مورد جديد: "${searchValue}"` : "اكتب اسم المورد لإضافته..."}
+                                {searchValue.trim() ? `إضافة مورد جديد\nAdd new supplier: "${searchValue}"` : "اكتب اسم المورد لإضافته\nAdd new supplier"}
                             </CommandItem>
                         </CommandGroup>
 
                         {filteredSuppliers.length === 0 && searchValue.trim() === "" && (
                             <div className="py-12 text-center text-slate-400">
                                 <Building2 className="h-8 w-8 mx-auto mb-2 opacity-10" />
-                                <p className="text-[10px] font-bold">لا يوجد موردين مسجلين حالياً</p>
+                                <p className="text-[10px] font-bold">لا يوجد موردين مسجلين حالياً<br />No suppliers suppliers registered currently</p>
                             </div>
                         )}
                     </CommandList>

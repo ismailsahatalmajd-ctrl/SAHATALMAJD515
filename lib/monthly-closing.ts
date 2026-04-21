@@ -94,8 +94,10 @@ export async function closeMonth(onProgress?: (curr: number, total: number, msg:
     const updates = products.map(product => {
         const opening = Number(product.openingStock) || 0
         const purchases = Number(product.purchases) || 0
+        const returns = Number(product.returns) || 0
+        const adjustments = Number(product.adjustments) || 0
         const issues = Number(product.issues) || 0
-        const theoreticalCurrent = opening + purchases - issues
+        const theoreticalCurrent = opening + purchases + returns + adjustments - issues
         const inventoryCount = Number(product.inventoryCount) || 0
         const storedCurrent = Number(product.currentStock)
         const hasStoredCurrent = !Number.isNaN(storedCurrent)
@@ -109,11 +111,15 @@ export async function closeMonth(onProgress?: (curr: number, total: number, msg:
             ...product,
             openingStock: baseStock,
             currentStock: baseStock,
-            purchases: 0, // 2. Reset purchases
-            issues: 0, // 3. Reset issues
-            issuesValue: 0, // 4. Reset issuesValue (quantity is already 0)
+            purchases: 0, 
+            issues: 0,
+            issuesValue: 0,
+            returns: 0,
+            returnsValue: 0,
+            adjustments: 0,
+            adjustmentsValue: 0,
             currentStockValue: baseStock * averagePrice,
-            inventoryCount: 0, // Reset inventory count too, as it has been applied
+            inventoryCount: 0, 
             lastActivity: now.toISOString(),
         }
     })

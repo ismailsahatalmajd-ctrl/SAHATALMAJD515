@@ -28,28 +28,54 @@ async function imageToBase64(url: string, format: "png" | "jpeg"): Promise<strin
 // تصدير المنتجات إلى Excel مع الصور
 export async function exportProductsToExcel(
   products: Product[],
+  visibleColumns: Record<string, boolean>,
+  columnLabels: Record<string, string>,
   options: ExportOptions = { imageFormat: "url", includeImages: true },
 ) {
+  // Define column order (same as table and PDF)
+  const order = [
+    'productCode', 'itemNumber', 'productName', 'location', 'category', 'unit', 'cartonDimensions',
+    'openingStock', 'purchases', 'issues', 'returns', 'adjustments', 'inventoryCount', 'currentStock', 'difference',
+    'price', 'averagePrice', 'currentStockValue', 'purchasesValue', 'issuesValue', 'returnsValue', 'adjustmentsValue', 'turnoverRate', 'status', 'stockStatus', 'lastActivity'
+  ]
+
+  const activeColumns = order.filter(key => visibleColumns[key])
+
   const productsData = await Promise.all(
     products.map(async (product) => {
-      let imageData = product.image || ""
+      const row: Record<string, any> = {}
 
-      if (options.includeImages && imageData) {
-        if (options.imageFormat === "png" || options.imageFormat === "jpeg") {
-          imageData = await imageToBase64(imageData, options.imageFormat)
+      activeColumns.forEach(col => {
+        let value: any = (product as any)[col]
+        const label = columnLabels[col] || col
+
+        // Dynamic Calculations (Mirroring Table & PDF logic)
+        if (col === 'currentStock') {
+          const op = Number(product.openingStock) || 0
+          const pu = Number(product.purchases) || 0
+          const ret = Number(product.returns) || 0
+          const adj = Number(product.adjustments) || 0
+          const iss = Number(product.issues) || 0
+          value = op + pu + ret + adj - iss
         }
-      }
 
-      return {
-        الكود: product.productCode || "",
-        الاسم: product.productName,
-        الفئة: product.category,
-        السعر: product.price,
-        "المخزون الحالي": product.currentStock || 0,
-        الوحدة: product.unit || "قطعة",
-        الموقع: product.location || "",
-        الصورة: imageData,
-      }
+        if (col === 'adjustmentsValue') {
+          if (value === undefined) {
+             const qty = Number(product.adjustments) || 0
+             const price = Number(product.averagePrice || product.price || 0)
+             value = qty * price
+          }
+        }
+
+        // Format values
+        if (['price', 'averagePrice', 'currentStockValue', 'issuesValue', 'purchasesValue', 'returnsValue', 'adjustmentsValue'].includes(col)) {
+          value = Number(value || 0).toFixed(2)
+        }
+
+        row[label] = value
+      })
+
+      return row
     }),
   )
 
@@ -57,8 +83,9 @@ export async function exportProductsToExcel(
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, "المنتجات")
 
-  const cols = [{ wch: 15 }, { wch: 30 }, { wch: 15 }, { wch: 10 }, { wch: 15 }, { wch: 10 }, { wch: 15 }, { wch: 50 }]
-  ws["!cols"] = cols
+  // Auto-fit columns (simplified)
+  const COL_WIDTH = 20
+  ws["!cols"] = activeColumns.map(() => ({ wch: COL_WIDTH }))
 
   XLSX.writeFile(wb, `المنتجات-${new Date().toISOString().split("T")[0]}.xlsx`)
 }

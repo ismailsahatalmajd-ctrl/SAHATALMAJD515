@@ -1,6 +1,6 @@
 import type { Return } from "./types"
 import { getProducts } from "@/lib/storage"
-import { formatArabicGregorianDate, formatArabicGregorianTime, formatEnglishNumber, getNumericInvoiceNumber, getSafeImageSrc } from "@/lib/utils"
+import { formatArabicGregorianDate, formatArabicGregorianDateTime, formatArabicGregorianTime, formatEnglishNumber, getNumericInvoiceNumber, getSafeImageSrc } from "@/lib/utils"
 import { getInvoiceSettings } from "./invoice-settings-store"
 import { db } from "@/lib/db"
 import { formatInvoiceNumber } from "@/lib/id-generator"
@@ -22,6 +22,18 @@ export async function generateReturnPDF(ret: Return) {
   // For old returns, fall back to the legacy returnNumber (or ID based).
   // Do NOT auto-generate new RR codes for old records.
   const displayCode = ret.returnCode || returnNumber
+
+  const isReceived = ret.status === "approved" || ret.status === "completed"
+  const statusLineAr = isReceived
+    ? "حالة المستند: تم استلام المرتجع وتحديث المخزون"
+    : "حالة المستند: قيد استلام المخزن — لم يُحدَّث المخزون بعد"
+  const statusLineEn = isReceived
+    ? "Document status: Received — inventory updated"
+    : "Document status: Awaiting warehouse receipt — inventory not updated yet"
+  const printedLine =
+    ret.printedAt != null
+      ? `<p><strong>تاريخ آخر طباعة / Last printed:</strong> ${formatArabicGregorianDateTime(new Date(ret.printedAt))}${ret.printedBy ? ` (${ret.printedBy})` : ""}</p>`
+      : ""
 
   // Resolve images from DB
   const productsWithImages = await Promise.all(ret.products.map(async (p) => {
@@ -129,6 +141,8 @@ export async function generateReturnPDF(ret: Return) {
       ${ret.requestCode ? `<p><strong>رقم طلب المرتجع / Return Request No:</strong> ${ret.requestCode}</p>` : ''}
       <p><strong>التاريخ / Date:</strong> ${dateStr} - ${dateStrEn}</p>
       <p><strong>الوقت / Time:</strong> ${timeStr} - ${timeStrEn}</p>
+      <p style="font-size:12px;color:#334155;"><strong>${statusLineAr}</strong><br/><span style="color:#64748b">${statusLineEn}</span></p>
+      ${printedLine}
       <div style="margin-top:5px; text-align:center;"><svg id="barcode"></svg></div>
       ${ret.originalInvoiceNumber ? `<p><strong>رقم الفاتورة الأصلية / Original Invoice No:</strong> ${ret.originalInvoiceNumber}</p>` : ""}
     </div>
@@ -183,7 +197,6 @@ export async function generateReturnPDF(ret: Return) {
       `
       })
       .join("")}
-    </tbody>
     </tbody>
   </table>
 

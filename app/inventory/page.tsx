@@ -135,7 +135,7 @@ export default function InventoryPage() {
           <div>
             <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
               <ClipboardList className="w-8 h-8 text-blue-600" />
-              Branch Inventory Reports / تقارير جرد الفروع
+              تقارير جرد الفروع <br/> Branch Inventory Reports
             </h1>
             <p className="text-slate-500 mt-1">View and export inventory audit reports from branches / عرض وتصدير تقارير الجرد المرفوعة من الفروع</p>
           </div>
@@ -160,13 +160,13 @@ export default function InventoryPage() {
               <Table>
                 <TableHeader className="bg-slate-50/50">
                   <TableRow>
-                    <TableHead className="w-[180px] border-r border-slate-100 text-center">Report Code / كود التقرير</TableHead>
-                    <TableHead className="border-r border-slate-100 text-center">Branch / الفرع</TableHead>
-                    <TableHead className="border-r border-slate-100 text-center">Date / التاريخ</TableHead>
-                    <TableHead className="border-r border-slate-100 text-center">Items / الأصناف</TableHead>
-                    <TableHead className="border-r border-slate-100 text-center">Value / القيمة</TableHead>
-                    <TableHead className="border-r border-slate-100 text-center">Notes / ملاحظات</TableHead>
-                    <TableHead className="text-center">Actions / الإجراءات</TableHead>
+                    <TableHead className="w-[180px] border-r border-slate-100 text-center">كود التقرير <br/> Report Code</TableHead>
+                    <TableHead className="border-r border-slate-100 text-center">الفرع <br/> Branch</TableHead>
+                    <TableHead className="border-r border-slate-100 text-center">التاريخ <br/> Date</TableHead>
+                    <TableHead className="border-r border-slate-100 text-center">الأصناف <br/> Items</TableHead>
+                    <TableHead className="border-r border-slate-100 text-center">القيمة <br/> Value</TableHead>
+                    <TableHead className="border-r border-slate-100 text-center">الملاحظات <br/> Notes</TableHead>
+                    <TableHead className="text-center">Actions Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

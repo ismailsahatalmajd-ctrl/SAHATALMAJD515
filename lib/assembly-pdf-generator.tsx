@@ -289,10 +289,10 @@ export async function generateAssemblyPDF(
           ${assemblySettings.sortByItemNumber ? '<th>التسلسل<br/><span style="font-weight:normal;font-size:9px">No.</span></th>' : ''}
           ${assemblySettings.showImages ? '<th>صورة<br/><span style="font-weight:normal;font-size:9px">Image</span></th>' : ''}
           <th>كود<br/><span style="font-weight:normal;font-size:9px">Code</span></th>
-          <th style="width:35%;">المنتج<br/><span style="font-weight:normal;font-size:9px">Product</span></th>
+          <th style="width:30%;">المنتج<br/><span style="font-weight:normal;font-size:9px">Product</span></th>
           <th>وحدة<br/><span style="font-weight:normal;font-size:9px">Unit</span></th>
           <th>الكمية<br/><span style="font-weight:normal;font-size:9px">Qty</span></th>
-          <th>ملاحظات<br/><span style="font-weight:normal;font-size:9px">Notes</span></th>
+          <th style="max-width:80%; white-space: normal; word-wrap: break-word; overflow-wrap: break-word;">ملاحظات<br/><span style="font-weight:normal;font-size:9px">Notes</span></th>
           ${assemblySettings.showPrice ? '<th>سعر<br/><span style="font-weight:normal;font-size:9px">Price</span></th>' : ''}
           ${assemblySettings.showTotal ? '<th>إجمالي<br/><span style="font-weight:normal;font-size:9px">Total</span></th>' : ''}
           <th>فعلي<br/><span style="font-weight:normal;font-size:9px">Actual</span></th>

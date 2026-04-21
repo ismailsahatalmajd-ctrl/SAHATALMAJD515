@@ -1,6 +1,6 @@
 import type { BranchRequest, BranchRequestHistoryEntry, BranchRequestItem, BranchRequestStatus } from "./branch-request-types"
 import type { IssueProduct } from "./types"
-import { getProducts, getBranches, addIssue, addReturn, approveReturn, getBranchRequests as getDbRequests, saveBranchRequests as saveDbRequests, deleteAllBranchRequestsApi } from "./storage"
+import { getProducts, getBranches, addIssue, addReturn, getBranchRequests as getDbRequests, saveBranchRequests as saveDbRequests, deleteAllBranchRequestsApi } from "./storage"
 
 const generateId = () => Date.now().toString() + Math.random().toString(36).substr(2, 9)
 
@@ -155,12 +155,17 @@ export async function approveBranchRequest(id: string, actor?: string): Promise<
       reason: req.notes || "مرتجع من الفرع (طلب)",
       sourceType: "issue" as const,
       status: "pending" as const,
+      requestId: id,
+      requestCode: req.requestNumber,
     }
 
     const ret = await addReturn(newReturn)
-    await approveReturn(ret.id, actor || "admin")
     setRequestStatus(id, "approved", actor)
-    appendRequestHistory(id, { action: "approved", message: `تمت الموافقة على المرتجع وإنشاء سجل برقم ${ret.returnNumber || ret.id.slice(0, 8)}`, actor })
+    appendRequestHistory(id, {
+      action: "approved",
+      message: `تم تحويل الطلب إلى مستند مرتجع ${ret.returnCode || ret.returnNumber || ret.id.slice(0, 8)} قيد الاستلام (المخزون عند قبول الاستلام)`,
+      actor,
+    })
     return { approved: true, returnId: ret.id }
   }
 

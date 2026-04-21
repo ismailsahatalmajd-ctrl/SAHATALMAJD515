@@ -1,7 +1,9 @@
 "use client"
 
 import type React from "react"
-
+import { writeBatch, doc } from "firebase/firestore"
+import { db } from "@/lib/firebase"
+import { db as localDb } from "@/lib/db"
 import { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Plus, Search, Calendar, Package, DollarSign, Truck, Receipt, Download, Undo2, ShoppingCart, Trash2, Loader2, Printer, Printer as PrintIcon, Trash2 as TrashIcon, PlusCircle, AlertCircle, List, Zap } from "lucide-react"
@@ -95,7 +97,8 @@ export default function PurchasesPage() {
   const purchases = realtimePurchases || []
 
   // Search & Filter State
-  const [searchTerm, setSearchTerm] = useState("")
+    const [searchTerm, setSearchTerm] = useState("")
+  const [requestId, setRequestId] = useState<string>("")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [dialogSearch, setDialogSearch] = useState("")
   const [selectedLocations, setSelectedLocations] = useState<string[]>([])
@@ -120,6 +123,7 @@ export default function PurchasesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isReceivingNoteOpen, setIsReceivingNoteOpen] = useState(false)
   const [showQuickAdd, setShowQuickAdd] = useState(false)
+  const submittingRef = useRef(false)
 
   // Memoized Helpers
   const uniqueLocations = useMemo(() => {
@@ -154,8 +158,8 @@ export default function PurchasesPage() {
   }, [searchTerm, purchases, products])
 
   // Calculation Helpers
-  const totalPurchases = (filteredPurchases as Transaction[] || []).reduce((sum, p) => sum + p.totalAmount, 0)
-  const totalQuantity = (filteredPurchases as Transaction[] || []).reduce((sum, p) => sum + p.quantity, 0)
+  const totalPurchases = (filteredPurchases as Transaction[] || []).reduce((sum, p) => sum + (Number(p.totalAmount) || 0), 0)
+  const totalQuantity = (filteredPurchases as Transaction[] || []).reduce((sum, p) => sum + (Number(p.quantity) || 0), 0)
 
   // Event Handlers
   const toggleLocation = (loc: string) => {
@@ -235,59 +239,101 @@ export default function PurchasesPage() {
     }
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    console.log("🚀 Starting Purchase Submission...", { items: cartItems.length })
 
-    if (cartItems.length === 0) {
-      toast({ title: "القائمة فارغة", description: "الرجاء إضافة منتجات أولاً", variant: "destructive" })
-      return
-    }
+    if (isSubmitting || submittingRef.current || cartItems.length === 0) return;
 
     setIsSubmitting(true)
+    submittingRef.current = true
+    const opRequestId = requestId || self.crypto.randomUUID()
+    if (!requestId) setRequestId(opRequestId)
+    const batch = writeBatch(db)
+    await localDb.operationRequests.put({
+      id: opRequestId,
+      operationType: "purchase",
+      status: "pending",
+      operationNumber: String(opRequestId),
+      payload: { cartCount: cartItems.length, supplierName, supplierInvoiceNumber },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as any)
 
     try {
-      const operationNumber = Date.now().toString()
-      console.log("📝 Operation Number:", operationNumber)
-
-      // [CRITICAL CHANGE] Process items SEQUENTIALLY to avoid product race conditions in DB
-      console.time("Processing Purchase Items")
-      for (const item of cartItems) {
-        console.log(`📦 Processing item: ${item.productName}...`)
-        const finalNotes = generalNotes ? `${item.notes} | عام: ${generalNotes}` : item.notes
-
-        const purchaseData: any = {
+      // 1. معالجة كل صنف في السلة — معرف حركة ثابت لكل سطر داخل نفس operationNumber (إعادة المحاولة لا تضاعف المخزون)
+      for (let lineIndex = 0; lineIndex < cartItems.length; lineIndex++) {
+        const item = cartItems[lineIndex]
+        const transactionId = `${opRequestId}_line_${lineIndex}`
+        const transRef = doc(db, "transactions", transactionId)
+        
+        const itemTotal = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)
+        
+        // ب- إضافة الحركة إلى الـ Batch (للسحاب)
+        batch.set(transRef, {
+          id: transactionId,
+          operationNumber: opRequestId,
           productId: item.productId,
           productName: item.productName,
           type: "purchase",
           quantity: Number(item.quantity) || 0,
           unitPrice: Number(item.unitPrice) || 0,
-          totalAmount: (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0),
-          notes: finalNotes,
+          totalAmount: itemTotal,
           supplierName: supplierName || "",
           supplierInvoiceNumber: supplierInvoiceNumber || "",
-          operationNumber,
-        }
+          notes: generalNotes || "",
+          createdAt: new Date().toISOString(),
+          status: 'completed'
+        })
 
-        const result = await addTransaction(purchaseData)
-        console.log(`✅ Item saved locally: ${result.id}`)
+        // ج- تحديث البيانات محلياً (هذا يحدث فوراً ويقوم أيضاً بمزامنة المنتج للسحاب بآخر قيمة محسوبة)
+        // [تنبيه] قمنا بإزالة batch.update(productRef, { purchases: increment... }) 
+        // لتجنب مضاعفة العدد (مرة من هنا ومرة من دالة addTransaction).
+        await addTransaction({
+          id: transactionId, // [مهم] نستخدم نفس الـ ID لضمان تطابق البيانات
+          productId: item.productId,
+          productName: item.productName,
+          type: "purchase",
+          quantity: Number(item.quantity) || 0,
+          unitPrice: Number(item.unitPrice) || 0,
+          totalAmount: itemTotal,
+          notes: generalNotes,
+          supplierName: supplierName || "",
+          supplierInvoiceNumber: supplierInvoiceNumber || "",
+          operationNumber: opRequestId,
+        })
       }
-      console.timeEnd("Processing Purchase Items")
 
+      // 2. إرسال الـ Batch للسحاب (سيقوم بحفظ سجلات الحركات فقط، بينما يتم تحديث المخزون عبر addTransaction)
+      await batch.commit()
+      await localDb.operationRequests.update(opRequestId, { status: "synced", updatedAt: new Date().toISOString() } as any)
+
+      // 4. تصفير النموذج ونجاح العملية
       setCartItems([])
       setGeneralNotes("")
       setSupplierName("")
       setSupplierInvoiceNumber("")
       setIsDialogOpen(false)
-      toast({ title: "نجاح / Success", description: "تم تسجيل عملية الشراء بنجاح" })
-      console.log("✨ All items processed and dialog closed.")
+      toast({ title: "تم بنجاح", description: "تم تسجيل الفاتورة وتحديث الأسعار في الجدول" })
+
     } catch (error: any) {
-      console.error("❌ Submission Error:", error)
-      toast({ title: "خطأ", description: "فشل في تسجيل العملية: " + error.message, variant: "destructive" })
+      console.error("❌ Error in Batch Submit:", error)
+      await localDb.operationRequests.update(opRequestId, {
+        status: "failed",
+        error: error?.message || "purchase_submit_failed",
+        updatedAt: new Date().toISOString()
+      } as any)
+      toast({ 
+        title: "فشلت العملية", 
+        description: "تأكد من الإنترنت وحاول مجدداً: " + error.message, 
+        variant: "destructive" 
+      })
     } finally {
       setIsSubmitting(false)
+      submittingRef.current = false
     }
   }
+    
+
 
   return (
     <div className="min-h-screen bg-background">
@@ -319,7 +365,7 @@ export default function PurchasesPage() {
                 <>
                   <Button onClick={() => setIsReceivingNoteOpen(true)} variant="outline" className="gap-2 border-primary/20 hover:bg-primary/5 transition-all text-sm font-semibold h-10 px-4 rounded-xl">
                     <Truck className="h-4 w-4 text-primary" />
-                    سند استلام بضاعة / GRN
+                    سند استلام بضاعة / Goods Receipt Note
                   </Button>
                   <ReceivingNoteDialog open={isReceivingNoteOpen} onOpenChange={setIsReceivingNoteOpen} />
                 </>
@@ -327,7 +373,19 @@ export default function PurchasesPage() {
               {shouldShow('purchasesPage.addPurchase') && (
                 <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button onClick={() => { setCartItems([]); setGeneralNotes(""); setSupplierName(""); setSupplierInvoiceNumber(""); setIsDialogOpen(true); setShowQuickAdd(false); }}>
+                    <Button onClick={() => { 
+  // 1. توليد معرف فريد عالمياً (UUID) بمجرد فتح النافذة
+  const newId = self.crypto.randomUUID(); 
+  setRequestId(newId); // حفظ الرقم في الدرج الذي صنعناه للتو
+
+  // 2. تصفير الحقول القديمة لبدء عملية نظيفة
+  setCartItems([]); 
+  setGeneralNotes(""); 
+  setSupplierName(""); 
+  setSupplierInvoiceNumber(""); 
+  setIsDialogOpen(true); 
+  setShowQuickAdd(false); 
+}}>
                       <Plus className="ml-2 h-4 w-4" />
                       إضافة عملية شراء / Add Purchase
                     </Button>
@@ -358,7 +416,7 @@ export default function PurchasesPage() {
                             className="h-10 rounded-xl gap-2"
                           >
                             {showQuickAdd ? <List className="h-4 w-4" /> : <Zap className="h-4 w-4" />}
-                            {showQuickAdd ? "قائمة المنتجات" : "إضافة سريعة"}
+{showQuickAdd ? "قائمة المنتجات / Products List" : "إضافة سريعة / Quick Add"}
                           </Button>
                         </div>
                         {/* الفلاتر السريعة */}
@@ -419,7 +477,8 @@ export default function PurchasesPage() {
                               const matchesLoc = selectedLocations.length === 0 || (p.location && selectedLocations.includes(p.location))
                               const stock = Number(p.currentStock ?? 0)
                               const isOutOfStock = stock <= 0
-                              const limit = ((p.openingStock || 0) + (p.purchases || 0)) * ((p.lowStockThresholdPercentage || 33.33) / 100)
+                              const totalInbound = (Number(p.openingStock) || 0) + (Number(p.purchases) || 0) + (Number(p.returns) || 0)
+                              const limit = totalInbound * ((p.lowStockThresholdPercentage || 33.33) / 100)
                               const isLowStock = stock > 0 && stock <= limit
                               const isInStock = stock > limit
 
@@ -458,7 +517,7 @@ export default function PurchasesPage() {
                     {/* القسم الأيسر للسلة */}
                     <div className="lg:col-span-7 flex flex-col bg-white border rounded-2xl shadow-sm overflow-hidden">
                       <div className="p-3 border-b bg-gray-50 flex items-center justify-between">
-                        <h3 className="font-bold text-sm">قائمة المشتريات / Purchase Cart</h3>
+                        <h3 className="font-bold text-sm">قائمة المشتريات <br />Purchase Cart</h3>
                         <Badge variant="secondary" className="px-2">{cartItems.length}</Badge>
                       </div>
                       <div className="flex-1 overflow-y-auto p-3">
@@ -571,10 +630,10 @@ export default function PurchasesPage() {
                   <DialogFooter className="bg-white p-4 shrink-0 border-t flex items-center justify-between sm:justify-start gap-2">
                     <Button onClick={handleSubmit} disabled={cartItems.length === 0 || isSubmitting} className="w-full sm:w-auto font-bold gap-2 text-white h-10 px-6 rounded-xl" style={{ background: 'linear-gradient(135deg,#2563eb,#3b82f6)' }}>
                       {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                      حفظ العمليات / Save Purchases
+                      حفظ العمليات <br />Save Purchases
                     </Button>
                     <Button variant="secondary" onClick={() => setIsDialogOpen(false)} className="h-10 px-6 rounded-xl font-bold bg-gray-100 text-gray-600 hover:bg-gray-200 border-none">
-                      إلغاء
+                      إلغاء<br />Cancel
                     </Button>
                   </DialogFooter>
                 </DialogContent>
@@ -667,11 +726,11 @@ export default function PurchasesPage() {
                           {settings.showQuantity && <TableHead className="w-[100px] border-x text-center"><DualText k="purchases.table.quantity" /></TableHead>}
                           {settings.showPrice && <TableHead className="w-[120px] border-x text-center"><DualText k="purchases.table.unitPrice" /></TableHead>}
                           <TableHead className="w-[120px] border-x text-center"><DualText k="purchases.table.total" /></TableHead>
-                          <TableHead className="w-[150px] border-x text-center">المورد / Supplier</TableHead>
-                          <TableHead className="w-[120px] border-x text-center">رقم الفاتورة / Inv No.</TableHead>
+                          <TableHead className="w-[150px] border-x text-center">المورد <br/> Supplier</TableHead>
+                          <TableHead className="w-[120px] border-x text-center">رقم الفاتورة <br/> Inv No.</TableHead>
                           <TableHead className="w-[160px] border-x text-center"><DualText k="purchases.table.date" /></TableHead>
                           {(shouldShow('purchasesPage.historyActions.print') || shouldShow('purchasesPage.historyActions.delete')) && (
-                            <TableHead className="w-[100px] border-x text-center">الإجراءات / Actions</TableHead>
+                            <TableHead className="w-[100px] border-x text-center">الإجراءات <br/> Actions</TableHead>
                           )}
                         </TableRow>
                       </TableHeader>
@@ -709,7 +768,9 @@ export default function PurchasesPage() {
                                   {group.length > 1 ? (
                                     <Badge variant="secondary" className="text-[10px]">{group.length} أصناف</Badge>
                                   ) : (
-                                    <span className="text-[10px] text-muted-foreground">{group[0].productId.slice(0, 8)}</span>
+                                    <span className="text-[10px] text-muted-foreground">
+                                      {group[0]?.productId ? group[0].productId.slice(0, 8) : "—"}
+                                    </span>
                                   )}
                                 </TableCell>
                                 <TableCell className="max-w-[150px]">

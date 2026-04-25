@@ -318,11 +318,9 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
         await onSubmit(calculatedData as Product)
       }
 
-      if (isMountedRef.current) {
-        onOpenChange(false)
-        setImagePreview(undefined)
-        setIsSaving(false)
-      }
+      onOpenChange(false)
+      setImagePreview(undefined)
+      setIsSaving(false)
     } catch (error: any) {
       console.error("Error submitting product form:", error)
       toast({

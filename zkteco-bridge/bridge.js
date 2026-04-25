@@ -134,9 +134,22 @@ async function processPendingRequest(data) {
 
     try { await zk.disconnect(); } catch (_) { }
 
+    const serializeDate = (val) => {
+      if (!val) return val;
+      if (val instanceof Date) return val.toISOString();
+      if (typeof val === 'object' && val.toDate) return val.toDate().toISOString();
+      return val;
+    };
+
     const result = {
-      users: users.data || [],
-      attendances: attendances.data || [],
+      users: (users.data || []).map(u => ({
+        ...u,
+        uid: u.uid != null ? String(u.uid) : u.uid,
+      })),
+      attendances: (attendances.data || []).map(a => ({
+        ...a,
+        recordTime: serializeDate(a.recordTime),
+      })),
     };
 
     console.log(`✅ تمت المزامنة: ${result.users.length} مستخدم، ${result.attendances.length} سجل`);

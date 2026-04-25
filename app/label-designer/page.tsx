@@ -294,6 +294,17 @@ export default function LabelDesignerPage() {
         return cleanBase ? `${cleanBase}${path}` : path
     }
 
+    const stripProductValuesForTemplate = (items: LabelElement[]) =>
+        items.map((el) => {
+            if (el.id === "nameAr" || el.id === "nameEn") return { ...el, content: "" }
+            if (el.id === "barcode") return { ...el, content: "" }
+            if (el.id === "qrcode") return { ...el, content: "" }
+            if (el.id === "internalCode") return { ...el, content: "" }
+            if (el.id === "price") return { ...el, content: "" }
+            if (el.id === "productImage") return { ...el, content: "" }
+            return { ...el }
+        })
+
     const handleApplyTemplate = (templateId: string) => {
         if (!templateId) return
         const template = savedTemplates.find((t) => t.id === templateId)
@@ -323,6 +334,7 @@ export default function LabelDesignerPage() {
             }
             if (el.id === "internalCode") return { ...el, content: activeItemNumber || el.content }
             if (el.id === "price") return { ...el, content: activePrice || el.content }
+            if (el.id === "productImage") return { ...el, content: resolvedPreviewImage || "" }
             return { ...el }
         })
 
@@ -346,7 +358,8 @@ export default function LabelDesignerPage() {
                 name: templateName,
                 width,
                 height,
-                elements: elements.map((el) => ({ ...el })),
+                // Save structure/style only for product-bound fields; values are injected at apply time.
+                elements: stripProductValuesForTemplate(elements),
             })
             setSelectedTemplateId(saved.id)
             setNewTemplateName("")
@@ -658,13 +671,12 @@ export default function LabelDesignerPage() {
             const canvas = document.getElementById(`preview-qrcode-${el.id}`) as HTMLCanvasElement
             if (canvas && el.content) {
                 try {
-                    QRCode.toCanvas(canvas, el.content, {
+                    const qrOptions: any = {
                         errorCorrectionLevel: 'H',
-                        type: 'image/png',
-                        quality: 0.95,
                         margin: 0,
-                        width: mmToPx(el.width),
-                    })
+                        width: Math.round(mmToPx(el.width)),
+                    }
+                    QRCode.toCanvas(canvas, el.content, qrOptions)
                 } catch (e) {}
             }
         })

@@ -5,7 +5,7 @@ import {
   Users, Clock, Plus, Calendar, Save, Trash2, Printer, 
   Calculator, ChevronRight, ChevronLeft, Check, X, Search, 
   Building2, CalendarDays, UserCheck, UserMinus, Filter, 
-  AlertCircle, CheckCircle2, Info, FileText, Languages
+  AlertCircle, CheckCircle2, Info, FileText, Languages, Wifi, WifiOff, Globe
 } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -680,6 +680,74 @@ export default function EmployeesHREPage() {
   const [zk_status, setZkStatus] = useState<"idle" | "connecting" | "syncing" | "success" | "error">("idle")
   const [zk_logs, setZkLogs] = useState<any[]>([])
   const [zk_users, setZkUsers] = useState<any[]>([])
+  const [zk_remote_status, setZkRemoteStatus] = useState<"idle" | "waiting" | "processing" | "done" | "error">("idle")
+  const [zk_remote_msg, setZkRemoteMsg] = useState("")
+
+  const handleZkRemoteSync = async () => {
+    setZkRemoteStatus("waiting")
+    setZkRemoteMsg("جاري إرسال طلب المزامنة...")
+    try {
+      const { doc, setDoc, onSnapshot, getFirestore } = await import('firebase/firestore')
+      const { getApp } = await import('firebase/app')
+      const firestoreDb = getFirestore(getApp())
+      const bridgeRef = doc(firestoreDb, 'zk-bridge', 'status')
+
+      // كتابة طلب المزامنة
+      await setDoc(bridgeRef, {
+        status: 'pending',
+        requestedAt: new Date().toISOString(),
+        requestedBy: 'website',
+        zkIp: zk_ip,
+        zkPort: Number(zk_port),
+      })
+
+      setZkRemoteMsg("تم إرسال الطلب. انتظر استجابة كمبيوتر العمل...")
+      toast({ title: "تم إرسال طلب المزامنة", description: "انتظر حتى يستجيب كمبيوتر العمل..." })
+
+      // مراقبة النتيجة
+      const timeout = setTimeout(() => {
+        unsubscribe()
+        setZkRemoteStatus("error")
+        setZkRemoteMsg("انتهت المهلة. تأكد أن برنامج Bridge يعمل على كمبيوتر العمل.")
+      }, 90000) // 90 ثانية
+
+      const unsubscribe = onSnapshot(bridgeRef, (snap) => {
+        if (!snap.exists()) return
+        const data = snap.data()
+
+        if (data.status === 'processing') {
+          setZkRemoteStatus("processing")
+          setZkRemoteMsg("كمبيوتر العمل يتصل بجهاز البصمة الآن...")
+        }
+
+        if (data.status === 'done' && data.result) {
+          clearTimeout(timeout)
+          unsubscribe()
+          setZkRemoteStatus("done")
+          const fetchedLogs  = data.result.attendances || []
+          const fetchedUsers = data.result.users       || []
+          setZkLogs(fetchedLogs)
+          setZkUsers(fetchedUsers)
+          setZkRemoteMsg(`تم الجلب: ${fetchedUsers.length} مستخدم، ${fetchedLogs.length} سجل`)
+          toast({
+            title: "تمت المزامنة عن بُعد بنجاح!",
+            description: `${fetchedUsers.length} مستخدم، ${fetchedLogs.length} حركة حضور.`
+          })
+        }
+
+        if (data.status === 'error') {
+          clearTimeout(timeout)
+          unsubscribe()
+          setZkRemoteStatus("error")
+          setZkRemoteMsg(data.error || "فشل الاتصال بجهاز البصمة")
+          toast({ title: "فشلت المزامنة عن بُعد", description: data.error, variant: "destructive" })
+        }
+      })
+    } catch (err: any) {
+      setZkRemoteStatus("error")
+      setZkRemoteMsg(err.message || "خطأ غير متوقع")
+    }
+  }
 
   const handleZkSync = async () => {
     setZkStatus("syncing")
@@ -2077,15 +2145,54 @@ export default function EmployeesHREPage() {
                        <Label className="font-black">المنفذ / Port</Label>
                        <Input value={zk_port} onChange={e => setZkPort(e.target.value)} placeholder="4370" className="h-12 font-bold" />
                      </div>
+                     {/* زر المزامنة المحلية (Electron فقط) */}
                      <Button 
                        onClick={handleZkSync} 
                        disabled={zk_status === "syncing"}
-                       className="w-full h-14 text-lg font-black"
+                       className="w-full h-12 text-base font-black"
+                       variant="outline"
                      >
-                       {zk_status === "syncing" ? "جاري المزامنة..." : "بدء المزامنة / Start Sync"}
+                       <Wifi className="h-4 w-4 ml-2" />
+                       {zk_status === "syncing" ? "جاري المزامنة..." : "مزامنة محلية (نفس الشبكة)"}
                      </Button>
+
+                     {/* فاصل */}
+                     <div className="relative flex items-center gap-2 py-1">
+                       <div className="flex-1 border-t border-dashed border-slate-300" />
+                       <span className="text-xs text-muted-foreground whitespace-nowrap">أو من البيت</span>
+                       <div className="flex-1 border-t border-dashed border-slate-300" />
+                     </div>
+
+                     {/* زر المزامنة عن بُعد عبر Firebase */}
+                     <Button
+                       onClick={handleZkRemoteSync}
+                       disabled={zk_remote_status === "waiting" || zk_remote_status === "processing"}
+                       className="w-full h-14 text-lg font-black bg-indigo-600 hover:bg-indigo-700"
+                     >
+                       <Globe className="h-5 w-5 ml-2" />
+                       {zk_remote_status === "waiting"    && "انتظار كمبيوتر العمل..."}
+                       {zk_remote_status === "processing" && "كمبيوتر العمل يجلب البيانات..."}
+                       {zk_remote_status === "done"       && "تمت المزامنة عن بُعد ✓"}
+                       {zk_remote_status === "error"      && "أعد المحاولة"}
+                       {zk_remote_status === "idle"       && "مزامنة عن بُعد (من البيت)"}
+                     </Button>
+
+                     {/* رسالة الحالة */}
+                     {zk_remote_msg && (
+                       <div className={`text-xs text-center rounded-lg p-2 font-medium ${
+                         zk_remote_status === "error" ? "bg-red-50 text-red-600" :
+                         zk_remote_status === "done"  ? "bg-green-50 text-green-700" :
+                                                        "bg-indigo-50 text-indigo-700"
+                       }`}>
+                         {zk_remote_status === "waiting" || zk_remote_status === "processing"
+                           ? "⏳ " : zk_remote_status === "done" ? "✅ " : "❌ "}
+                         {zk_remote_msg}
+                       </div>
+                     )}
+
                      <p className="text-xs text-muted-foreground text-center">
-                       يجب أن يكون جهاز البصمة والكمبيوتر على نفس الشبكة المحلية.
+                       المزامنة المحلية: يلزم تطبيق Electron على نفس الشبكة.<br/>
+                       المزامنة عن بُعد: يلزم تشغيل برنامج Bridge على كمبيوتر العمل.
                      </p>
                    </CardContent>
                  </Card>

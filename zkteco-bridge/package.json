@@ -1,0 +1,14 @@
+{
+  "name": "zkteco-firebase-bridge",
+  "version": "1.0.0",
+  "description": "يراقب Firebase ويجلب بيانات البصمة تلقائياً",
+  "main": "bridge.js",
+  "scripts": {
+    "start": "node bridge.js",
+    "start:work-ip": "ZK_IP=192.168.1.100 node bridge.js"
+  },
+  "dependencies": {
+    "firebase": "^10.0.0",
+    "node-zklib": "^1.0.0"
+  }
+}

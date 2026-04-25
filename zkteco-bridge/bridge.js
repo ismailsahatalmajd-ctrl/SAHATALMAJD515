@@ -20,12 +20,31 @@ const { initializeApp } = require('firebase/app');
 const {
   getFirestore,
   doc,
-  getDoc,
   setDoc,
   onSnapshot,
-  serverTimestamp,
 } = require('firebase/firestore');
-const ZKLib = require('node-zklib');
+const path = require('path');
+
+function loadZkLib() {
+  const candidates = [
+    'node-zklib',
+    path.join(__dirname, '..', 'node_modules', 'node-zklib'),
+  ];
+
+  let lastError = null;
+  for (const candidate of candidates) {
+    try {
+      // eslint-disable-next-line import/no-dynamic-require, global-require
+      return require(candidate);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('node-zklib not found');
+}
+
+const ZKLib = loadZkLib();
 
 // ─── إعدادات Firebase (نفس إعدادات الموقع) ──────────────────────────────────
 const firebaseConfig = {
@@ -55,44 +74,54 @@ console.log(` جهاز البصمة: ${ZK_IP}:${ZK_PORT}`);
 console.log(' يراقب Firebase للطلبات الواردة...');
 console.log('==============================================\n');
 
-// ─── مراقبة Firestore بـ onSnapshot (فوري) ───────────────────────────────────
 const bridgeRef = doc(db, 'zk-bridge', 'status');
+let isProcessing = false;
 
-onSnapshot(bridgeRef, async (snapshot) => {
-  if (!snapshot.exists()) return;
+async function publishHeartbeat() {
+  try {
+    await setDoc(bridgeRef, {
+      bridgeOnline: true,
+      bridgeLastSeenAt: new Date().toISOString(),
+      bridgeHost: process.env.COMPUTERNAME || 'unknown-host',
+    }, { merge: true });
+  } catch (error) {
+    console.error('Heartbeat error:', String(error?.message || error));
+  }
+}
 
-  const data = snapshot.data();
+async function processPendingRequest(data) {
+  if (!data || data.status !== 'pending') return;
+  if (isProcessing) return;
 
-  // تجاهل إذا لم يكن الطلب "pending"
-  if (data.status !== 'pending') return;
-
-  // تجاهل إذا كان الطلب قديماً (أكثر من 5 دقائق)
+  // تجاهل إذا كان الطلب قديماً (أكثر من 10 دقائق)
   const requestedAt = data.requestedAt?.toDate?.() || new Date(data.requestedAt || 0);
-  if (Date.now() - requestedAt.getTime() > 5 * 60 * 1000) {
-    console.log('⚠️  طلب قديم، تم تجاهله.');
+  if (Number.isNaN(requestedAt.getTime()) || (Date.now() - requestedAt.getTime() > 10 * 60 * 1000)) {
+    console.log('⚠️  طلب قديم أو غير صالح، تم تجاهله.');
     return;
   }
 
-  const ip   = data.zkIp   || ZK_IP;
+  isProcessing = true;
+
+  const ip = data.zkIp || ZK_IP;
   const port = data.zkPort || ZK_PORT;
 
   console.log(`\n📥 طلب مزامنة جديد من: ${data.requestedBy || 'مجهول'}`);
   console.log(`   الجهاز: ${ip}:${port}`);
 
-  // تحديث الحالة إلى "جاري المعالجة"
   await setDoc(bridgeRef, {
     ...data,
+    bridgeOnline: true,
+    bridgeLastSeenAt: new Date().toISOString(),
     status: 'processing',
     processingAt: new Date().toISOString(),
-  });
+  }, { merge: true });
 
-  // الاتصال بجهاز البصمة
   const zk = new ZKLib(ip, Number(port), 10000, 4000);
   try {
     console.log('🔌 جاري الاتصال بجهاز البصمة...');
     await zk.createSocket();
 
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise((r) => setTimeout(r, 1500));
 
     console.log('👥 جاري جلب المستخدمين...');
     const users = await zk.getUsers();
@@ -100,51 +129,70 @@ onSnapshot(bridgeRef, async (snapshot) => {
     console.log('📋 جاري جلب سجلات الحضور...');
     const attendances = await zk.getAttendances();
 
-    try { await zk.disconnect(); } catch (_) {}
+    try { await zk.disconnect(); } catch (_) { }
 
     const result = {
-      users:       users.data       || [],
+      users: users.data || [],
       attendances: attendances.data || [],
     };
 
     console.log(`✅ تمت المزامنة: ${result.users.length} مستخدم، ${result.attendances.length} سجل`);
 
-    // رفع النتيجة إلى Firebase
     await setDoc(bridgeRef, {
-      status:      'done',
+      status: 'done',
       requestedAt: data.requestedAt,
       requestedBy: data.requestedBy,
-      zkIp:        ip,
-      zkPort:      port,
+      zkIp: ip,
+      zkPort: port,
       completedAt: new Date().toISOString(),
+      bridgeOnline: true,
+      bridgeLastSeenAt: new Date().toISOString(),
       result,
-    });
+    }, { merge: true });
 
     console.log('☁️  تم رفع النتيجة إلى Firebase بنجاح.\n');
-
   } catch (error) {
-    try { await zk.disconnect(); } catch (_) {}
+    try { await zk.disconnect(); } catch (_) { }
 
-    const errMsg = String(error.message || error.code || error);
+    const errMsg = String(error?.message || error?.code || error);
     console.error('❌ خطأ:', errMsg);
 
     let friendlyError = 'فشل الاتصال: ';
-    if (errMsg.includes('ETIMEDOUT'))    friendlyError += 'انتهت المهلة. تأكد أن الجهاز يعمل.';
+    if (errMsg.includes('ETIMEDOUT')) friendlyError += 'انتهت المهلة. تأكد أن الجهاز يعمل.';
     else if (errMsg.includes('ECONNREFUSED')) friendlyError += 'تم رفض الاتصال. تحقق من المنفذ.';
     else if (errMsg.includes('EHOSTUNREACH')) friendlyError += 'الجهاز غير متاح على الشبكة.';
     else friendlyError += errMsg;
 
     await setDoc(bridgeRef, {
-      status:      'error',
+      status: 'error',
       requestedAt: data.requestedAt,
       requestedBy: data.requestedBy,
-      zkIp:        ip,
-      zkPort:      port,
+      zkIp: ip,
+      zkPort: port,
       completedAt: new Date().toISOString(),
-      error:       friendlyError,
-    });
+      bridgeOnline: true,
+      bridgeLastSeenAt: new Date().toISOString(),
+      error: friendlyError,
+    }, { merge: true });
+  } finally {
+    isProcessing = false;
   }
+}
+
+onSnapshot(bridgeRef, async (snapshot) => {
+  if (!snapshot.exists()) return;
+  await processPendingRequest(snapshot.data());
+}, (error) => {
+  console.error('Firestore watch error:', String(error?.message || error));
 });
+
+// نبض حياة دوري + فحص دوري احتياطي (لو stream انقطع)
+setInterval(async () => {
+  await publishHeartbeat();
+}, 15000);
+
+// نبضة أولى عند التشغيل
+publishHeartbeat().catch(() => { });
 
 // إبقاء البرنامج يعمل
 process.on('SIGINT', () => {

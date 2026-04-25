@@ -708,8 +708,8 @@ export default function EmployeesHREPage() {
       const timeout = setTimeout(() => {
         unsubscribe()
         setZkRemoteStatus("error")
-        setZkRemoteMsg("انتهت المهلة. تأكد أن برنامج Bridge يعمل على كمبيوتر العمل.")
-      }, 90000) // 90 ثانية
+        setZkRemoteMsg("انتهت المهلة. تأكد أن برنامج Bridge يعمل على كمبيوتر العمل ومتصل بنفس شبكة جهاز البصمة.")
+      }, 300000) // 5 دقائق
 
       const unsubscribe = onSnapshot(bridgeRef, (snap) => {
         if (!snap.exists()) return

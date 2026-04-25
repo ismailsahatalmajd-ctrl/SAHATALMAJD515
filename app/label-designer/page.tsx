@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Printer, Layout, Tag, Type, Barcode, ArrowLeft, ChevronUp, ChevronDown, Layers } from "lucide-react"
+import { Printer, Layout, Tag, Type, Barcode, ArrowLeft, ChevronUp, ChevronDown, Layers, Plus, Trash2 } from "lucide-react"
 import JsBarcode from "jsbarcode"
 import QRCode from "qrcode"
 import { db } from "@/lib/db"
@@ -26,6 +26,7 @@ export default function LabelDesignerPage() {
     const [productSearchTerm, setProductSearchTerm] = useState("")
     const [searchResults, setSearchResults] = useState<Product[]>([])
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+    const [selectedBatchProducts, setSelectedBatchProducts] = useState<Product[]>([])
     const productCount = parseInt(searchParams.get('count') || '1')
     
     // Parse multiple products for bulk printing
@@ -256,6 +257,21 @@ export default function LabelDesignerPage() {
             if (el.id === 'price') return { ...el, content: String(product.price ?? 0) }
             return el
         }))
+    }
+
+    const addProductToBatch = (product: Product) => {
+        setSelectedBatchProducts((prev) => {
+            if (prev.some((p) => p.id === product.id)) return prev
+            return [...prev, product]
+        })
+    }
+
+    const removeProductFromBatch = (productId: string) => {
+        setSelectedBatchProducts((prev) => prev.filter((p) => p.id !== productId))
+    }
+
+    const clearBatchProducts = () => {
+        setSelectedBatchProducts([])
     }
 
     const previewData = {
@@ -1088,6 +1104,19 @@ export default function LabelDesignerPage() {
                     }
                 }),
             )
+            : selectedBatchProducts.length > 0
+                ? await Promise.all(
+                    selectedBatchProducts.map(async (product) => ({
+                        id: product.id,
+                        productCode: product.productCode || product.itemNumber || "",
+                        itemNumber: product.itemNumber || product.productCode || "",
+                        productName: product.productName || product.productCode || "",
+                        englishName: product.productName || product.productCode || "",
+                        barcode: product.productCode || product.itemNumber || "",
+                        price: String(product.price ?? "0.00"),
+                        image: await resolveProductImage(product.id, product.image),
+                    })),
+                )
             : [{
                 id: 'single',
                 productCode: previewData.barcode,
@@ -1140,7 +1169,11 @@ export default function LabelDesignerPage() {
                         </Button>
                         <Button onClick={handlePrint} className="gap-2 bg-indigo-600 hover:bg-indigo-700">
                             <Printer className="w-4 h-4" />
-                            {isBulkPrinting ? `${bi("طباعة", "Print")} ${bulkProducts.length} ${bi("ملصق", "labels")}` : bi('طباعة تجريبية', 'Test print')}
+                            {isBulkPrinting
+                                ? `${bi("طباعة", "Print")} ${bulkProducts.length} ${bi("ملصق", "labels")}`
+                                : selectedBatchProducts.length > 0
+                                    ? `${bi("طباعة", "Print")} ${selectedBatchProducts.length} ${bi("ملصق", "labels")}`
+                                    : bi('طباعة تجريبية', 'Test print')}
                         </Button>
                     </div>
                 </div>
@@ -1376,18 +1409,73 @@ export default function LabelDesignerPage() {
                                             {searchResults.length > 0 && (
                                                 <div className="max-h-40 overflow-y-auto rounded-md border border-slate-200 bg-white divide-y">
                                                     {searchResults.map((p) => (
-                                                        <button
+                                                        <div
                                                             key={p.id}
-                                                            type="button"
-                                                            className="w-full text-right px-3 py-2 text-sm hover:bg-slate-50"
-                                                            onClick={() => handleSelectProduct(p)}
+                                                            className="flex items-center gap-2 px-2 py-2"
                                                         >
-                                                            <div className="font-medium">{p.productName}</div>
-                                                            <div className="text-xs text-muted-foreground font-mono">
-                                                                {p.productCode} · {p.itemNumber}
-                                                            </div>
-                                                        </button>
+                                                            <button
+                                                                type="button"
+                                                                className="flex-1 text-right px-1 py-1 text-sm hover:bg-slate-50 rounded"
+                                                                onClick={() => handleSelectProduct(p)}
+                                                            >
+                                                                <div className="font-medium">{p.productName}</div>
+                                                                <div className="text-xs text-muted-foreground font-mono">
+                                                                    {p.productCode} · {p.itemNumber}
+                                                                </div>
+                                                            </button>
+                                                            <Button
+                                                                type="button"
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="gap-1"
+                                                                onClick={() => addProductToBatch(p)}
+                                                            >
+                                                                <Plus className="w-3.5 h-3.5" />
+                                                                {bi("إضافة", "Add")}
+                                                            </Button>
+                                                        </div>
                                                     ))}
+                                                </div>
+                                            )}
+
+                                            {selectedBatchProducts.length > 0 && (
+                                                <div className="rounded-md border border-emerald-200 bg-emerald-50/50 p-2 space-y-2">
+                                                    <div className="flex items-center justify-between">
+                                                        <Label className="text-sm font-semibold text-emerald-800">
+                                                            {bi("قائمة الطباعة الجماعية", "Batch print list")}
+                                                        </Label>
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="ghost"
+                                                            className="h-7 text-emerald-700 hover:text-emerald-900"
+                                                            onClick={clearBatchProducts}
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5 ml-1" />
+                                                            {bi("تفريغ", "Clear")}
+                                                        </Button>
+                                                    </div>
+                                                    <div className="max-h-32 overflow-y-auto space-y-1">
+                                                        {selectedBatchProducts.map((p) => (
+                                                            <div key={p.id} className="flex items-center justify-between rounded border border-emerald-200 bg-white px-2 py-1">
+                                                                <div className="min-w-0">
+                                                                    <div className="text-xs font-medium truncate">{p.productName || p.productCode}</div>
+                                                                    <div className="text-[11px] text-muted-foreground font-mono truncate">
+                                                                        {p.productCode} · {p.itemNumber}
+                                                                    </div>
+                                                                </div>
+                                                                <Button
+                                                                    type="button"
+                                                                    size="sm"
+                                                                    variant="ghost"
+                                                                    className="h-7 text-red-600 hover:text-red-700"
+                                                                    onClick={() => removeProductFromBatch(p.id)}
+                                                                >
+                                                                    {bi("حذف", "Remove")}
+                                                                </Button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
                                                 </div>
                                             )}
                                             {!searchParams.get("productName") && (

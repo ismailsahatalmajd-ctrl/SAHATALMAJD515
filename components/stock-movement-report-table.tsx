@@ -126,7 +126,7 @@ export function StockMovementReportTable({ movements, limit = 50 }: StockMovemen
                         <DualText k="reports.stockMovements.title" fallback="سجل حركات المخزون" />
                     </CardTitle>
                     <CardDescription>
-                        <DualText k="reports.stockMovements.desc" fallback="تتبع عمليات الإضافة والخصم (مشتريات، مبيعات، مرتجعات)" />
+                        <DualText k="reports.stockMovements.desc" fallback="تتبع الإضافة والخصم: مشتريات، صرف، مرتجعات، وتسويات المخزون" />
                     </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">

@@ -18,6 +18,30 @@ console.log('================================');
 
 let mainWindow;
 
+function loadZkLib() {
+    const candidates = [
+        // Bundled inside the app folder (zklib/ sibling of electron-main.js)
+        path.join(__dirname, 'zklib', 'node-zklib'),
+        // Bundled as extraResources (resources/ level)
+        path.join(process.resourcesPath || '', 'node-zklib'),
+        // Standard node resolution (dev mode)
+        'node-zklib',
+    ];
+
+    let lastError = null;
+    for (const candidate of candidates) {
+        try {
+            // Try packaged module locations first, then standard resolution.
+            // eslint-disable-next-line import/no-dynamic-require, global-require
+            return require(candidate);
+        } catch (err) {
+            lastError = err;
+        }
+    }
+
+    throw lastError || new Error('node-zklib module not found');
+}
+
 const bi = (ar, en) => `${ar} / ${en}`;
 
 function createWindow() {
@@ -219,7 +243,17 @@ ipcMain.handle('zk-sync', async (event, { ip, port }) => {
     // Validate IP/Hostname
     if (!ip) return { success: false, error: 'يرجى إدخال عنوان الـ IP أو الرابط.' };
 
-    const ZKLib = require('node-zklib');
+    let ZKLib;
+    try {
+        ZKLib = loadZkLib();
+    } catch (moduleError) {
+        console.error('node-zklib load failed:', moduleError);
+        return {
+            success: false,
+            error: 'مكتبة جهاز البصمة غير موجودة داخل نسخة التطبيق. أعد تثبيت نسخة سطح المكتب المحدثة.'
+        };
+    }
+
     const zk = new ZKLib(ip, port || 4370, 10000, 4000);
 
     try {

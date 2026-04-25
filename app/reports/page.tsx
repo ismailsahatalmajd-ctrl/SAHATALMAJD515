@@ -19,7 +19,18 @@ import { Input } from "@/components/ui/input"
 import { MultiSelect } from "@/components/ui/multi-select"
 import { Search } from "lucide-react"
 import type { Product, Transaction, FinancialSummary, Branch } from "@/lib/types"
-import { getProducts, getTransactions, getCategories, getIssues, getReturns, getPurchaseOrders, getAdjustments, getAuditLogs, getBranches } from "@/lib/storage"
+import {
+  getProducts,
+  getTransactions,
+  getCategories,
+  getIssues,
+  getReturns,
+  getPurchaseOrders,
+  getAdjustments,
+  getAuditLogs,
+  getBranches,
+  initDataStore,
+} from "@/lib/storage"
 import { StockMovementReportTable, StockMovement } from "@/components/stock-movement-report-table"
 import Link from "next/link"
 import { useI18n } from "@/components/language-provider"
@@ -69,6 +80,7 @@ export default function ReportsPage() {
 
   const loadData = async () => {
     try {
+      await initDataStore()
       const [productsData, transactionsData, issuesData, returnsData, posData, adjustmentsData, auditData, categoriesData, branchesData] = await Promise.all([
         getProducts(),
         getTransactions(),
@@ -225,14 +237,17 @@ export default function ReportsPage() {
           id: t.id,
           date: (t as any).date || t.createdAt,
           type: t.type as any, // 'purchase' or 'adjustment'
-          reference: t.type === 'purchase' ? 'PURCHASE' : 'ADJUST',
+          reference: t.type === 'purchase' ? 'PURCHASE' : 'ADJUSTMENT',
           itemsCount: 1,
           totalQuantity: t.quantity, // Purchase is +, Adj can be +/-
           totalAmount: t.totalAmount,
-          description: `${t.type === 'purchase' ? 'Purchase' : 'Adjustment'}: ${prod?.productName || 'Unknown'}`,
+          description:
+            t.type === 'purchase'
+              ? `شراء / Purchase: ${prod?.productName || t.productName || 'Unknown'}`
+              : `تسوية / Adjustment: ${prod?.productName || t.productName || 'Unknown'}${t.notes ? ` — ${t.notes}` : ''}`,
           status: 'Completed',
           details: [{
-            name: prod?.productName || "Unknown Product",
+            name: prod?.productName || t.productName || "Unknown Product",
             quantity: t.quantity,
             price: t.unitPrice || 0,
             total: t.totalAmount
@@ -348,32 +363,33 @@ export default function ReportsPage() {
       }
     })
 
-    // 6. Inventory Adjustments (Specific Table)
+    // 6. Inventory Adjustments (جدول التسويات — حرية التسوية)
     adjustments.forEach(a => {
-      if (exists(a.id, 'adjustment')) return;
+      if (exists(a.id, 'adjustment')) return
       const product = allProducts.find(p => p.id === a.productId)
-      if (product) {
-        const cost = product.averagePrice || product.price || 0
-        const valueChange = a.difference * cost
+      const cost = product?.averagePrice ?? product?.price ?? 0
+      const valueChange = a.difference * cost
+      const labelName = a.productName || product?.productName || "منتج غير معروف / Unknown"
 
-        movements.push({
-          id: a.id,
-          date: a.createdAt,
-          type: 'adjustment',
-          reference: 'ADJ',
-          itemsCount: 1,
-          totalQuantity: a.difference,
-          totalAmount: Math.abs(valueChange),
-          description: a.reason || "Stock Adjustment",
-          status: 'Completed',
-          details: [{
-            name: product.productName,
+      movements.push({
+        id: a.id,
+        date: a.createdAt,
+        type: 'adjustment',
+        reference: 'ADJUSTMENT',
+        itemsCount: 1,
+        totalQuantity: a.difference,
+        totalAmount: Math.abs(valueChange),
+        description: `تسوية مخزون / Stock adjustment: ${labelName}${a.reason ? ` — ${a.reason}` : ''}`,
+        status: 'Completed',
+        details: [
+          {
+            name: labelName,
             quantity: a.difference,
             price: cost,
-            total: valueChange
-          }]
-        })
-      }
+            total: valueChange,
+          },
+        ],
+      })
     })
 
     // Sort Descending (Newest First)
@@ -519,19 +535,10 @@ export default function ReportsPage() {
 
       // Branch Filter (Text match on description or reference until we have explicit branchId on movement)
       if (selectedBranches.length > 0) {
-        // Issues/Returns usually have branch name in description
-        // Purchases have supplier name. Adjustments have reason.
-        // This is "best effort" text matching for now unless we add `branchId` to StockMovement type.
-        // However, issues/returns usually have branchId property on the source object.
-        // Accessing source object is hard here as we effectively flattened it.
-        // Let's rely on string matching branch names in 'description' or 'details' for Issues/Returns.
         const branchNames = selectedBranches.map(id => branches.find(b => b.id === id)?.name).filter(Boolean)
-        const matches = branchNames.some(name => (m.description || '').includes(name || ''))
-        if (!matches && (m.type === 'issue' || m.type === 'return')) return false
-        // For other types like 'purchase', branch filter might not apply, so we might HIDE them if branch is selected?
-        // Usually Branch Report implies "activity related to this branch".
-        // If user selects a branch, only show issues/returns for that branch?
-        if (selectedBranches.length > 0 && m.type !== 'issue' && m.type !== 'return') return false
+        const matchesBranch = branchNames.some(name => (m.description || '').includes(name || ''))
+        // فقط الصرف والمرتجع مرتبطان عادةً باسم الفرع؛ لا نخفي المشتريات والتسوية عند اختيار فرع
+        if ((m.type === 'issue' || m.type === 'return') && !matchesBranch) return false
       }
 
       // Status Filter

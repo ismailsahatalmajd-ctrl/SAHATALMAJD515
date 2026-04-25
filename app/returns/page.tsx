@@ -32,7 +32,7 @@ import {
 } from "lucide-react"
 import { generateReturnPDF } from "@/lib/return-pdf-generator"
 import { generateBranchRequestPDF } from "@/lib/branch-request-pdf-generator"
-import { formatArabicGregorianDate, formatArabicGregorianDateTime, downloadJSON } from "@/lib/utils"
+import { formatArabicGregorianDate, formatArabicGregorianDateTime, downloadJSON, catalogValuationUnitPrice } from "@/lib/utils"
 // Import ID generator for returns
 import { formatInvoiceNumber } from "@/lib/id-generator"
 import { useRef } from "react"
@@ -200,7 +200,8 @@ export default function ReturnsPage() {
   const addPurchaseToReturn = (t: Transaction) => {
     const existingIndex = returnItems.findIndex((ri) => ri.productId === t.productId)
     const qty = Math.min(1, t.quantity) // إضافة قطعة واحدة كبداية
-    const unitPrice = safeNumber(t.unitPrice)
+    const prod = requestCatalogById.get(t.productId)
+    const unitPrice = catalogValuationUnitPrice(prod, t.unitPrice)
     const item: IssueProduct = {
       productId: t.productId,
       productCode: "",
@@ -224,11 +225,12 @@ export default function ReturnsPage() {
 
   const addIssueProductsToReturn = (issue: Issue) => {
     // يبدأ بإضافة كل المنتجات بكمية 1، ويمكن تعديلها لاحقًا
-    const items = issue.products.map((p) => ({
-      ...p,
-      quantity: Math.min(1, p.quantity),
-      totalPrice: p.unitPrice * Math.min(1, p.quantity),
-    }))
+    const items = issue.products.map((p) => {
+      const prod = requestCatalogById.get(p.productId)
+      const unitPrice = catalogValuationUnitPrice(prod, p.unitPrice)
+      const q = Math.min(1, p.quantity)
+      return { ...p, unitPrice, quantity: q, totalPrice: unitPrice * q }
+    })
     setReturnItems(items)
   }
 
@@ -597,7 +599,7 @@ export default function ReturnsPage() {
         // Cloud
         const returnProducts = req.items.map((it) => {
           const p = cloudProducts.find((x) => x.id === it.productId || x.productCode === it.productCode)
-          const unitPrice = p?.averagePrice ?? p?.price ?? 0
+          const unitPrice = catalogValuationUnitPrice(p, 0)
           const quantityCarton = Math.max(0, it.requestedQuantity || it.quantity || 0)
           const finalQuantity = (it as any).quantityBase || quantityCarton
 

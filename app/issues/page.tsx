@@ -194,6 +194,7 @@ export default function IssuesPage() {
   }
 
   const handleEditIssue = (issue: Issue) => {
+    if (issue.delivered) return
     setEditingIssue(issue)
     setIsIssueDialogOpen(true)
   }
@@ -1248,10 +1249,12 @@ export default function IssuesPage() {
                                         <Download className="mr-2 h-4 w-4" />
                                         <span>تصدير للأودو (Odoo Excel)</span>
                                       </DropdownMenuItem>
-                                      <DropdownMenuItem onClick={() => handleEditIssue(issue)}>
-                                        <Edit className="mr-2 h-4 w-4" />
-                                        <span><DualText k="common.edit" /></span>
-                                      </DropdownMenuItem>
+                                      {!issue.delivered && (
+                                        <DropdownMenuItem onClick={() => handleEditIssue(issue)}>
+                                          <Edit className="mr-2 h-4 w-4" />
+                                          <span><DualText k="common.edit" /></span>
+                                        </DropdownMenuItem>
+                                      )}
                                       <DropdownMenuSeparator />
                                       <DropdownMenuItem
                                         onClick={() => setDeliverDialogIssueId(issue.id)}

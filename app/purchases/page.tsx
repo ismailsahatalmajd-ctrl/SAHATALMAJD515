@@ -38,6 +38,7 @@ import {
   saveTransactions,
   restoreTransactions
 } from "@/lib/storage"
+import { syncProduct, syncTransaction } from "@/lib/firebase-sync-engine"
 import { QuickProductForm } from "@/components/quick-product-form"
 import { generatePurchaseTransactionPDF } from "@/lib/purchase-transaction-pdf"
 
@@ -146,13 +147,14 @@ export default function PurchasesPage() {
     if (!searchTerm) return purchases
     const q = searchTerm.toLowerCase()
     return (purchases as Transaction[]).filter((tr: Transaction) => {
-      if (!products) return tr.productName.toLowerCase().includes(q)
+      const name = (tr.productName ?? "").toLowerCase()
+      if (!products) return name.includes(q)
       const prod = products.find((prod) => prod.id === tr.productId)
       return (
-        tr.productName.toLowerCase().includes(q) ||
+        name.includes(q) ||
         (prod?.productCode || "").toLowerCase().includes(q) ||
         (prod?.itemNumber || "").toLowerCase().includes(q) ||
-        tr.id.includes(searchTerm)
+        (tr.id || "").includes(searchTerm)
       )
     })
   }, [searchTerm, purchases, products])
@@ -239,7 +241,26 @@ export default function PurchasesPage() {
     }
   }
 
-    const handleSubmit = async (e: React.FormEvent) => {
+  const mergeCartByProductId = (
+    items: typeof cartItems,
+  ): typeof cartItems => {
+    const byId = new Map<string, (typeof cartItems)[number]>()
+    for (const it of items) {
+      const prev = byId.get(it.productId)
+      if (!prev) {
+        byId.set(it.productId, { ...it, quantity: Number(it.quantity) || 0 })
+      } else {
+        byId.set(it.productId, {
+          ...prev,
+          quantity: (Number(prev.quantity) || 0) + (Number(it.quantity) || 0),
+          notes: [prev.notes, it.notes].filter(Boolean).join(" · "),
+        })
+      }
+    }
+    return Array.from(byId.values())
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     if (isSubmitting || submittingRef.current || cartItems.length === 0) return;
@@ -248,27 +269,29 @@ export default function PurchasesPage() {
     submittingRef.current = true
     const opRequestId = requestId || self.crypto.randomUUID()
     if (!requestId) setRequestId(opRequestId)
+    const opCreatedAt = new Date().toISOString()
+    const linesToSave = mergeCartByProductId(cartItems)
     const batch = writeBatch(db)
     await localDb.operationRequests.put({
       id: opRequestId,
       operationType: "purchase",
       status: "pending",
       operationNumber: String(opRequestId),
-      payload: { cartCount: cartItems.length, supplierName, supplierInvoiceNumber },
+      payload: { cartCount: linesToSave.length, supplierName, supplierInvoiceNumber },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     } as any)
 
     try {
       // 1. معالجة كل صنف في السلة — معرف حركة ثابت لكل سطر داخل نفس operationNumber (إعادة المحاولة لا تضاعف المخزون)
-      for (let lineIndex = 0; lineIndex < cartItems.length; lineIndex++) {
-        const item = cartItems[lineIndex]
+      for (let lineIndex = 0; lineIndex < linesToSave.length; lineIndex++) {
+        const item = linesToSave[lineIndex]
         const transactionId = `${opRequestId}_line_${lineIndex}`
         const transRef = doc(db, "transactions", transactionId)
         
         const itemTotal = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)
         
-        // ب- إضافة الحركة إلى الـ Batch (للسحاب)
+        // ب- إضافة الحركة إلى الـ Batch (للسحاب) — يُرسل لاحقاً دون انتظار حتى لا يتعلّق الواجهة عند ضعف الشبكة
         batch.set(transRef, {
           id: transactionId,
           operationNumber: opRequestId,
@@ -281,42 +304,101 @@ export default function PurchasesPage() {
           supplierName: supplierName || "",
           supplierInvoiceNumber: supplierInvoiceNumber || "",
           notes: generalNotes || "",
-          createdAt: new Date().toISOString(),
+          createdAt: opCreatedAt,
           status: 'completed'
         })
 
         // ج- تحديث البيانات محلياً (هذا يحدث فوراً ويقوم أيضاً بمزامنة المنتج للسحاب بآخر قيمة محسوبة)
         // [تنبيه] قمنا بإزالة batch.update(productRef, { purchases: increment... }) 
         // لتجنب مضاعفة العدد (مرة من هنا ومرة من دالة addTransaction).
-        await addTransaction({
-          id: transactionId, // [مهم] نستخدم نفس الـ ID لضمان تطابق البيانات
-          productId: item.productId,
-          productName: item.productName,
-          type: "purchase",
-          quantity: Number(item.quantity) || 0,
-          unitPrice: Number(item.unitPrice) || 0,
-          totalAmount: itemTotal,
-          notes: generalNotes,
-          supplierName: supplierName || "",
-          supplierInvoiceNumber: supplierInvoiceNumber || "",
-          operationNumber: opRequestId,
-        })
+        await addTransaction(
+          {
+            id: transactionId, // نفس معرف Firestore — يمنع صفاً مكرراً عند المزامنة
+            createdAt: opCreatedAt,
+            productId: item.productId,
+            productName: item.productName,
+            type: "purchase",
+            quantity: Number(item.quantity) || 0,
+            unitPrice: Number(item.unitPrice) || 0,
+            totalAmount: itemTotal,
+            notes: generalNotes,
+            supplierName: supplierName || "",
+            supplierInvoiceNumber: supplierInvoiceNumber || "",
+            operationNumber: opRequestId,
+          },
+          { skipCloudSync: true },
+        )
       }
 
-      // 2. إرسال الـ Batch للسحاب (سيقوم بحفظ سجلات الحركات فقط، بينما يتم تحديث المخزون عبر addTransaction)
-      await batch.commit()
-      await localDb.operationRequests.update(opRequestId, { status: "synced", updatedAt: new Date().toISOString() } as any)
-
-      // 4. تصفير النموذج ونجاح العملية
+      // 2. نجاح محلي فوري — لا ننتظر Firestore (قد يصل إلى 10s+ أو يعمل دون اتصال ثم يكمّل لاحقاً)
       setCartItems([])
       setGeneralNotes("")
       setSupplierName("")
       setSupplierInvoiceNumber("")
       setIsDialogOpen(false)
-      toast({ title: "تم بنجاح", description: "تم تسجيل الفاتورة وتحديث الأسعار في الجدول" })
+      toast({
+        title: "تم بنجاح",
+        description:
+          "تم تسجيل العملية وتحديث المخزون على الجهاز. إذا كان الاتصال ضعيفاً ستُكمَل مزامنة السحابة تلقائياً عند عودته.",
+      })
+
+      const uniqueProductIds = [...new Set(linesToSave.map((l) => l.productId))]
+      /** مزامنة السحابة بعد الحفظ المحلي — متدرجة لتقليل تجميد IndexedDB */
+      const schedulePostPurchaseCloudSync = (mode: "batch_ok" | "batch_failed") => {
+        uniqueProductIds.forEach((pid, i) => {
+          window.setTimeout(() => {
+            void localDb.products.get(pid).then((p) => {
+              if (p) syncProduct(p).catch((e) => console.error("Post-purchase syncProduct:", e))
+            })
+          }, i * 120)
+        })
+        if (mode === "batch_failed") {
+          linesToSave.forEach((_, lineIndex) => {
+            const transactionId = `${opRequestId}_line_${lineIndex}`
+            window.setTimeout(() => {
+              void localDb.transactions.get(transactionId).then((tr) => {
+                if (tr) syncTransaction(tr).catch((e) => console.error("Post-purchase syncTransaction:", e))
+              })
+            }, uniqueProductIds.length * 120 + lineIndex * 120)
+          })
+        }
+      }
+
+      // تأجيل الـ batch خطوة macrotask؛ أثناء الحلقة لم نُشغّل sync من addTransaction (skipCloudSync)
+      window.setTimeout(() => {
+        void batch
+          .commit()
+          .then(() =>
+            localDb.operationRequests
+              .update(opRequestId, {
+                status: "synced",
+                updatedAt: new Date().toISOString(),
+              } as any)
+              .then(() => {
+                schedulePostPurchaseCloudSync("batch_ok")
+              }),
+          )
+          .catch((cloudErr: unknown) => {
+            console.error("Firestore batch (purchase) deferred / failed:", cloudErr)
+            schedulePostPurchaseCloudSync("batch_failed")
+            return localDb.operationRequests
+              .update(opRequestId, {
+                status: "pending",
+                error: cloudErr instanceof Error ? cloudErr.message : String(cloudErr),
+                updatedAt: new Date().toISOString(),
+              } as any)
+              .then(() => {
+                toast({
+                  title: "تنبيه المزامنة",
+                  description:
+                    "العملية محفوظة محلياً. تعذّر الوصول لسحابة Firestore الآن؛ ستُعاد المحاولة عند استقرار الاتصال.",
+                })
+              })
+          })
+      }, 0)
 
     } catch (error: any) {
-      console.error("❌ Error in Batch Submit:", error)
+      console.error("❌ Error in purchase submit (local):", error)
       await localDb.operationRequests.update(opRequestId, {
         status: "failed",
         error: error?.message || "purchase_submit_failed",
@@ -324,7 +406,7 @@ export default function PurchasesPage() {
       } as any)
       toast({ 
         title: "فشلت العملية", 
-        description: "تأكد من الإنترنت وحاول مجدداً: " + error.message, 
+        description: "تعذّر حفظ العملية محلياً: " + error.message, 
         variant: "destructive" 
       })
     } finally {
@@ -504,7 +586,17 @@ export default function PurchasesPage() {
                                       Avail / المتوفر: <span className={inStock ? 'text-green-600 font-bold' : 'text-red-500 font-bold'}>{p.currentStock || 0}</span> {settings.showUnit ? ` - ${p.unit}` : ''}
                                     </p>
                                   </div>
-                                  <Button size="sm" onClick={() => addItemDirectly(p)} className="shrink-0 h-8 rounded-lg font-bold text-white border-0" style={{ background: 'linear-gradient(135deg,#2563eb,#3b82f6)' }}>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={(ev) => {
+                                      ev.preventDefault()
+                                      ev.stopPropagation()
+                                      addItemDirectly(p)
+                                    }}
+                                    className="shrink-0 h-8 rounded-lg font-bold text-white border-0"
+                                    style={{ background: 'linear-gradient(135deg,#2563eb,#3b82f6)' }}
+                                  >
                                     <Plus className="h-4 w-4" /> Add / إضافـة
                                   </Button>
                                 </div>
@@ -628,11 +720,11 @@ export default function PurchasesPage() {
                     </div>
                   </div>
                   <DialogFooter className="bg-white p-4 shrink-0 border-t flex items-center justify-between sm:justify-start gap-2">
-                    <Button onClick={handleSubmit} disabled={cartItems.length === 0 || isSubmitting} className="w-full sm:w-auto font-bold gap-2 text-white h-10 px-6 rounded-xl" style={{ background: 'linear-gradient(135deg,#2563eb,#3b82f6)' }}>
+                    <Button type="button" onClick={handleSubmit} disabled={cartItems.length === 0 || isSubmitting} className="w-full sm:w-auto font-bold gap-2 text-white h-10 px-6 rounded-xl" style={{ background: 'linear-gradient(135deg,#2563eb,#3b82f6)' }}>
                       {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                       حفظ العمليات <br />Save Purchases
                     </Button>
-                    <Button variant="secondary" onClick={() => setIsDialogOpen(false)} className="h-10 px-6 rounded-xl font-bold bg-gray-100 text-gray-600 hover:bg-gray-200 border-none">
+                    <Button type="button" variant="secondary" onClick={() => setIsDialogOpen(false)} className="h-10 px-6 rounded-xl font-bold bg-gray-100 text-gray-600 hover:bg-gray-200 border-none">
                       إلغاء<br />Cancel
                     </Button>
                   </DialogFooter>
@@ -751,10 +843,14 @@ export default function PurchasesPage() {
                               return acc
                             }, {} as Record<string, Transaction[]>)
                           )
-                            .sort(([a], [b]) => {
-                              // Precise numeric comparison for timestamps as strings
-                              if (a.length !== b.length) return b.length - a.length
-                              return b.localeCompare(a)
+                            .sort(([, groupA], [, groupB]) => {
+                              const timeOf = (g: Transaction[]) => {
+                                const times = g
+                                  .map((t) => new Date(t.createdAt || 0).getTime())
+                                  .filter((x) => !Number.isNaN(x))
+                                return times.length ? Math.max(...times) : 0
+                              }
+                              return timeOf(groupB) - timeOf(groupA)
                             })
                             .map(([opNum, group]) => (
                               <TableRow key={opNum} className="hover:bg-muted/30">

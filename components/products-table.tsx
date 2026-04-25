@@ -1394,8 +1394,7 @@ export function ProductsTable({
                 })()}
                 {hasPermission(user, 'inventory.edit') && shouldShow('inventoryPage.columns.actions') && (
                   <th className={`text-center p-2 border bg-card whitespace-nowrap sticky z-40 ${isRTL ? "left-0 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]" : "right-0 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]"}`}>{t("products.columns.actions")}</th>
-                )}
-              </tr>
+                )}              </tr >
             </thead >
             <tbody className="text-sm">
               {sortedProducts.length === 0 ? (
@@ -1678,17 +1677,17 @@ export function ProductsTable({
                           })}
                           {shouldShow('inventoryPage.columns.actions') && (
                             <td className={`p-2 text-center border align-middle sticky bg-inherit z-10 ${isRTL ? "left-0 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]" : "right-0 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]"}`}>
-                              <div className="flex items-center gap-1 justify-center">
-                                <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-green-50 hover:text-green-600" onClick={() => onPrintLabel && onPrintLabel(product)} disabled={!hasPermission(user, 'inventory.edit')}>
-                                  <Printer className="h-4 w-4" />
-                                </Button>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-blue-50 hover:text-blue-600" onClick={() => onEdit(product)} disabled={!hasPermission(user, 'inventory.edit')}>
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-red-50 hover:text-red-600" onClick={() => setDeleteId(product.id)} disabled={!hasPermission(user, 'inventory.delete')}>
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
+                                <div className="flex items-center gap-1 justify-center">
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-green-50 hover:text-green-600" onClick={() => onPrintLabel && onPrintLabel(product)} disabled={!hasPermission(user, 'inventory.edit')}>
+                                    <Printer className="h-4 w-4" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-blue-50 hover:text-blue-600" onClick={() => onEdit(product)} disabled={!hasPermission(user, 'inventory.edit')}>
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-red-50 hover:text-red-600" onClick={() => setDeleteId(product.id)} disabled={!hasPermission(user, 'inventory.delete')}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
                             </td>
                           )}
                         </tr>

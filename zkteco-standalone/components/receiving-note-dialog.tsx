@@ -262,12 +262,12 @@ export function ReceivingNoteDialog({ open, onOpenChange }: ReceivingNoteDialogP
                                     <TableHeader className="bg-slate-800">
                                         <TableRow className="hover:bg-transparent border-none">
                                             <TableHead className="w-12 text-center text-[10px] font-black uppercase text-slate-400">#</TableHead>
-                                            <TableHead className="w-16 text-center text-[10px] font-black uppercase text-white">الصورة</TableHead>
+                                            <TableHead className="w-16 text-center text-[10px] font-black uppercase text-white">الصورة<br />Image</TableHead>
                                             <TableHead className="min-w-[200px] text-right text-[10px] font-black uppercase text-white">المنتج / Product</TableHead>
-                                            <TableHead className="w-20 text-center text-[10px] font-black uppercase text-slate-400">الوحدة</TableHead>
-                                            <TableHead className="w-24 text-center text-[10px] font-black uppercase text-blue-400">العدد</TableHead>
-                                            <TableHead className="w-24 text-center text-[10px] font-black uppercase text-slate-400">السعر</TableHead>
-                                            <TableHead className="w-24 text-center text-[10px] font-black uppercase text-slate-400">الإجمالي</TableHead>
+                                            <TableHead className="w-20 text-center text-[10px] font-black uppercase text-slate-400">الوحدة<br />Unit</TableHead>
+                                            <TableHead className="w-24 text-center text-[10px] font-black uppercase text-blue-400">العدد<br />Quantity</TableHead>
+                                            <TableHead className="w-24 text-center text-[10px] font-black uppercase text-slate-400">السعر<br />Price</TableHead>
+                                            <TableHead className="w-24 text-center text-[10px] font-black uppercase text-slate-400">الإجمالي<br />Total</TableHead>
                                             <TableHead className="min-w-[150px] text-right text-[10px] font-black uppercase text-slate-400">ملاحظات / Notes</TableHead>
                                             <TableHead className="w-12"></TableHead>
                                         </TableRow>

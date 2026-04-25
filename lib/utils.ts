@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import type { Product } from "./types"
 
 // Normalize string for comparison (remove diacritics, special chars)
 export function normalize(str: string): string {
@@ -192,4 +193,23 @@ export function getApiUrl(path: string): string {
   }
 
   return cleanPath
+}
+
+/**
+ * تقييم المخزون/المرتجع: المتوسط المرجح إن وُجد (>0)، وإلا سعر القائمة، وإلا fallback.
+ */
+export function catalogValuationUnitPrice(
+  product: Pick<Product, "averagePrice" | "price"> | null | undefined,
+  fallback = 0,
+): number {
+  if (!product) {
+    const fb = Number(fallback)
+    return Number.isFinite(fb) ? fb : 0
+  }
+  const avg = Number(product.averagePrice)
+  if (Number.isFinite(avg) && avg > 0) return avg
+  const list = Number(product.price)
+  if (Number.isFinite(list) && list > 0) return list
+  const fb = Number(fallback)
+  return Number.isFinite(fb) ? fb : 0
 }

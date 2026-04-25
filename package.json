@@ -40,19 +40,30 @@
       "electron-main.js",
       "electron.js",
       "electron/**/*",
-      "out/**/*",
       "public/**/*",
       "package.json",
-      "!**/*.map"
+      "!**/*.map",
+      "!out/**/*",
+      "!node_modules/**/*",
+      "node_modules/node-zklib/**/*",
+      "node_modules/zklib-js/**/*"
     ],
-    "asar": true,
-    "asarUnpack": [
-      "**/*.node",
-      "node_modules/node-zklib/**/*"
+    "extraResources": [
+      {
+        "from": "node_modules/node-zklib",
+        "to": "node-zklib"
+      },
+      {
+        "from": "node_modules/zklib-js",
+        "to": "zklib-js"
+      }
     ],
+    "asar": false,
+    "npmRebuild": false,
+    "nodeGypRebuild": false,
+    "buildDependenciesFromSource": false,
     "win": {
       "target": [
-        "nsis",
         "portable"
       ],
       "icon": "public/public/sahat-almajd-logo.svg"

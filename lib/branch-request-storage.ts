@@ -1,5 +1,6 @@
 import type { BranchRequest, BranchRequestHistoryEntry, BranchRequestItem, BranchRequestStatus } from "./branch-request-types"
 import type { IssueProduct } from "./types"
+import { catalogValuationUnitPrice } from "./utils"
 import { getProducts, getBranches, addIssue, addReturn, getBranchRequests as getDbRequests, saveBranchRequests as saveDbRequests, deleteAllBranchRequestsApi } from "./storage"
 
 const generateId = () => Date.now().toString() + Math.random().toString(36).substr(2, 9)
@@ -129,7 +130,7 @@ export async function approveBranchRequest(id: string, actor?: string): Promise<
   if (req.type === 'return') {
     const returnProducts: IssueProduct[] = req.items.map((it) => {
       const p = products.find((x) => x.id === it.productId)
-      const unitPrice = p?.averagePrice ?? p?.price ?? 0
+      const unitPrice = catalogValuationUnitPrice(p, 0)
       const quantity = Math.max(0, it.requestedQuantity || it.quantity || 0)
       return {
         productId: it.productId,  // Use saved ID
@@ -172,7 +173,7 @@ export async function approveBranchRequest(id: string, actor?: string): Promise<
   // تجهيز منتجات الصرف (Issue)
   const issueProducts: IssueProduct[] = req.items.map((it) => {
     const p = products.find((x) => x.id === it.productId)
-    const unitPrice = p?.averagePrice ?? p?.price ?? 0
+    const unitPrice = catalogValuationUnitPrice(p, 0)
     const quantity = Math.max(0, it.requestedQuantity || it.quantity || 0)
     // Multi-Unit Logic: Use quantityBase if available (for precise stock deduction), otherwise fallback
     const finalQuantity = it.quantityBase || quantity

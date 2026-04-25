@@ -79,7 +79,9 @@ export function PurchaseRequestsSection() {
     return requests.filter((r) => {
       const matchesSearch = !q
         ? true
-        : r.items.some((i) => i.productName.toLowerCase().includes(q) || i.productCode.toLowerCase().includes(q)) ||
+        : r.items.some((i) =>
+            (i.productName ?? "").toLowerCase().includes(q) || (i.productCode ?? "").toLowerCase().includes(q),
+          ) ||
         (r.notes || "").toLowerCase().includes(q) ||
         (r.requestNumber ? String(r.requestNumber).includes(q) : false)
       const matchesStatus = statusFilter === 'all' ? true : r.status === statusFilter
@@ -383,7 +385,10 @@ export function PurchaseRequestsSection() {
                   {products
                     .filter(p => {
                       // 1. Text Search Filter
-                      const matchesSearch = p.productName.toLowerCase().includes(dialogSearch.toLowerCase()) || p.productCode.toLowerCase().includes(dialogSearch.toLowerCase())
+                      const q = dialogSearch.toLowerCase()
+                      const matchesSearch =
+                        (p.productName ?? "").toLowerCase().includes(q) ||
+                        (p.productCode ?? "").toLowerCase().includes(q)
 
                       // 2. Location Filter
                       const matchesLoc = selectedLocations.length === 0 || (p.location && selectedLocations.includes(p.location))

@@ -273,13 +273,11 @@ export function ProductForm({ open, onOpenChange, onSubmit, product, categories 
       // عند تعديل منتج: لا نرسل حقول الحركات التاريخية (مشتريات/صرف/مرتجع)
       // حتى لا يُعاد تطبيق أثرها على المخزون عند حفظ الفورم.
       if (product) {
-        const editRequestId = self.crypto.randomUUID()
         const oldAdj = Number(product.adjustments || 0)
         const newAdj = Number(formData.adjustments || 0)
         const adjustmentsChanged = oldAdj !== newAdj
 
-        const editPayload: Partial<Product> & { __requestId?: string } = {
-          __requestId: editRequestId,
+        const editPayload: Partial<Product> = {
           productCode: formData.productCode,
           cartonBarcode: formData.cartonBarcode,
           itemNumber: formData.itemNumber,

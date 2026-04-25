@@ -5,7 +5,7 @@
   "main": "bridge.js",
   "scripts": {
     "start": "node bridge.js",
-    "start:work-ip": "ZK_IP=192.168.1.100 node bridge.js"
+    "start:work-ip": "set ZK_IP=192.168.1.100&& set ZK_PORT=4370&& node bridge.js"
   },
   "dependencies": {
     "firebase": "^10.0.0",

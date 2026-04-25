@@ -2,13 +2,21 @@ const { app, BrowserWindow, Menu, protocol, net, ipcMain } = require('electron')
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
+let ZKLib = null;
+try {
+    ZKLib = require('zklib-js');
+} catch (e) {
+    console.warn('zklib-js not available:', e.message);
+}
 
 // Register the 'app' protocol
 protocol.registerSchemesAsPrivileged([
     { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, allowServiceWorkers: true } }
 ]);
 
-const isDev = process.env.NODE_ENV === 'development';
+// Force dev mode when running locally (always use localhost:3000)
+const isDev = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV || process.env.ELECTRON_DEV === 'true';
+const LOCAL_URL = 'http://localhost:3000';
 
 console.log('================================');
 console.log('Electron started!');
@@ -20,7 +28,41 @@ let mainWindow;
 
 const bi = (ar, en) => `${ar} / ${en}`;
 
-function createWindow() {
+// Handle ZK Sync Request
+// Channel name must match electron/preload.js (ipcRenderer.invoke('zk-sync', ...))
+ipcMain.handle('zk-sync', async (event, { ip, port }) => {
+    console.log(`[IPC] Received zk-sync request for ${ip}:${port}`);
+    const zkInstance = new ZKLib(ip, port, 10000, 4000);
+    
+    try {
+        console.log(`[ZK] Attempting to connect to ${ip}...`);
+        await zkInstance.createSocket();
+        
+        console.log('[ZK] Connected! Fetching data...');
+        const attendances = await zkInstance.getAttendances();
+        const users = await zkInstance.getUsers();
+        
+        console.log(`[ZK] Success: Fetched ${attendances?.data?.length || 0} logs and ${users?.data?.length || 0} users.`);
+        
+        await zkInstance.disconnect();
+        
+        return {
+            success: true,
+            data: {
+                attendances: attendances?.data || [],
+                users: users?.data || []
+            }
+        };
+    } catch (error) {
+        console.error('[ZK] Connection Error:', error);
+        return {
+            success: false,
+            error: error.message || 'فشل الاتصال بجهاز البصمة. تأكد من أن المنفذ مفتوح والجهاز متصل.'
+        };
+    }
+});
+
+async function createWindow() {
     console.log('Creating window...');
 
     mainWindow = new BrowserWindow({
@@ -28,7 +70,7 @@ function createWindow() {
         height: 900,
         minWidth: 800,
         minHeight: 600,
-        title: 'SOHEEL - نظام سهيل لإدارة المخزون',
+        title: 'ساحة المجد - نظام إدارة المخزون',
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
@@ -36,23 +78,22 @@ function createWindow() {
         },
     });
 
-    if (isDev) {
-        console.log('DEV MODE: Loading local application from http://localhost:3000');
-        mainWindow.loadURL('http://localhost:3000').catch(err => {
-            console.error('FAILED to load localhost:3000. Is "npm run dev" running?', err);
-        });
-        mainWindow.webContents.openDevTools();
-    } else {
-        // Load the live production site to ensure it's always up-to-date
-        // This makes the desktop app a reflection of the current website
-        const LIVE_URL = 'https://sahatcom.cards';
-
-        console.log(`PRODUCTION MODE: Loading live application from: ${LIVE_URL}`);
-
-        mainWindow.loadURL(LIVE_URL).catch(err => {
-            console.error(`CRITICAL: Failed to load ${LIVE_URL}`, err);
-        });
+    // Clear all cached data (service workers, cache storage) to ensure fresh load
+    try {
+        const ses = mainWindow.webContents.session;
+        await ses.clearCache();
+        await ses.clearStorageData({ storages: ['serviceworkers', 'cachestorage'] });
+        console.log('Cache and service workers cleared!');
+    } catch (e) {
+        console.error('Failed to clear cache:', e.message);
     }
+
+    // Load local dev server (localhost:3000)
+    console.log(`>>> Loading app from: ${LOCAL_URL} <<<`);
+    mainWindow.loadURL(LOCAL_URL).catch(err => {
+        console.error(`Failed to load ${LOCAL_URL}:`, err.message);
+        mainWindow.loadURL(`data:text/html,<html dir="rtl"><body style="font-family:Arial;padding:40px;background:#1a1a2e;color:#e94560"><h1>⚠️ خطأ في الاتصال</h1><p style="color:#fff">تأكد من تشغيل السيرفر أولاً:<br><code style="background:#0f3460;padding:10px;border-radius:5px;display:block;margin:10px 0">npm run dev</code></p></body></html>`);
+    });
 
     mainWindow.once('ready-to-show', () => {
         mainWindow.show();
@@ -157,30 +198,18 @@ function createWindow() {
         console.error('Load failed:', errorCode, errorDescription);
     });
 
-    mainWindow.webContents.on('did-finish-load', () => {
-        console.log('Page loaded successfully!');
-    });
-
     mainWindow.on('closed', () => {
-        console.log('Window closed');
         mainWindow = null;
     });
-
-    console.log('Window created successfully!');
 }
 
 app.whenReady().then(() => {
     console.log('App is ready!');
 
-    // Handle the custom 'app' protocol
     protocol.handle('app', (request) => {
         let url = new URL(request.url).pathname;
         if (url === '/') url = '/index.html';
-
-        // Add index.html if it's a directory-like path
         if (url.endsWith('/')) url += 'index.html';
-
-        // If it doesn't have an extension and isn't a special Next.js asset path, append .html
         if (!path.extname(url) && !url.startsWith('/_next/') && !url.includes('.')) {
             url += '.html';
         }
@@ -205,82 +234,9 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-    console.log('All windows closed');
     if (process.platform !== 'darwin') {
         app.quit();
     }
 });
 
 
-// ZKTeco Sync IPC Handler
-ipcMain.handle('zk-sync', async (event, { ip, port }) => {
-    console.log(`Starting ZKTeco sync (Using node-zklib) for IP: ${ip}, Port: ${port}`);
-    
-    // Validate IP/Hostname
-    if (!ip) return { success: false, error: 'يرجى إدخال عنوان الـ IP أو الرابط.' };
-
-    const ZKLib = require('node-zklib');
-    const zk = new ZKLib(ip, port || 4370, 10000, 4000);
-
-    try {
-        console.log(`Attempting to connect to ${ip}...`);
-        
-        // Some ZK devices require a few attempts or a specific handshake
-        await zk.createSocket();
-        
-        console.log('Connection established! Waiting for handshake...');
-        
-        // Give the device a moment to stabilize the socket
-        await new Promise(resolve => setTimeout(resolve, 1500));
-
-        console.log('Fetching users list...');
-        const users = await zk.getUsers();
-        
-        console.log('Fetching attendance logs...');
-        const attendances = await zk.getAttendances();
-        
-        console.log(`Synchronization Successful! Users: ${users.data.length}, Logs: ${attendances.data.length}`);
-        
-        // Important: Always disconnect to free the socket for the next run
-        try {
-            await zk.disconnect();
-        } catch (e) {
-            console.warn('Disconnect error (non-fatal):', e);
-        }
-        
-        return {
-            success: true,
-            data: {
-                users: users.data || [],
-                attendances: attendances.data || []
-            }
-        };
-    } catch (error) {
-        console.error('Final ZKTeco Error:', error);
-        
-        let errorMessage = 'فشل الاتصال: ';
-        const errStr = String(error.message || error.code || '');
-
-        if (errStr.includes('ETIMEDOUT')) {
-            errorMessage += 'انتهت المهلة. تأكد أن الجهاز يعمل على IP: ' + ip;
-        } else if (errStr.includes('ECONNREFUSED')) {
-            errorMessage += 'تم رفض الاتصال. تأكد من فتح المنفذ (Port) 4370.';
-        } else if (errStr.includes('EHOSTUNREACH')) {
-            errorMessage += 'لا يمكن الوصول للجهاز. تأكد أنه متصل بنفس الشبكة.';
-        } else {
-            errorMessage += 'الجهاز لا يستجيب. (تأكد من إعدادات الـ IP والكيبل)';
-        }
-
-        return {
-            success: false,
-            error: errorMessage,
-            diagnostic: {
-                rawError: errStr,
-                ip: ip,
-                port: port
-            }
-        };
-    }
-});
-
-console.log('Electron script loaded');

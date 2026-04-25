@@ -1439,16 +1439,16 @@ export default function LabelDesignerPage() {
                                             )}
 
                                             {selectedBatchProducts.length > 0 && (
-                                                <div className="rounded-md border border-emerald-200 bg-emerald-50/50 p-2 space-y-2">
+                                                <div className="rounded-md border p-2 space-y-2 bg-white">
                                                     <div className="flex items-center justify-between">
-                                                        <Label className="text-sm font-semibold text-emerald-800">
+                                                        <Label className="text-sm font-semibold">
                                                             {bi("قائمة الطباعة الجماعية", "Batch print list")}
                                                         </Label>
                                                         <Button
                                                             type="button"
                                                             size="sm"
                                                             variant="ghost"
-                                                            className="h-7 text-emerald-700 hover:text-emerald-900"
+                                                            className="h-7"
                                                             onClick={clearBatchProducts}
                                                         >
                                                             <Trash2 className="w-3.5 h-3.5 ml-1" />
@@ -1457,7 +1457,7 @@ export default function LabelDesignerPage() {
                                                     </div>
                                                     <div className="max-h-32 overflow-y-auto space-y-1">
                                                         {selectedBatchProducts.map((p) => (
-                                                            <div key={p.id} className="flex items-center justify-between rounded border border-emerald-200 bg-white px-2 py-1">
+                                                            <div key={p.id} className="flex items-center justify-between rounded border bg-white px-2 py-1">
                                                                 <div className="min-w-0">
                                                                     <div className="text-xs font-medium truncate">{p.productName || p.productCode}</div>
                                                                     <div className="text-[11px] text-muted-foreground font-mono truncate">

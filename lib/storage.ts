@@ -537,6 +537,14 @@ export async function updateProduct(id: string, updates: Partial<Product>): Prom
         updated.currentStock = (Number(updated.openingStock) || 0) + (Number(updated.purchases) || 0) + (Number(updated.returns) || 0) + (Number(updated.adjustments) || 0) - (Number(updated.issues) || 0)
       }
 
+      // Recalculate currentStockValue when price or any ledger field changes
+      const priceChanged = updates.price !== undefined && Number(updates.price) !== Number(originalProduct.price || 0)
+      if (ledgerFieldChanged || priceChanged) {
+        const stock = Number(updated.currentStock) || 0
+        const price = Number(updated.averagePrice) || Number(updated.price) || 0
+        updated.currentStockValue = stock * price
+      }
+
       products[index] = updated;
 
       // DB Put

@@ -682,8 +682,61 @@ export default function EmployeesHREPage() {
   const [zk_users, setZkUsers] = useState<any[]>([])
   const [zk_remote_status, setZkRemoteStatus] = useState<"idle" | "waiting" | "processing" | "done" | "error">("idle")
   const [zk_remote_msg, setZkRemoteMsg] = useState("")
+  const [zk_bridge_online, setZkBridgeOnline] = useState(false)
+  const [zk_bridge_last_seen, setZkBridgeLastSeen] = useState<string | null>(null)
+
+  useEffect(() => {
+    let unsubscribe: (() => void) | null = null
+    let mounted = true
+
+    const watchBridge = async () => {
+      try {
+        const { doc, onSnapshot, getFirestore } = await import('firebase/firestore')
+        const { getApp } = await import('firebase/app')
+        const firestoreDb = getFirestore(getApp())
+        const bridgeRef = doc(firestoreDb, 'zk-bridge', 'status')
+
+        unsubscribe = onSnapshot(bridgeRef, (snap) => {
+          if (!mounted || !snap.exists()) return
+          const data: any = snap.data() || {}
+          const lastSeen = data.bridgeLastSeenAt ? String(data.bridgeLastSeenAt) : null
+          if (lastSeen) {
+            const ageMs = Date.now() - new Date(lastSeen).getTime()
+            setZkBridgeOnline(Boolean(data.bridgeOnline) && ageMs < 45000)
+            setZkBridgeLastSeen(lastSeen)
+          } else {
+            setZkBridgeOnline(false)
+            setZkBridgeLastSeen(null)
+          }
+        }, () => {
+          if (!mounted) return
+          setZkBridgeOnline(false)
+        })
+      } catch {
+        if (!mounted) return
+        setZkBridgeOnline(false)
+      }
+    }
+
+    watchBridge()
+    return () => {
+      mounted = false
+      if (unsubscribe) unsubscribe()
+    }
+  }, [])
 
   const handleZkRemoteSync = async () => {
+    if (!zk_bridge_online) {
+      setZkRemoteStatus("error")
+      setZkRemoteMsg("كمبيوتر العمل غير متصل حالياً. شغّل start-bridge.cmd على كمبيوتر العمل وانتظر 10 ثوان.")
+      toast({
+        title: "Bridge غير متصل",
+        description: "شغّل برنامج Bridge على كمبيوتر العمل أولاً.",
+        variant: "destructive"
+      })
+      return
+    }
+
     setZkRemoteStatus("waiting")
     setZkRemoteMsg("جاري إرسال طلب المزامنة...")
     try {
@@ -691,10 +744,12 @@ export default function EmployeesHREPage() {
       const { getApp } = await import('firebase/app')
       const firestoreDb = getFirestore(getApp())
       const bridgeRef = doc(firestoreDb, 'zk-bridge', 'status')
+      const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
       // كتابة طلب المزامنة
       await setDoc(bridgeRef, {
         status: 'pending',
+        requestId,
         requestedAt: new Date().toISOString(),
         requestedBy: 'website',
         zkIp: zk_ip,
@@ -714,6 +769,9 @@ export default function EmployeesHREPage() {
       const unsubscribe = onSnapshot(bridgeRef, (snap) => {
         if (!snap.exists()) return
         const data = snap.data()
+
+        // Ignore old responses from previous requests
+        if (data.requestId && data.requestId !== requestId) return
 
         if (data.status === 'processing') {
           setZkRemoteStatus("processing")
@@ -2144,6 +2202,10 @@ export default function EmployeesHREPage() {
                      <div className="space-y-2">
                        <Label className="font-black">المنفذ / Port</Label>
                        <Input value={zk_port} onChange={e => setZkPort(e.target.value)} placeholder="4370" className="h-12 font-bold" />
+                     </div>
+                     <div className={`text-xs rounded-lg px-3 py-2 text-center font-medium ${zk_bridge_online ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                       {zk_bridge_online ? 'Bridge متصل على كمبيوتر العمل' : 'Bridge غير متصل على كمبيوتر العمل'}
+                       {zk_bridge_last_seen ? ` - آخر نبضة: ${new Date(zk_bridge_last_seen).toLocaleTimeString()}` : ''}
                      </div>
                      {/* زر المزامنة المحلية (Electron فقط) */}
                      <Button 

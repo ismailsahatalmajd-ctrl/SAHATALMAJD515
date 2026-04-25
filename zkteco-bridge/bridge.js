@@ -93,6 +93,8 @@ async function processPendingRequest(data) {
   if (!data || data.status !== 'pending') return;
   if (isProcessing) return;
 
+  const requestId = data.requestId || `req_${Date.now()}`;
+
   // تجاهل إذا كان الطلب قديماً (أكثر من 10 دقائق)
   const requestedAt = data.requestedAt?.toDate?.() || new Date(data.requestedAt || 0);
   if (Number.isNaN(requestedAt.getTime()) || (Date.now() - requestedAt.getTime() > 10 * 60 * 1000)) {
@@ -110,6 +112,7 @@ async function processPendingRequest(data) {
 
   await setDoc(bridgeRef, {
     ...data,
+    requestId,
     bridgeOnline: true,
     bridgeLastSeenAt: new Date().toISOString(),
     status: 'processing',
@@ -140,6 +143,7 @@ async function processPendingRequest(data) {
 
     await setDoc(bridgeRef, {
       status: 'done',
+      requestId,
       requestedAt: data.requestedAt,
       requestedBy: data.requestedBy,
       zkIp: ip,
@@ -165,6 +169,7 @@ async function processPendingRequest(data) {
 
     await setDoc(bridgeRef, {
       status: 'error',
+      requestId,
       requestedAt: data.requestedAt,
       requestedBy: data.requestedBy,
       zkIp: ip,

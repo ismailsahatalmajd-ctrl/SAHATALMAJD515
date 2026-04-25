@@ -19,7 +19,8 @@ import type {
   AbsenceRecord,
   PlannedLeave,
   WarehouseLocation,
-  WarehouseDesignElement
+  WarehouseDesignElement,
+  LabelTemplate
 } from "./types"
 import type { BranchInvoice } from './branch-invoice-types'
 import type { BranchRequest } from './branch-request-types'
@@ -56,6 +57,7 @@ export class DataStore {
     plannedLeaves: PlannedLeave[]
     warehouseLocations: WarehouseLocation[]
     warehouseDesignElements: WarehouseDesignElement[]
+    labelTemplates: LabelTemplate[]
   } = {
       products: [],
       categories: [],
@@ -82,6 +84,7 @@ export class DataStore {
       plannedLeaves: [],
       warehouseLocations: [],
       warehouseDesignElements: [],
+      labelTemplates: [],
     }
 
   initPromise: Promise<void> | null = null
@@ -142,6 +145,7 @@ export class DataStore {
           { name: "plannedLeaves", label: "الإجازات المخطط لها", query: db.plannedLeaves },
           { name: "warehouseLocations", label: "مواقع المستودع", query: db.warehouseLocations },
           { name: "warehouseDesignElements", label: "مخطط المستودع", query: db.warehouseDesignElements },
+          { name: "labelTemplates", label: "قوالب الملصقات", query: db.labelTemplates },
         ]
 
         let completed = 0;
@@ -210,6 +214,7 @@ export class DataStore {
         this.cache.plannedLeaves = (results[22] as PlannedLeave[]) || []
         this.cache.warehouseLocations = (results[23] as WarehouseLocation[]) || []
         this.cache.warehouseDesignElements = (results[24] as WarehouseDesignElement[]) || []
+        this.cache.labelTemplates = (results[25] as LabelTemplate[]) || []
 
         broadcastProgress(100, "اكتمل التحميل");
         console.log("DataStore: Initialization complete");
@@ -281,6 +286,7 @@ export function updateStoreCache(table: string, record: any) {
     'plannedLeaves': 'plannedLeaves',
     'warehouseLocations': 'warehouseLocations',
     'warehouseDesignElements': 'warehouseDesignElements',
+    'labelTemplates': 'labelTemplates',
   }
 
   const key = map[table]
@@ -310,6 +316,7 @@ export function updateStoreCache(table: string, record: any) {
     'overtimeEntries': 'overtime_entries_change' as any,
     'absenceRecords': 'absence_records_change' as any,
     'warehouseLocations': 'warehouse_locations_change' as any,
+    'labelTemplates': 'label_templates_change',
   }
   if (eventMap[table]) notify(eventMap[table])
 }
@@ -338,6 +345,7 @@ export function removeFromStoreCache(table: string, id: string) {
     'plannedLeaves': 'plannedLeaves',
     'warehouseLocations': 'warehouseLocations',
     'warehouseDesignElements': 'warehouseDesignElements',
+    'labelTemplates': 'labelTemplates',
   }
 
   const key = map[table]

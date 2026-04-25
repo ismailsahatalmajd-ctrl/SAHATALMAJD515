@@ -23,7 +23,8 @@ import type {
   AbsenceRecord,
   PlannedLeave,
   WarehouseLocation,
-  WarehouseDesignElement
+  WarehouseDesignElement,
+  LabelTemplate
 } from "./types"
 export type { PurchaseOrder, PurchaseOrderItem }
 import type { BranchInvoice } from './branch-invoice-types'
@@ -32,6 +33,7 @@ import type { BranchRequestDraft } from './types' // Import Draft Type
 import type { PurchaseRequest } from './purchase-request-types'
 import { db } from './db'
 export { db }
+import { catalogValuationUnitPrice } from "./utils"
 import { getDeviceId } from './device'
 import { markAsDeleting, unmarkAsDeleting } from "./sync-state";
 import {
@@ -68,7 +70,9 @@ import {
   deleteWarehouseLocationApi,
   syncWarehouseDesignElement,
   deleteWarehouseDesignElementApi,
-  syncBranchInventoryReport
+  syncBranchInventoryReport,
+  syncLabelTemplate,
+  deleteLabelTemplateApi
 } from './firebase-sync-engine'
 
 // Monthly Closing
@@ -104,6 +108,12 @@ export {
 
 const generateId = () => Date.now().toString() + Math.random().toString(36).substr(2, 9)
 
+/** Firestore persistence uses IndexedDB; pushing to cloud in the same tick as Dexie writes can stall later Dexie awaits (purchase multi-line hang). */
+function scheduleCloudSync(run: () => void) {
+  if (typeof window === "undefined") return
+  window.setTimeout(run, 0)
+}
+
 export async function syncAllFromServer() {
   console.log("Starting Sync...");
   startRealtimeSync();
@@ -137,6 +147,7 @@ export function clearAppCache() {
       plannedLeaves: [],
       warehouseLocations: [],
       warehouseDesignElements: [],
+      labelTemplates: [],
     }
     notify('change')
     reloadFromDb().catch(console.error)
@@ -230,7 +241,8 @@ export async function factoryReset() {
       db.overtimeReasons.clear(),
       db.overtimeEntries.clear(),
       db.absenceRecords.clear(),
-      db.warehouseLocations.clear()
+      db.warehouseLocations.clear(),
+      db.labelTemplates.clear()
     ])
 
     // 2. Clear Local Cache in Memory
@@ -734,11 +746,36 @@ export async function restoreTransactions(transactions: Transaction[]) {
   }
 }
 
-export async function addTransaction(transaction: Omit<Transaction, "id" | "createdAt">): Promise<Transaction> {
+export type AddTransactionInput = Omit<Transaction, "id" | "createdAt"> &
+  Partial<Pick<Transaction, "id" | "createdAt">>
+
+export type AddTransactionOptions = {
+  /** عند true: لا يُجدول syncTransaction/syncProduct (للمجمّعات مثل حفظ فاتورة شراء بعدة أسطر — يزيل التعليق مع Firestore أثناء الحلقة) */
+  skipCloudSync?: boolean
+}
+
+export async function addTransaction(
+  transaction: AddTransactionInput,
+  opts?: AddTransactionOptions,
+): Promise<Transaction> {
+  const skipCloudSync = opts?.skipCloudSync === true
+  const inputId = transaction.id
+  const inputCreatedAt = transaction.createdAt
+
+  if (typeof inputId === "string" && inputId.length > 0) {
+    const existing = await db.transactions.get(inputId)
+    if (existing) {
+      return existing
+    }
+  }
+
   const newTransaction: Transaction = {
     ...transaction,
-    id: generateId(),
-    createdAt: new Date().toISOString(),
+    id: typeof inputId === "string" && inputId.length > 0 ? inputId : generateId(),
+    createdAt:
+      typeof inputCreatedAt === "string" && inputCreatedAt.length > 0
+        ? inputCreatedAt
+        : new Date().toISOString(),
   }
 
   // [User Request] Force 'return' transactions to use current Product Average Value
@@ -755,12 +792,19 @@ export async function addTransaction(transaction: Omit<Transaction, "id" | "crea
     }
   }
 
-  store.cache.transactions.push(newTransaction)
+  const cacheIdx = store.cache.transactions.findIndex((t) => t.id === newTransaction.id)
+  if (cacheIdx >= 0) {
+    store.cache.transactions[cacheIdx] = newTransaction
+  } else {
+    store.cache.transactions.push(newTransaction)
+  }
   await db.transactions.put(newTransaction)
 
-  // Sync - Background task
-  if (typeof window !== 'undefined') {
-    syncTransaction(newTransaction).catch(e => console.error("Sync Error addTransaction:", e))
+  // Sync - deferred so Dexie commits are not blocked by Firestore's IndexedDB layer
+  if (typeof window !== "undefined" && !skipCloudSync) {
+    scheduleCloudSync(() => {
+      syncTransaction(newTransaction).catch((e) => console.error("Sync Error addTransaction:", e))
+    })
   }
 
   // Update product quantities - FETCH FROM DB
@@ -841,11 +885,16 @@ export async function addTransaction(transaction: Omit<Transaction, "id" | "crea
 
       product.currentStockValue = (Number(product.currentStock) || 0) * (Number(product.averagePrice) || 0)
 
-      // Update Last Activity
+      // Update Last Activity + updatedAt so cloud→local sync can prefer newer local state
       product.lastActivity = new Date().toISOString()
+      product.updatedAt = new Date().toISOString()
 
       await db.products.put(product)
-      if (typeof window !== 'undefined') syncProduct(product).catch(e => console.error("Prod sync error:", e))
+      if (typeof window !== "undefined" && !skipCloudSync) {
+        scheduleCloudSync(() => {
+          syncProduct(product).catch((e) => console.error("Prod sync error:", e))
+        })
+      }
 
       store.cache.products = store.cache.products.map(p => p.id === product.id ? product : p)
       notify('products_change')
@@ -1573,11 +1622,10 @@ export async function approveReturn(returnId: string, approvedBy: string): Promi
       if (p) {
         const oldStock = Number(p.currentStock || ((p.openingStock || 0) + (p.purchases || 0) + (p.returns || 0) - (p.issues || 0)))
         const qtyToRestore = Number((rp as any).quantityBase || rp.quantity || 0)
-        const prevAvg = Number(p.averagePrice || p.price || 0)
+        const prevAvg = catalogValuationUnitPrice(p, rp.unitPrice)
         const prevValue = Number(p.currentStockValue ?? (oldStock * prevAvg))
-        const isInvoiceReturn = (ret.sourceType === 'issue' && rp.unitPrice && rp.unitPrice > 0) || Boolean(ret.originalInvoiceNumber)
         const isSupplierReturn = ret.sourceType === 'purchase'
-        const unitPriceToUse = isInvoiceReturn ? Number(rp.unitPrice || prevAvg) : prevAvg
+        const unitPriceToUse = prevAvg
         const multiplier = isSupplierReturn ? -1 : 1
         const addValue = unitPriceToUse * qtyToRestore * multiplier
 
@@ -1824,6 +1872,71 @@ export function upsertIssueDraft(draft: IssueDraft): IssueDraft {
 export function deleteIssueDraft(id: string) {
   store.cache.issueDrafts = store.cache.issueDrafts.filter(d => d.id !== id)
   db.issueDrafts.delete(id)
+}
+
+export function getLabelTemplates(): LabelTemplate[] {
+  return [...(store.cache.labelTemplates || [])].sort((a, b) =>
+    String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")),
+  )
+}
+
+export async function addLabelTemplate(
+  template: Omit<LabelTemplate, "id" | "createdAt" | "updatedAt">,
+): Promise<LabelTemplate> {
+  const now = new Date().toISOString()
+  const newTemplate: LabelTemplate = {
+    ...template,
+    id: generateId(),
+    createdAt: now,
+    updatedAt: now,
+  }
+
+  store.cache.labelTemplates = [...(store.cache.labelTemplates || []), newTemplate]
+  await db.labelTemplates.put(newTemplate)
+
+  if (typeof window !== 'undefined') {
+    syncLabelTemplate(newTemplate).catch(console.error)
+  }
+
+  notify('label_templates_change')
+  return newTemplate
+}
+
+export async function updateLabelTemplate(
+  id: string,
+  updates: Partial<Omit<LabelTemplate, "id" | "createdAt">>,
+): Promise<LabelTemplate | null> {
+  const existing = (store.cache.labelTemplates || []).find((t) => t.id === id)
+  if (!existing) return null
+
+  const next: LabelTemplate = {
+    ...existing,
+    ...updates,
+    id: existing.id,
+    createdAt: existing.createdAt,
+    updatedAt: new Date().toISOString(),
+  }
+
+  store.cache.labelTemplates = (store.cache.labelTemplates || []).map((t) => (t.id === id ? next : t))
+  await db.labelTemplates.put(next)
+
+  if (typeof window !== 'undefined') {
+    syncLabelTemplate(next).catch(console.error)
+  }
+
+  notify('label_templates_change')
+  return next
+}
+
+export async function deleteLabelTemplate(id: string): Promise<void> {
+  store.cache.labelTemplates = (store.cache.labelTemplates || []).filter((t) => t.id !== id)
+  await db.labelTemplates.delete(id)
+
+  if (typeof window !== 'undefined') {
+    deleteLabelTemplateApi(id).catch(console.error)
+  }
+
+  notify('label_templates_change')
 }
 
 const ACTIVE_DRAFT_KEY = 'active_issue_draft_id'

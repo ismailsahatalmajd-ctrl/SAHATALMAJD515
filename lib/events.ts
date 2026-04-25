@@ -1,4 +1,4 @@
-export type StoreEvent = 'change' | 'products_change' | 'categories_change' | 'transactions_change' | 'branches_change' | 'issues_change' | 'returns_change' | 'branch_requests_change' | 'branch_invoices_change'
+export type StoreEvent = 'change' | 'products_change' | 'categories_change' | 'transactions_change' | 'branches_change' | 'issues_change' | 'returns_change' | 'branch_requests_change' | 'branch_invoices_change' | 'label_templates_change'
 type Listener = () => void
 const listeners = new Map<StoreEvent, Set<Listener>>()
 

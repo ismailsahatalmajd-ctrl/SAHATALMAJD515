@@ -798,3 +798,47 @@ export interface BranchInventoryReport {
   updatedAt: string;
   createdBy?: string;
 }
+
+export type LabelTemplateElementType =
+  | 'text'
+  | 'barcode'
+  | 'internalCode'
+  | 'price'
+  | 'customText'
+  | 'customBarcode'
+  | 'rectangle'
+  | 'circle'
+  | 'line'
+  | 'image'
+  | 'qrcode'
+
+export interface LabelTemplateElement {
+  id: string
+  type: LabelTemplateElementType
+  x: number
+  y: number
+  width: number
+  height: number
+  content: string
+  fontSize: number
+  fontWeight: string
+  isVisible: boolean
+  textAlign: 'right' | 'left' | 'center'
+  rotation: number
+  barcodeType?: string
+  borderColor?: string
+  backgroundColor?: string
+  barcodeLineWidth?: number
+  barcodeWidthPercent?: number
+}
+
+export interface LabelTemplate {
+  id: string
+  name: string
+  width: number
+  height: number
+  elements: LabelTemplateElement[]
+  createdAt: string
+  updatedAt: string
+  createdBy?: string
+}

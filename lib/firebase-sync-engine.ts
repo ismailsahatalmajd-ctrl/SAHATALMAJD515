@@ -72,7 +72,8 @@ function updateStoreCache(table: string, record: any) {
         'employees': 'employees',
         'overtimeReasons': 'overtimeReasons',
         'overtimeEntries': 'overtimeEntries',
-        'absenceRecords': 'absenceRecords'
+        'absenceRecords': 'absenceRecords',
+        'labelTemplates': 'labelTemplates'
     }
 
     const key = map[table]
@@ -102,6 +103,7 @@ function updateStoreCache(table: string, record: any) {
         'overtimeReasons': 'overtime_reasons_change' as any,
         'overtimeEntries': 'overtime_entries_change' as any,
         'absenceRecords': 'absence_records_change' as any,
+        'labelTemplates': 'label_templates_change',
     }
     if (eventMap[table]) notify(eventMap[table])
 }
@@ -125,7 +127,8 @@ function removeFromStoreCache(table: string, id: string) {
         'employees': 'employees',
         'overtimeReasons': 'overtimeReasons',
         'overtimeEntries': 'overtimeEntries',
-        'absenceRecords': 'absenceRecords'
+        'absenceRecords': 'absenceRecords',
+        'labelTemplates': 'labelTemplates'
     }
 
     const key = map[table]
@@ -167,6 +170,7 @@ export const COLLECTIONS = {
     OVERTIME_REASONS: 'overtimeReasons',
     OVERTIME_ENTRIES: 'overtimeEntries',
     ABSENCE_RECORDS: 'absenceRecords',
+    LABEL_TEMPLATES: 'labelTemplates',
     WAREHOUSE_LOCATIONS: 'warehouseLocations',
     WAREHOUSE_DESIGN: 'warehouseDesignElements',
     GRANULAR_PERMISSIONS: 'granularPermissions',
@@ -186,6 +190,36 @@ let syncInterval: NodeJS.Timeout | null = null;
 
 import { isDeleting } from "./sync-state";
 
+/** Normalize Firestore Timestamp | ISO string | number to epoch ms for LWW merges */
+function recordToMillis(v: unknown): number {
+    if (v == null) return 0
+    if (typeof v === "object" && v !== null && typeof (v as { toMillis?: () => number }).toMillis === "function") {
+        try {
+            return (v as { toMillis: () => number }).toMillis()
+        } catch {
+            return 0
+        }
+    }
+    if (typeof v === "number" && Number.isFinite(v)) return v < 1e12 ? Math.round(v * 1000) : v
+    if (typeof v === "string") {
+        const t = new Date(v).getTime()
+        return Number.isNaN(t) ? 0 : t
+    }
+    return 0
+}
+
+/** Avoid overwriting Dexie with stale Firestore product (e.g. purchase saved locally but syncProduct still pending). */
+function shouldSkipStaleRemoteProduct(existing: Product | undefined, remote: Product & { lastSyncedAt?: unknown }): boolean {
+    if (!existing?.id) return false
+    const localTs = Math.max(recordToMillis(existing.updatedAt), recordToMillis(existing.lastActivity))
+    const remoteTs = Math.max(
+        recordToMillis(remote.updatedAt),
+        recordToMillis(remote.lastActivity),
+        recordToMillis(remote.lastSyncedAt),
+    )
+    return localTs > remoteTs
+}
+
 // Helper for syncing collection
 const syncCollection = (
     collectionName: string,
@@ -194,41 +228,51 @@ const syncCollection = (
 ) => {
     const q = query(collection(firestore, collectionName));
     return onSnapshot(q, (snapshot) => {
-        let hasChanges = false;
-        snapshot.docChanges().forEach(async (change) => {
-            const data = change.doc.data();
-            const localId = change.doc.id;
+        void (async () => {
+            let hasChanges = false;
+            for (const change of snapshot.docChanges()) {
+                const data = change.doc.data();
+                const localId = change.doc.id;
 
-            // Skip updates for items currently being deleted locally
-            if (isDeleting(localId)) {
-                return;
-            }
+                if (isDeleting(localId)) {
+                    continue;
+                }
 
-            hasChanges = true;
+                try {
+                    if (change.type === "added" || change.type === "modified") {
+                        const record = { ...data, id: localId } as Product & { lastSyncedAt?: unknown };
+                        if (collectionName === COLLECTIONS.PRODUCTS) {
+                            const existing = (await localTable.get(localId)) as Product | undefined;
+                            if (shouldSkipStaleRemoteProduct(existing, record)) {
+                                console.debug(
+                                    `[Sync] Skipped stale remote product overwrite: ${localId} (local newer than cloud snapshot)`,
+                                )
+                                continue;
+                            }
+                        }
+                        hasChanges = true;
+                        await localTable.put(record);
+                        updateStoreCache(collectionName, record);
 
-            try {
-                if (change.type === "added" || change.type === "modified") {
-                    const record = { ...data, id: localId };
-                    await localTable.put(record);
-                    updateStoreCache(collectionName, record);
-                    
-                    if (collectionName === "granularPermissions") {
-                        notifyGranularUpdate(localId);
+                        if (collectionName === "granularPermissions") {
+                            notifyGranularUpdate(localId);
+                        }
                     }
+                    if (change.type === "removed") {
+                        hasChanges = true;
+                        await localTable.delete(localId);
+                        removeFromStoreCache(collectionName, localId);
+                    }
+                } catch (e) {
+                    console.error(`Sync Error ${collectionName}:`, e);
                 }
-                if (change.type === "removed") {
-                    await localTable.delete(localId);
-                    removeFromStoreCache(collectionName, localId);
-                }
-            } catch (e) {
-                console.error(`Sync Error ${collectionName}:`, e);
             }
-        });
 
-        if (hasChanges) {
-            if (eventName) notify(eventName as any);
-            notify("change");
-        }
+            if (hasChanges) {
+                if (eventName) notify(eventName as any);
+                notify("change");
+            }
+        })();
     }, (error) => {
         if (error?.message?.includes("Missing or insufficient permissions")) {
             console.warn(`[Sync] Permission denied for ${collectionName}. Check Firestore rules or Auth state.`);
@@ -269,6 +313,7 @@ export const startRealtimeSync = () => {
         unsubscribers.push(syncCollection(COLLECTIONS.OVERTIME_REASONS, localDb.overtimeReasons, "overtime_reasons_change" as any));
         unsubscribers.push(syncCollection(COLLECTIONS.OVERTIME_ENTRIES, localDb.overtimeEntries, "overtime_entries_change" as any));
         unsubscribers.push(syncCollection(COLLECTIONS.ABSENCE_RECORDS, localDb.absenceRecords as any, "absence_records_change" as any));
+        unsubscribers.push(syncCollection(COLLECTIONS.LABEL_TEMPLATES, localDb.labelTemplates as any, "label_templates_change"));
         unsubscribers.push(syncCollection(COLLECTIONS.WAREHOUSE_LOCATIONS, localDb.warehouseLocations as any, "warehouse_locations_change" as any));
         unsubscribers.push(syncCollection(COLLECTIONS.WAREHOUSE_DESIGN, localDb.warehouseDesignElements as any, "warehouse_design_change" as any));
         unsubscribers.push(syncCollection(COLLECTIONS.GRANULAR_PERMISSIONS, localDb.userPreferences as any, "granular_permissions_updated"));
@@ -686,6 +731,8 @@ export const syncAssetStatusReport = (r: any) => syncRecord(COLLECTIONS.ASSET_ST
 export const deleteBranchAsset = (id: string) => deleteRecord(COLLECTIONS.BRANCH_ASSETS, id);
 export const deleteAssetRequest = (id: string) => deleteRecord(COLLECTIONS.ASSET_REQUESTS, id);
 export const syncBranchInventoryReport = (r: any) => syncRecord(COLLECTIONS.BRANCH_INVENTORY_REPORTS, r);
+export const syncLabelTemplate = (r: any) => syncRecord(COLLECTIONS.LABEL_TEMPLATES, r);
+export const deleteLabelTemplateApi = (id: string) => deleteRecord(COLLECTIONS.LABEL_TEMPLATES, id);
 
 export const pullAllDataFromFirebase = async () => {
     await syncAllCloudToLocal(() => { });

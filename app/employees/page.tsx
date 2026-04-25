@@ -2205,7 +2205,17 @@ export default function EmployeesHREPage() {
                      </div>
                      <div className={`text-xs rounded-lg px-3 py-2 text-center font-medium ${zk_bridge_online ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
                        {zk_bridge_online ? 'Bridge متصل على كمبيوتر العمل' : 'Bridge غير متصل على كمبيوتر العمل'}
-                       {zk_bridge_last_seen ? ` - آخر نبضة: ${new Date(zk_bridge_last_seen).toLocaleTimeString()}` : ''}
+                       {zk_bridge_last_seen ? (() => {
+                         try {
+                           const time = new Date(zk_bridge_last_seen);
+                           if (!isNaN(time.getTime())) {
+                             return ` - آخر نبضة: ${time.toLocaleTimeString()}`;
+                           }
+                         } catch (e) {
+                           // Silently ignore date parsing errors
+                         }
+                         return '';
+                       })() : ''}
                      </div>
                      {/* زر المزامنة المحلية (Electron فقط) */}
                      <Button 

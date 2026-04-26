@@ -76,6 +76,8 @@ console.log('==============================================\n');
 
 const bridgeRef = doc(db, 'zk-bridge', 'status');
 let isProcessing = false;
+let bridgePaused = false;
+let lastHandledControlId = null;
 
 async function publishHeartbeat() {
   try {
@@ -83,15 +85,136 @@ async function publishHeartbeat() {
       bridgeOnline: true,
       bridgeLastSeenAt: new Date().toISOString(),
       bridgeHost: process.env.COMPUTERNAME || 'unknown-host',
+      bridgePaused,
     }, { merge: true });
   } catch (error) {
     console.error('Heartbeat error:', String(error?.message || error));
   }
 }
 
+async function processControlCommand(data) {
+  const control = data?.control;
+  if (!control || !control.id || !control.action) return;
+  if (control.id === lastHandledControlId) return;
+
+  lastHandledControlId = control.id;
+  const action = String(control.action);
+  const now = new Date().toISOString();
+  const host = process.env.COMPUTERNAME || 'unknown-host';
+
+  const ackBase = {
+    bridgeOnline: true,
+    bridgeLastSeenAt: now,
+    bridgeHost: host,
+  };
+
+  if (action === 'ping') {
+    console.log('🛰️ أمر تحكم: ping');
+    await setDoc(bridgeRef, {
+      ...ackBase,
+      bridgePaused,
+      controlAck: {
+        id: control.id,
+        action,
+        status: 'ok',
+        message: 'Bridge is alive',
+        at: now,
+        host,
+      },
+    }, { merge: true });
+    return;
+  }
+
+  if (action === 'pause') {
+    bridgePaused = true;
+    console.log('⏸️ تم إيقاف الجسر مؤقتاً من التطبيق.');
+    await setDoc(bridgeRef, {
+      ...ackBase,
+      bridgePaused,
+      controlAck: {
+        id: control.id,
+        action,
+        status: 'ok',
+        message: 'Bridge paused',
+        at: now,
+        host,
+      },
+    }, { merge: true });
+    return;
+  }
+
+  if (action === 'resume') {
+    bridgePaused = false;
+    console.log('▶️ تم استئناف الجسر من التطبيق.');
+    await setDoc(bridgeRef, {
+      ...ackBase,
+      bridgePaused,
+      controlAck: {
+        id: control.id,
+        action,
+        status: 'ok',
+        message: 'Bridge resumed',
+        at: now,
+        host,
+      },
+    }, { merge: true });
+    return;
+  }
+
+  if (action === 'restart') {
+    console.log('🔄 تم استلام أمر إعادة تشغيل الجسر...');
+    await setDoc(bridgeRef, {
+      ...ackBase,
+      bridgePaused,
+      controlAck: {
+        id: control.id,
+        action,
+        status: 'ok',
+        message: 'Bridge restarting',
+        at: now,
+        host,
+      },
+    }, { merge: true });
+
+    setTimeout(() => {
+      process.exit(0);
+    }, 600);
+    return;
+  }
+
+  await setDoc(bridgeRef, {
+    ...ackBase,
+    bridgePaused,
+    controlAck: {
+      id: control.id,
+      action,
+      status: 'error',
+      message: `Unsupported action: ${action}`,
+      at: now,
+      host,
+    },
+  }, { merge: true });
+}
+
 async function processPendingRequest(data) {
   if (!data || data.status !== 'pending') return;
   if (isProcessing) return;
+
+  if (bridgePaused) {
+    const requestId = data.requestId || `req_${Date.now()}`;
+    await setDoc(bridgeRef, {
+      status: 'error',
+      requestId,
+      requestedAt: data.requestedAt,
+      requestedBy: data.requestedBy,
+      completedAt: new Date().toISOString(),
+      bridgeOnline: true,
+      bridgeLastSeenAt: new Date().toISOString(),
+      bridgePaused: true,
+      error: 'Bridge is paused from app controls. Resume first.',
+    }, { merge: true });
+    return;
+  }
 
   const requestId = data.requestId || `req_${Date.now()}`;
 
@@ -199,7 +322,9 @@ async function processPendingRequest(data) {
 
 onSnapshot(bridgeRef, async (snapshot) => {
   if (!snapshot.exists()) return;
-  await processPendingRequest(snapshot.data());
+  const data = snapshot.data();
+  await processControlCommand(data);
+  await processPendingRequest(data);
 }, (error) => {
   console.error('Firestore watch error:', String(error?.message || error));
 });

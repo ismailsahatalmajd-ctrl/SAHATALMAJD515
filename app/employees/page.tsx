@@ -684,6 +684,8 @@ export default function EmployeesHREPage() {
   const [zk_remote_msg, setZkRemoteMsg] = useState("")
   const [zk_bridge_online, setZkBridgeOnline] = useState(false)
   const [zk_bridge_last_seen, setZkBridgeLastSeen] = useState<string | null>(null)
+  const [zk_bridge_paused, setZkBridgePaused] = useState(false)
+  const [zk_bridge_control_loading, setZkBridgeControlLoading] = useState<null | "ping" | "pause" | "resume" | "restart">(null)
 
   useEffect(() => {
     let unsubscribe: (() => void) | null = null
@@ -699,6 +701,7 @@ export default function EmployeesHREPage() {
         unsubscribe = onSnapshot(bridgeRef, (snap) => {
           if (!mounted || !snap.exists()) return
           const data: any = snap.data() || {}
+          setZkBridgePaused(Boolean(data.bridgePaused))
           const lastSeen = data.bridgeLastSeenAt ? String(data.bridgeLastSeenAt) : null
           if (lastSeen) {
             const ageMs = Date.now() - new Date(lastSeen).getTime()
@@ -711,10 +714,12 @@ export default function EmployeesHREPage() {
         }, () => {
           if (!mounted) return
           setZkBridgeOnline(false)
+          setZkBridgePaused(false)
         })
       } catch {
         if (!mounted) return
         setZkBridgeOnline(false)
+        setZkBridgePaused(false)
       }
     }
 
@@ -724,6 +729,79 @@ export default function EmployeesHREPage() {
       if (unsubscribe) unsubscribe()
     }
   }, [])
+
+  const handleBridgeControl = async (action: "ping" | "pause" | "resume" | "restart") => {
+    if (!zk_bridge_online) {
+      toast({
+        title: "Bridge غير متصل",
+        description: "لا يمكن إرسال أمر تحكم لأن Bridge غير متصل حالياً.",
+        variant: "destructive"
+      })
+      return
+    }
+
+    setZkBridgeControlLoading(action)
+    try {
+      const { doc, setDoc, onSnapshot, getFirestore } = await import('firebase/firestore')
+      const { getApp } = await import('firebase/app')
+      const firestoreDb = getFirestore(getApp())
+      const bridgeRef = doc(firestoreDb, 'zk-bridge', 'status')
+      const controlId = `ctl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+
+      await setDoc(bridgeRef, {
+        control: {
+          id: controlId,
+          action,
+          issuedAt: new Date().toISOString(),
+          issuedBy: 'website',
+        }
+      }, { merge: true })
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          unsubscribe()
+          reject(new Error("انتهت مهلة أمر التحكم"))
+        }, 30000)
+
+        const unsubscribe = onSnapshot(bridgeRef, (snap) => {
+          if (!snap.exists()) return
+          const data: any = snap.data() || {}
+          const ack = data.controlAck
+          if (!ack || ack.id !== controlId) return
+
+          clearTimeout(timeout)
+          unsubscribe()
+
+          if (ack.status === 'ok') {
+            resolve()
+            return
+          }
+
+          reject(new Error(ack.message || "فشل تنفيذ الأمر"))
+        }, (err) => {
+          clearTimeout(timeout)
+          reject(err)
+        })
+      })
+
+      if (action === 'restart') {
+        setZkRemoteMsg("تم إرسال أمر إعادة تشغيل الجسر. قد يفصل لثوانٍ ثم يعود تلقائياً.")
+      }
+
+      toast({
+        title: "تم تنفيذ أمر التحكم",
+        description: action === 'ping' ? "Bridge يعمل بشكل طبيعي." : "تم تنفيذ الأمر بنجاح."
+      })
+    } catch (err: any) {
+      toast({
+        title: "فشل أمر التحكم",
+        description: err?.message || "تعذر إرسال الأمر للجسر",
+        variant: "destructive"
+      })
+    } finally {
+      setZkBridgeControlLoading(null)
+    }
+  }
 
   const handleZkRemoteSync = async () => {
     if (!zk_bridge_online) {
@@ -2205,6 +2283,7 @@ export default function EmployeesHREPage() {
                      </div>
                      <div className={`text-xs rounded-lg px-3 py-2 text-center font-medium ${zk_bridge_online ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
                        {zk_bridge_online ? 'Bridge متصل على كمبيوتر العمل' : 'Bridge غير متصل على كمبيوتر العمل'}
+                       {zk_bridge_paused ? ' - متوقف مؤقتاً' : ''}
                        {zk_bridge_last_seen ? (() => {
                          try {
                            const time = new Date(zk_bridge_last_seen);
@@ -2217,6 +2296,42 @@ export default function EmployeesHREPage() {
                          return '';
                        })() : ''}
                      </div>
+
+                     <div className="grid grid-cols-2 gap-2">
+                       <Button
+                         variant="secondary"
+                         className="h-10 font-bold"
+                         disabled={zk_bridge_control_loading !== null}
+                         onClick={() => handleBridgeControl('ping')}
+                       >
+                         {zk_bridge_control_loading === 'ping' ? '...' : 'اختبار الجسر'}
+                       </Button>
+                       <Button
+                         variant="outline"
+                         className="h-10 font-bold"
+                         disabled={zk_bridge_control_loading !== null || zk_bridge_paused}
+                         onClick={() => handleBridgeControl('pause')}
+                       >
+                         {zk_bridge_control_loading === 'pause' ? '...' : 'إيقاف مؤقت'}
+                       </Button>
+                       <Button
+                         variant="outline"
+                         className="h-10 font-bold"
+                         disabled={zk_bridge_control_loading !== null || !zk_bridge_paused}
+                         onClick={() => handleBridgeControl('resume')}
+                       >
+                         {zk_bridge_control_loading === 'resume' ? '...' : 'استئناف'}
+                       </Button>
+                       <Button
+                         variant="destructive"
+                         className="h-10 font-bold"
+                         disabled={zk_bridge_control_loading !== null}
+                         onClick={() => handleBridgeControl('restart')}
+                       >
+                         {zk_bridge_control_loading === 'restart' ? '...' : 'إعادة تشغيل'}
+                       </Button>
+                     </div>
+
                      {/* زر المزامنة المحلية (Electron فقط) */}
                      <Button 
                        onClick={handleZkSync} 

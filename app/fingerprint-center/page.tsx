@@ -4,12 +4,15 @@ import { useEffect, useMemo, useState } from "react"
 import { useLiveQuery } from "dexie-react-hooks"
 import { Header } from "@/components/header"
 import { db } from "@/lib/db"
+import { addAbsenceRecord } from "@/lib/storage"
 import { useToast } from "@/hooks/use-toast"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { format } from "date-fns"
 import {
   Building2,
   Globe,
@@ -38,11 +41,18 @@ type SyncResult = {
   at?: string
 }
 
+type BranchFetchedData = {
+  users: any[]
+  logs: any[]
+  updatedAt: string
+}
+
 const LOCAL_CONFIG_KEY = "fingerprint_hub_branch_configs_v1"
 
 export default function FingerprintHubPage() {
   const { toast } = useToast()
   const branches = useLiveQuery(() => db.branches.toArray()) || []
+  const employees = useLiveQuery(() => db.employees.toArray()) || []
 
   const [bridgeOnline, setBridgeOnline] = useState(false)
   const [bridgePaused, setBridgePaused] = useState(false)
@@ -54,6 +64,9 @@ export default function FingerprintHubPage() {
   const [syncingAll, setSyncingAll] = useState(false)
   const [syncingBranchId, setSyncingBranchId] = useState<string | null>(null)
   const [results, setResults] = useState<Record<string, SyncResult>>({})
+  const [branchData, setBranchData] = useState<Record<string, BranchFetchedData>>({})
+  const [activeDataTab, setActiveDataTab] = useState<string>("all")
+  const [savingTab, setSavingTab] = useState<string | null>(null)
 
   useEffect(() => {
     try {
@@ -180,6 +193,18 @@ export default function FingerprintHubPage() {
           unsubscribe()
           const users = Array.isArray(data?.result?.users) ? data.result.users.length : 0
           const logs = Array.isArray(data?.result?.attendances) ? data.result.attendances.length : 0
+          const rawUsers = Array.isArray(data?.result?.users) ? data.result.users : []
+          const rawLogs = Array.isArray(data?.result?.attendances) ? data.result.attendances : []
+
+          setBranchData((prev) => ({
+            ...prev,
+            [branchId]: {
+              users: rawUsers,
+              logs: rawLogs.map((item: any) => ({ ...item, __branchId: branchId })),
+              updatedAt: new Date().toISOString(),
+            },
+          }))
+
           setResults((prev) => ({
             ...prev,
             [branchId]: {
@@ -212,6 +237,95 @@ export default function FingerprintHubPage() {
         reject(error)
       })
     })
+  }
+
+  const getTabData = (tabBranchId: string) => {
+    if (tabBranchId === "all") {
+      const allUsers = Object.values(branchData).flatMap((x) => x.users || [])
+      const allLogs = Object.values(branchData).flatMap((x) => x.logs || [])
+      return { users: allUsers, logs: allLogs }
+    }
+
+    const one = branchData[tabBranchId]
+    return {
+      users: one?.users || [],
+      logs: one?.logs || [],
+    }
+  }
+
+  const saveFingerprintLogs = async (tabBranchId: string) => {
+    const { logs } = getTabData(tabBranchId)
+
+    if (logs.length === 0) {
+      toast({
+        title: "لا توجد سجلات للحفظ",
+        description: "قم بسحب بيانات الفرع أولاً.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setSavingTab(tabBranchId)
+    try {
+      let savedCount = 0
+      let skippedCount = 0
+
+      for (const log of logs) {
+        const deviceUserId = String(log.deviceUserId ?? log.userId ?? log.uid ?? "")
+        if (!deviceUserId) {
+          skippedCount++
+          continue
+        }
+
+        const employee = employees.find((e) => String(e.fingerprintId || "") === deviceUserId)
+        if (!employee) {
+          skippedCount++
+          continue
+        }
+
+        const parsed = new Date(log.recordTime)
+        if (Number.isNaN(parsed.getTime())) {
+          skippedCount++
+          continue
+        }
+
+        const recordTimeStr = format(parsed, "yyyy-MM-dd HH:mm:ss")
+        const existing = await db.absenceRecords
+          .where({ employeeId: employee.id, recordTime: recordTimeStr })
+          .first()
+
+        if (existing) {
+          skippedCount++
+          continue
+        }
+
+        await addAbsenceRecord({
+          employeeId: employee.id,
+          employeeName: employee.name,
+          date: format(parsed, "yyyy-MM-dd"),
+          type: "attendance",
+          category: "fingerprint",
+          notes: `بصمة من مركز البصمات / Fingerprint Hub`,
+          recordTime: recordTimeStr,
+          branchId: tabBranchId === "all" ? (log.__branchId || undefined) : tabBranchId,
+        })
+
+        savedCount++
+      }
+
+      toast({
+        title: "تم حفظ السجلات",
+        description: `تمت إضافة ${savedCount} سجل جديد، وتخطي ${skippedCount}.`,
+      })
+    } catch (error: any) {
+      toast({
+        title: "فشل الحفظ",
+        description: String(error?.message || error),
+        variant: "destructive",
+      })
+    } finally {
+      setSavingTab(null)
+    }
   }
 
   const syncBranch = async (branchId: string, branchName: string) => {
@@ -522,6 +636,92 @@ export default function FingerprintHubPage() {
                 </div>
               )
             })}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg font-black">عرض وحفظ البصمات / Fingerprints Viewer & Save</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Tabs value={activeDataTab} onValueChange={setActiveDataTab} className="space-y-4">
+              <TabsList className="flex flex-wrap h-auto gap-2 bg-transparent p-0">
+                <TabsTrigger value="all" className="border">الكل / All</TabsTrigger>
+                {branches.map((branch) => (
+                  <TabsTrigger key={branch.id} value={branch.id} className="border">
+                    {branch.name}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+
+              <TabsContent value={activeDataTab} className="space-y-3">
+                {(() => {
+                  const data = getTabData(activeDataTab)
+                  const previewLogs = data.logs.slice(0, 150)
+
+                  return (
+                    <>
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                        <div className="text-sm text-muted-foreground">
+                          Users: {data.users.length} | Logs: {data.logs.length}
+                        </div>
+                        <Button
+                          onClick={() => saveFingerprintLogs(activeDataTab)}
+                          disabled={savingTab !== null || data.logs.length === 0}
+                          className="font-bold"
+                        >
+                          {savingTab === activeDataTab ? "جاري الحفظ... / Saving..." : `حفظ السجلات / Save Logs (${data.logs.length})`}
+                        </Button>
+                      </div>
+
+                      <div className="border rounded-lg overflow-auto max-h-[430px]">
+                        <table className="w-full text-right border-collapse">
+                          <thead className="bg-muted/60 sticky top-0 z-10">
+                            <tr>
+                              <th className="p-2 text-xs font-black">الموظف / Employee</th>
+                              <th className="p-2 text-xs font-black">Device User ID</th>
+                              <th className="p-2 text-xs font-black">الوقت / Time</th>
+                              <th className="p-2 text-xs font-black">الفرع / Branch</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {previewLogs.map((log: any, idx: number) => {
+                              const deviceUserId = String(log.deviceUserId ?? log.userId ?? log.uid ?? "")
+                              const employee = employees.find((e) => String(e.fingerprintId || "") === deviceUserId)
+                              const branchName = log.__branchId
+                                ? (branches.find((b) => b.id === log.__branchId)?.name || log.__branchId)
+                                : (activeDataTab === "all" ? "-" : branches.find((b) => b.id === activeDataTab)?.name || "-")
+
+                              return (
+                                <tr key={`${deviceUserId}_${log.recordTime}_${idx}`} className="hover:bg-muted/30">
+                                  <td className="p-2 text-xs font-semibold">{employee?.name || "غير مربوط / Unmapped"}</td>
+                                  <td className="p-2 text-xs">{deviceUserId || "-"}</td>
+                                  <td className="p-2 text-xs">{String(log.recordTime || "-")}</td>
+                                  <td className="p-2 text-xs">{branchName}</td>
+                                </tr>
+                              )
+                            })}
+                            {previewLogs.length === 0 && (
+                              <tr>
+                                <td colSpan={4} className="p-4 text-center text-sm text-muted-foreground">
+                                  لا توجد سجلات معروضة الآن. قم بتحديث الفرع أولاً.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {data.logs.length > 150 && (
+                        <div className="text-xs text-muted-foreground text-center">
+                          يتم عرض أول 150 سجل فقط للمعاينة. الحفظ يشمل كل السجلات المسحوبة.
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
       </main>

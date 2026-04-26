@@ -116,6 +116,8 @@ const formatMinutes = (mins: number): string => {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
 }
 
+const normalizeText = (value: string) => String(value || "").trim().toLowerCase()
+
 export default function FingerprintHubPage() {
   const { toast } = useToast()
   const branches = useLiveQuery(() => db.branches.toArray()) || []
@@ -444,12 +446,30 @@ export default function FingerprintHubPage() {
     })[0]
   }
 
-  const resolveScheduleRule = (employeeId?: string, branchId?: string) => {
+  const resolveScheduleRule = (
+    employeeId?: string,
+    branchId?: string,
+    deviceUserId?: string,
+    employeeName?: string
+  ) => {
     const activeRules = workSchedules.filter((r) => r.active !== false)
+    const resolvedEmployeeId = (() => {
+      if (employeeId) return employeeId
+      if (deviceUserId) {
+        const byFingerprint = employees.find((e) => normalizeText(String(e.fingerprintId || "")) === normalizeText(deviceUserId))
+        if (byFingerprint?.id) return byFingerprint.id
+      }
+      if (employeeName) {
+        const normalizedName = normalizeText(employeeName)
+        const byName = employees.find((e) => normalizeText(e.name || "") === normalizedName)
+        if (byName?.id) return byName.id
+      }
+      return undefined
+    })()
 
     const exactEmployeeBranch = activeRules.filter((r) =>
       r.scopeType === "employee" &&
-      r.employeeId === employeeId &&
+      r.employeeId === resolvedEmployeeId &&
       Boolean(branchId) &&
       r.branchId === branchId
     )
@@ -457,7 +477,7 @@ export default function FingerprintHubPage() {
 
     const anyEmployeeBranch = activeRules.filter((r) =>
       r.scopeType === "employee" &&
-      r.employeeId === employeeId &&
+      r.employeeId === resolvedEmployeeId &&
       !r.branchId
     )
     if (anyEmployeeBranch.length) return pickLatestRule(anyEmployeeBranch)
@@ -465,7 +485,7 @@ export default function FingerprintHubPage() {
     const exactGroupBranch = activeRules.filter((r) =>
       r.scopeType === "group" &&
       Array.isArray(r.employeeIds) &&
-      r.employeeIds.includes(String(employeeId || "")) &&
+      r.employeeIds.includes(String(resolvedEmployeeId || "")) &&
       Boolean(branchId) &&
       r.branchId === branchId
     )
@@ -474,7 +494,7 @@ export default function FingerprintHubPage() {
     const anyGroupBranch = activeRules.filter((r) =>
       r.scopeType === "group" &&
       Array.isArray(r.employeeIds) &&
-      r.employeeIds.includes(String(employeeId || "")) &&
+      r.employeeIds.includes(String(resolvedEmployeeId || "")) &&
       !r.branchId
     )
     if (anyGroupBranch.length) return pickLatestRule(anyGroupBranch)
@@ -654,7 +674,8 @@ export default function FingerprintHubPage() {
       const key = `${deviceUserId}_${dateStr}`
       const employee = log.employeeId
         ? employees.find((e) => e.id === log.employeeId)
-        : employees.find((e) => String(e.fingerprintId || "") === deviceUserId)
+        : employees.find((e) => normalizeText(String(e.fingerprintId || "")) === normalizeText(deviceUserId)) ||
+          employees.find((e) => normalizeText(e.name || "") === normalizeText(String(log.employeeName || "")))
       const branchId = log.__branchId || (activeDataTab !== "all" ? activeDataTab : "")
       const branchName = branchId ? (branches.find((b) => b.id === branchId)?.name || branchId) : "-"
       if (!map.has(key)) {
@@ -683,7 +704,7 @@ export default function FingerprintHubPage() {
     const rows = Array.from(map.values())
     for (const row of rows) {
       const actualMinutes = row.count < 2 ? 0 : Math.max(0, Math.floor((row.last.getTime() - row.first.getTime()) / 60000))
-      const matchedRule = resolveScheduleRule(row.employeeId, row.branchId)
+      const matchedRule = resolveScheduleRule(row.employeeId, row.branchId, row.deviceUserId, row.employeeName)
       const expectedMinutes = matchedRule ? minutesBetweenTimes(matchedRule.startTime, matchedRule.endTime) : 0
       const deficitMinutes = Math.max(0, expectedMinutes - actualMinutes)
 

@@ -13,7 +13,8 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { format } from "date-fns"
+import { format, parse } from "date-fns"
+import { generateZkAttendanceReportPDF } from "@/lib/attendance-pdf-generator"
 import {
   Building2,
   Globe,
@@ -25,6 +26,7 @@ import {
   Wifi,
   WifiOff,
   Clock3,
+  Printer,
 } from "lucide-react"
 
 type ControlAction = "ping" | "pause" | "resume" | "restart"
@@ -67,6 +69,7 @@ export default function FingerprintHubPage() {
   const { toast } = useToast()
   const branches = useLiveQuery(() => db.branches.toArray()) || []
   const employees = useLiveQuery(() => db.employees.toArray()) || []
+  const absenceRecords = useLiveQuery(() => db.absenceRecords.toArray()) || []
 
   const [bridgeOnline, setBridgeOnline] = useState(false)
   const [bridgePaused, setBridgePaused] = useState(false)
@@ -81,6 +84,7 @@ export default function FingerprintHubPage() {
   const [branchData, setBranchData] = useState<Record<string, BranchFetchedData>>({})
   const [activeDataTab, setActiveDataTab] = useState<string>("all")
   const [savingTab, setSavingTab] = useState<string | null>(null)
+  const [exportingPdf, setExportingPdf] = useState(false)
 
   const [filterMode, setFilterMode] = useState<FilterMode>("current_month")
   const [filterMonthYear, setFilterMonthYear] = useState<string>(() => format(new Date(), "yyyy-MM"))
@@ -259,17 +263,64 @@ export default function FingerprintHubPage() {
     })
   }
 
+  const parseRecordDate = (value: unknown): Date | null => {
+    if (!value) return null
+    const direct = new Date(String(value))
+    if (!Number.isNaN(direct.getTime())) return direct
+    const parsed = parse(String(value), "yyyy-MM-dd HH:mm:ss", new Date())
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }
+
+  const dedupeLogs = (logs: any[]) => {
+    const seen = new Set<string>()
+    const deduped: any[] = []
+    for (const log of logs) {
+      const deviceUserId = String(log.deviceUserId ?? log.userId ?? log.uid ?? log.employeeId ?? "")
+      const recordTime = String(log.recordTime ?? "")
+      const branchId = String(log.__branchId ?? "")
+      const key = `${deviceUserId}|${recordTime}|${branchId}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      deduped.push(log)
+    }
+    return deduped
+  }
+
   const getTabData = (tabBranchId: string) => {
+    const employeeById = new Map(employees.map((e) => [e.id, e]))
+    const savedFingerprintLogs = absenceRecords
+      .filter((r) => {
+        if (r.type !== "attendance" || !r.recordTime) return false
+        if (r.category === "fingerprint") return true
+        const notes = String(r.notes || "")
+        return notes.includes("Fingerprint Hub") || notes.includes("بصمة")
+      })
+      .map((r) => {
+        const emp = employeeById.get(r.employeeId)
+        return {
+          deviceUserId: String(emp?.fingerprintId || r.employeeId || ""),
+          recordTime: r.recordTime,
+          __branchId: r.branchId || "",
+          __source: "saved",
+          employeeId: r.employeeId,
+          employeeName: r.employeeName,
+        }
+      })
+
     if (tabBranchId === "all") {
       const allUsers = Object.values(branchData).flatMap((x) => x.users || [])
-      const allLogs = Object.values(branchData).flatMap((x) => x.logs || [])
-      return { users: allUsers, logs: allLogs }
+      const fetchedLogs = Object.values(branchData).flatMap((x) => x.logs || [])
+      const mergedLogs = dedupeLogs([...fetchedLogs, ...savedFingerprintLogs])
+      return { users: allUsers, logs: mergedLogs, saveCandidates: fetchedLogs }
     }
 
     const one = branchData[tabBranchId]
+    const fetchedLogs = one?.logs || []
+    const savedByBranch = savedFingerprintLogs.filter((x) => String(x.__branchId || "") === tabBranchId)
     return {
       users: one?.users || [],
-      logs: one?.logs || [],
+      logs: dedupeLogs([...fetchedLogs, ...savedByBranch]),
+      saveCandidates: fetchedLogs,
     }
   }
 
@@ -301,8 +352,8 @@ export default function FingerprintHubPage() {
           continue
         }
 
-        const parsed = new Date(log.recordTime)
-        if (Number.isNaN(parsed.getTime())) {
+        const parsed = parseRecordDate(log.recordTime)
+        if (!parsed) {
           skippedCount++
           continue
         }
@@ -349,8 +400,8 @@ export default function FingerprintHubPage() {
   const getFilteredLogs = (logs: any[]): any[] => {
     return logs.filter((log) => {
       if (!log.recordTime) return false
-      const d = new Date(log.recordTime)
-      if (Number.isNaN(d.getTime())) return false
+      const d = parseRecordDate(log.recordTime)
+      if (!d) return false
       const dateStr = format(d, "yyyy-MM-dd")
       const monthStr = format(d, "yyyy-MM")
       switch (filterMode) {
@@ -375,19 +426,21 @@ export default function FingerprintHubPage() {
   const getDailySummary = (logs: any[]): DailySummaryRow[] => {
     const map = new Map<string, DailySummaryRow>()
     for (const log of logs) {
-      const deviceUserId = String(log.deviceUserId ?? log.userId ?? log.uid ?? "")
+      const deviceUserId = String(log.deviceUserId ?? log.userId ?? log.uid ?? log.employeeId ?? "")
       if (!deviceUserId) continue
-      const d = new Date(log.recordTime)
-      if (Number.isNaN(d.getTime())) continue
+      const d = parseRecordDate(log.recordTime)
+      if (!d) continue
       const dateStr = format(d, "yyyy-MM-dd")
       const key = `${deviceUserId}_${dateStr}`
-      const employee = employees.find((e) => String(e.fingerprintId || "") === deviceUserId)
+      const employee = log.employeeId
+        ? employees.find((e) => e.id === log.employeeId)
+        : employees.find((e) => String(e.fingerprintId || "") === deviceUserId)
       const branchId = log.__branchId || (activeDataTab !== "all" ? activeDataTab : "")
       const branchName = branchId ? (branches.find((b) => b.id === branchId)?.name || branchId) : "-"
       if (!map.has(key)) {
         map.set(key, {
           employeeId: employee?.id,
-          employeeName: employee?.name || "غير مربوط / Unmapped",
+          employeeName: employee?.name || String(log.employeeName || "غير مربوط / Unmapped"),
           deviceUserId,
           date: dateStr,
           first: d,
@@ -415,6 +468,51 @@ export default function FingerprintHubPage() {
     const hours = Math.floor(totalMins / 60)
     const mins = totalMins % 60
     return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`
+  }
+
+  const getFilterLabel = () => {
+    if (filterMode === "current_month") return `الشهر الحالي ${format(new Date(), "yyyy-MM")}`
+    if (filterMode === "month") return `الشهر ${filterMonthYear || "-"}`
+    if (filterMode === "day") return `اليوم ${filterDay || "-"}`
+    return `من ${filterFrom || "-"} إلى ${filterTo || "-"}`
+  }
+
+  const exportSummaryPdf = async (rows: DailySummaryRow[]) => {
+    if (rows.length === 0) {
+      toast({
+        title: "لا توجد بيانات للتصدير",
+        description: "غيّر الفلتر أو قم بتحديث السجلات أولاً.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setExportingPdf(true)
+    try {
+      const branchLabel = activeDataTab === "all"
+        ? "كل الفروع / All Branches"
+        : (branches.find((b) => b.id === activeDataTab)?.name || activeDataTab)
+
+      await generateZkAttendanceReportPDF(
+        rows.map((row) => ({
+          employeeName: row.employeeName,
+          date: row.date,
+          firstSwipe: format(row.first, "HH:mm:ss"),
+          lastSwipe: format(row.last, "HH:mm:ss"),
+          count: row.count,
+          duration: formatDuration(row.first, row.last, row.count),
+        })),
+        `${branchLabel} | ${getFilterLabel()}`
+      )
+    } catch (error: any) {
+      toast({
+        title: "فشل التصدير",
+        description: String(error?.message || error),
+        variant: "destructive",
+      })
+    } finally {
+      setExportingPdf(false)
+    }
   }
 
   const syncBranch = async (branchId: string, branchName: string) => {
@@ -811,8 +909,9 @@ export default function FingerprintHubPage() {
 
                 {/* ── Summary Table ── */}
                 {(() => {
-                  const { logs: allLogs, users } = getTabData(activeDataTab)
+                  const { logs: allLogs, users, saveCandidates } = getTabData(activeDataTab)
                   const filteredLogs = getFilteredLogs(allLogs)
+                  const filteredSaveCandidates = getFilteredLogs(saveCandidates)
                   const summary = getDailySummary(filteredLogs)
 
                   return (
@@ -821,15 +920,26 @@ export default function FingerprintHubPage() {
                         <div className="text-sm text-muted-foreground">
                           موظفين / Users: {users.length} | بصمات ظاهرة / Visible Logs: {filteredLogs.length} | إجمالي / Total: {allLogs.length}
                         </div>
-                        <Button
-                          onClick={() => saveFingerprintLogs(activeDataTab, filteredLogs)}
-                          disabled={savingTab !== null || filteredLogs.length === 0}
-                          className="font-bold"
-                        >
-                          {savingTab === activeDataTab
-                            ? "جاري الحفظ... / Saving..."
-                            : `حفظ السجلات / Save Logs (${filteredLogs.length})`}
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            variant="outline"
+                            onClick={() => exportSummaryPdf(summary)}
+                            disabled={exportingPdf || summary.length === 0}
+                            className="font-bold"
+                          >
+                            <Printer className="h-4 w-4 ml-2" />
+                            {exportingPdf ? "جاري التصدير..." : "تصدير PDF / Export"}
+                          </Button>
+                          <Button
+                            onClick={() => saveFingerprintLogs(activeDataTab, filteredSaveCandidates)}
+                            disabled={savingTab !== null || filteredSaveCandidates.length === 0}
+                            className="font-bold"
+                          >
+                            {savingTab === activeDataTab
+                              ? "جاري الحفظ... / Saving..."
+                              : `حفظ السجلات / Save Logs (${filteredSaveCandidates.length})`}
+                          </Button>
+                        </div>
                       </div>
 
                       <div className="border rounded-lg overflow-auto max-h-[500px]">

@@ -13,6 +13,8 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { format, parse } from "date-fns"
 import { generateZkAttendanceReportPDF } from "@/lib/attendance-pdf-generator"
 import {
@@ -27,6 +29,8 @@ import {
   WifiOff,
   Clock3,
   Printer,
+  Plus,
+  Trash2,
 } from "lucide-react"
 
 type ControlAction = "ping" | "pause" | "resume" | "restart"
@@ -42,6 +46,12 @@ type DailySummaryRow = {
   count: number
   branchId: string
   branchName: string
+  expectedStart?: string
+  expectedEnd?: string
+  expectedMinutes: number
+  actualMinutes: number
+  deficitMinutes: number
+  scheduleScope?: "global" | "branch" | "group" | "employee"
 }
 
 type BranchBridgeConfig = {
@@ -63,13 +73,51 @@ type BranchFetchedData = {
   updatedAt: string
 }
 
+type WorkScheduleRule = {
+  id: string
+  name?: string
+  scopeType: "global" | "branch" | "group" | "employee"
+  branchId?: string
+  employeeId?: string
+  employeeIds?: string[]
+  startTime: string
+  endTime: string
+  active: boolean
+  createdAt: string
+  updatedAt?: string
+}
+
 const LOCAL_CONFIG_KEY = "fingerprint_hub_branch_configs_v1"
+
+const generateId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+
+const parseTimeToMinutes = (hhmm: string): number => {
+  if (!hhmm || !hhmm.includes(":")) return 0
+  const [h, m] = hhmm.split(":").map((x) => Number(x || 0))
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return 0
+  return (h * 60) + m
+}
+
+const minutesBetweenTimes = (start: string, end: string): number => {
+  const startMin = parseTimeToMinutes(start)
+  const endMin = parseTimeToMinutes(end)
+  if (endMin >= startMin) return endMin - startMin
+  return (24 * 60) - startMin + endMin
+}
+
+const formatMinutes = (mins: number): string => {
+  const safe = Math.max(0, Math.floor(mins || 0))
+  const h = Math.floor(safe / 60)
+  const m = safe % 60
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
+}
 
 export default function FingerprintHubPage() {
   const { toast } = useToast()
   const branches = useLiveQuery(() => db.branches.toArray()) || []
   const employees = useLiveQuery(() => db.employees.toArray()) || []
   const absenceRecords = useLiveQuery(() => db.absenceRecords.toArray()) || []
+  const workSchedules = (useLiveQuery(() => db.workSchedules.toArray()) || []) as WorkScheduleRule[]
 
   const [bridgeOnline, setBridgeOnline] = useState(false)
   const [bridgePaused, setBridgePaused] = useState(false)
@@ -91,6 +139,13 @@ export default function FingerprintHubPage() {
   const [filterDay, setFilterDay] = useState<string>(() => format(new Date(), "yyyy-MM-dd"))
   const [filterFrom, setFilterFrom] = useState<string>("")
   const [filterTo, setFilterTo] = useState<string>("")
+
+  const [scheduleScope, setScheduleScope] = useState<"global" | "branch" | "group" | "employee">("global")
+  const [scheduleBranchId, setScheduleBranchId] = useState<string>("")
+  const [scheduleEmployeeId, setScheduleEmployeeId] = useState<string>("")
+  const [scheduleEmployeeIds, setScheduleEmployeeIds] = useState<string[]>([])
+  const [scheduleStartTime, setScheduleStartTime] = useState<string>("08:00")
+  const [scheduleEndTime, setScheduleEndTime] = useState<string>("16:00")
 
   const normalizedBranchNameMap = useMemo(() => {
     const map = new Map<string, string[]>()
@@ -298,6 +353,122 @@ export default function FingerprintHubPage() {
     return deduped
   }
 
+  const toggleScheduleEmployee = (employeeId: string, checked: boolean | "indeterminate") => {
+    if (checked !== true) {
+      setScheduleEmployeeIds((prev) => prev.filter((id) => id !== employeeId))
+      return
+    }
+    setScheduleEmployeeIds((prev) => (prev.includes(employeeId) ? prev : [...prev, employeeId]))
+  }
+
+  const addScheduleRule = async () => {
+    if (!scheduleStartTime || !scheduleEndTime) {
+      toast({ title: "حدد وقت الدوام", description: "أدخل بداية ونهاية الدوام.", variant: "destructive" })
+      return
+    }
+
+    if (scheduleScope === "branch" && !scheduleBranchId) {
+      toast({ title: "اختر الفرع", description: "يلزم اختيار فرع للقاعدة.", variant: "destructive" })
+      return
+    }
+
+    if (scheduleScope === "employee" && !scheduleEmployeeId) {
+      toast({ title: "اختر موظف", description: "يلزم اختيار موظف لقاعدة الموظف.", variant: "destructive" })
+      return
+    }
+
+    if (scheduleScope === "group" && scheduleEmployeeIds.length === 0) {
+      toast({ title: "اختر موظفين", description: "يلزم اختيار موظف واحد على الأقل للمجموعة.", variant: "destructive" })
+      return
+    }
+
+    const payload: WorkScheduleRule = {
+      id: generateId(),
+      scopeType: scheduleScope,
+      startTime: scheduleStartTime,
+      endTime: scheduleEndTime,
+      active: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      branchId: scheduleScope === "global" ? undefined : (scheduleBranchId || undefined),
+      employeeId: scheduleScope === "employee" ? scheduleEmployeeId : undefined,
+      employeeIds: scheduleScope === "group" ? [...scheduleEmployeeIds] : undefined,
+      name: scheduleScope === "global"
+        ? "الافتراضي العام / Global Default"
+        : scheduleScope === "branch"
+          ? `فرع ${branches.find((b) => b.id === scheduleBranchId)?.name || ""}`
+          : scheduleScope === "employee"
+            ? `موظف ${employees.find((e) => e.id === scheduleEmployeeId)?.name || ""}`
+            : `مجموعة (${scheduleEmployeeIds.length})`,
+    }
+
+    await db.workSchedules.put(payload)
+    toast({ title: "تم حفظ قاعدة الدوام", description: "سيتم تطبيقها مباشرة على خلاصة البصمة." })
+
+    if (scheduleScope === "employee") setScheduleEmployeeId("")
+    if (scheduleScope === "group") setScheduleEmployeeIds([])
+  }
+
+  const deleteScheduleRule = async (id: string) => {
+    await db.workSchedules.delete(id)
+  }
+
+  const pickLatestRule = (rules: WorkScheduleRule[]) => {
+    return [...rules].sort((a, b) => {
+      const atA = new Date(a.updatedAt || a.createdAt || 0).getTime()
+      const atB = new Date(b.updatedAt || b.createdAt || 0).getTime()
+      return atB - atA
+    })[0]
+  }
+
+  const resolveScheduleRule = (employeeId?: string, branchId?: string) => {
+    const activeRules = workSchedules.filter((r) => r.active !== false)
+
+    const exactEmployeeBranch = activeRules.filter((r) =>
+      r.scopeType === "employee" &&
+      r.employeeId === employeeId &&
+      Boolean(branchId) &&
+      r.branchId === branchId
+    )
+    if (exactEmployeeBranch.length) return pickLatestRule(exactEmployeeBranch)
+
+    const anyEmployeeBranch = activeRules.filter((r) =>
+      r.scopeType === "employee" &&
+      r.employeeId === employeeId &&
+      !r.branchId
+    )
+    if (anyEmployeeBranch.length) return pickLatestRule(anyEmployeeBranch)
+
+    const exactGroupBranch = activeRules.filter((r) =>
+      r.scopeType === "group" &&
+      Array.isArray(r.employeeIds) &&
+      r.employeeIds.includes(String(employeeId || "")) &&
+      Boolean(branchId) &&
+      r.branchId === branchId
+    )
+    if (exactGroupBranch.length) return pickLatestRule(exactGroupBranch)
+
+    const anyGroupBranch = activeRules.filter((r) =>
+      r.scopeType === "group" &&
+      Array.isArray(r.employeeIds) &&
+      r.employeeIds.includes(String(employeeId || "")) &&
+      !r.branchId
+    )
+    if (anyGroupBranch.length) return pickLatestRule(anyGroupBranch)
+
+    const branchRules = activeRules.filter((r) =>
+      r.scopeType === "branch" &&
+      Boolean(branchId) &&
+      r.branchId === branchId
+    )
+    if (branchRules.length) return pickLatestRule(branchRules)
+
+    const globalRules = activeRules.filter((r) => r.scopeType === "global")
+    if (globalRules.length) return pickLatestRule(globalRules)
+
+    return undefined
+  }
+
   const getTabData = (tabBranchId: string) => {
     const employeeById = new Map(employees.map((e) => [e.id, e]))
     const savedFingerprintLogs = absenceRecords
@@ -465,6 +636,9 @@ export default function FingerprintHubPage() {
           count: 1,
           branchId,
           branchName,
+          expectedMinutes: 0,
+          actualMinutes: 0,
+          deficitMinutes: 0,
         })
       } else {
         const row = map.get(key)!
@@ -473,7 +647,23 @@ export default function FingerprintHubPage() {
         if (d > row.last) row.last = d
       }
     }
-    return Array.from(map.values()).sort(
+
+    const rows = Array.from(map.values())
+    for (const row of rows) {
+      const actualMinutes = row.count < 2 ? 0 : Math.max(0, Math.floor((row.last.getTime() - row.first.getTime()) / 60000))
+      const matchedRule = resolveScheduleRule(row.employeeId, row.branchId)
+      const expectedMinutes = matchedRule ? minutesBetweenTimes(matchedRule.startTime, matchedRule.endTime) : 0
+      const deficitMinutes = Math.max(0, expectedMinutes - actualMinutes)
+
+      row.actualMinutes = actualMinutes
+      row.expectedMinutes = expectedMinutes
+      row.deficitMinutes = deficitMinutes
+      row.expectedStart = matchedRule?.startTime
+      row.expectedEnd = matchedRule?.endTime
+      row.scheduleScope = matchedRule?.scopeType
+    }
+
+    return rows.sort(
       (a, b) => b.date.localeCompare(a.date) || a.employeeName.localeCompare(b.employeeName)
     )
   }
@@ -482,9 +672,7 @@ export default function FingerprintHubPage() {
     if (count < 2) return "00:00"
     const diffMs = last.getTime() - first.getTime()
     const totalMins = Math.floor(diffMs / 60000)
-    const hours = Math.floor(totalMins / 60)
-    const mins = totalMins % 60
-    return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`
+    return formatMinutes(totalMins)
   }
 
   const getFilterLabel = () => {
@@ -845,6 +1033,161 @@ export default function FingerprintHubPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle className="text-lg font-black">قواعد أوقات العمل / Work Schedule Rules</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-3 border rounded-lg p-3 bg-muted/30">
+              <div className="space-y-1">
+                <Label className="text-xs font-bold">النطاق / Scope</Label>
+                <Select value={scheduleScope} onValueChange={(v) => setScheduleScope(v as "global" | "branch" | "group" | "employee")}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="global">افتراضي عام / Global</SelectItem>
+                    <SelectItem value="branch">حسب الفرع / Branch</SelectItem>
+                    <SelectItem value="group">مجموعة موظفين / Group</SelectItem>
+                    <SelectItem value="employee">موظف محدد / Employee</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {scheduleScope !== "global" && (
+                <div className="space-y-1 md:col-span-2">
+                  <Label className="text-xs font-bold">الفرع / Branch</Label>
+                  <Select value={scheduleBranchId} onValueChange={setScheduleBranchId}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="اختر فرع" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {branches.map((b) => (
+                        <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <Label className="text-xs font-bold">بداية الدوام</Label>
+                <Input type="time" value={scheduleStartTime} onChange={(e) => setScheduleStartTime(e.target.value)} className="h-9" />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-bold">نهاية الدوام</Label>
+                <Input type="time" value={scheduleEndTime} onChange={(e) => setScheduleEndTime(e.target.value)} className="h-9" />
+              </div>
+
+              <div className="md:col-span-6">
+                {scheduleScope === "employee" && (
+                  <div className="space-y-1">
+                    <Label className="text-xs font-bold">الموظف</Label>
+                    <Select value={scheduleEmployeeId} onValueChange={setScheduleEmployeeId}>
+                      <SelectTrigger className="h-9 md:max-w-md">
+                        <SelectValue placeholder="اختر موظف" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {employees.map((e) => (
+                          <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {scheduleScope === "group" && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-bold">الموظفون في المجموعة / Group Employees</Label>
+                      <div className="flex gap-2">
+                        <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setScheduleEmployeeIds(employees.map((e) => e.id))}>تحديد الكل</Button>
+                        <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setScheduleEmployeeIds([])}>إلغاء</Button>
+                      </div>
+                    </div>
+                    <ScrollArea className="h-44 rounded border bg-white p-2">
+                      <div className="space-y-2">
+                        {employees.map((e) => (
+                          <label key={e.id} className="flex items-center gap-2 text-sm">
+                            <Checkbox
+                              checked={scheduleEmployeeIds.includes(e.id)}
+                              onCheckedChange={(checked) => toggleScheduleEmployee(e.id, checked)}
+                            />
+                            <span>{e.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                )}
+              </div>
+
+              <div className="md:col-span-6 flex justify-end">
+                <Button onClick={addScheduleRule} className="font-bold">
+                  <Plus className="h-4 w-4 ml-2" />
+                  إضافة قاعدة الدوام
+                </Button>
+              </div>
+            </div>
+
+            <div className="border rounded-lg overflow-auto">
+              <table className="w-full text-right border-collapse text-sm">
+                <thead className="bg-muted/60">
+                  <tr>
+                    <th className="p-2 text-xs font-black border-b">القاعدة</th>
+                    <th className="p-2 text-xs font-black border-b">النطاق</th>
+                    <th className="p-2 text-xs font-black border-b">الدوام</th>
+                    <th className="p-2 text-xs font-black border-b">الفرع</th>
+                    <th className="p-2 text-xs font-black border-b">الموظفون</th>
+                    <th className="p-2 text-xs font-black border-b">إجراء</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {workSchedules
+                    .slice()
+                    .sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime())
+                    .map((rule) => {
+                      const branchName = rule.branchId ? (branches.find((b) => b.id === rule.branchId)?.name || rule.branchId) : "كل الفروع"
+                      const employeeName = rule.employeeId ? (employees.find((e) => e.id === rule.employeeId)?.name || rule.employeeId) : "-"
+                      const groupCount = Array.isArray(rule.employeeIds) ? rule.employeeIds.length : 0
+                      return (
+                        <tr key={rule.id}>
+                          <td className="p-2 text-xs font-semibold">{rule.name || "-"}</td>
+                          <td className="p-2 text-xs">
+                            {rule.scopeType === "global" && "عام"}
+                            {rule.scopeType === "branch" && "فرع"}
+                            {rule.scopeType === "group" && "مجموعة"}
+                            {rule.scopeType === "employee" && "موظف"}
+                          </td>
+                          <td className="p-2 text-xs font-bold">{rule.startTime} - {rule.endTime}</td>
+                          <td className="p-2 text-xs">{branchName}</td>
+                          <td className="p-2 text-xs">
+                            {rule.scopeType === "employee" && employeeName}
+                            {rule.scopeType === "group" && `${groupCount} موظف`}
+                            {(rule.scopeType === "global" || rule.scopeType === "branch") && "-"}
+                          </td>
+                          <td className="p-2 text-xs">
+                            <Button variant="destructive" size="sm" className="h-7" onClick={() => deleteScheduleRule(rule.id)}>
+                              <Trash2 className="h-3 w-3 ml-1" /> حذف
+                            </Button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  {workSchedules.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="p-4 text-center text-sm text-muted-foreground">
+                        لا توجد قواعد دوام بعد. أضف قاعدة عامة أولاً (مثال: 08:00 - 16:00).
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle className="text-lg font-black">خلاصة الحضور والانصراف / Daily In-Out Summary</CardTitle>
           </CardHeader>
           <CardContent>
@@ -972,8 +1315,10 @@ export default function FingerprintHubPage() {
                               <th className="p-2 text-xs font-black border-b">التاريخ / Date</th>
                               <th className="p-2 text-xs font-black border-b text-blue-700">أول بصمة (حضور) / In</th>
                               <th className="p-2 text-xs font-black border-b text-red-600">آخر بصمة (انصراف) / Out</th>
+                              <th className="p-2 text-xs font-black border-b">الدوام المعتمد</th>
                               <th className="p-2 text-xs font-black border-b">البصمات</th>
                               <th className="p-2 text-xs font-black border-b">الساعات</th>
+                              <th className="p-2 text-xs font-black border-b text-red-700">النقص</th>
                               {activeDataTab === "all" && (
                                 <th className="p-2 text-xs font-black border-b">الفرع / Branch</th>
                               )}
@@ -998,9 +1343,27 @@ export default function FingerprintHubPage() {
                                       <span className="text-muted-foreground italic">لم يتم التسجيل</span>
                                     )}
                                   </td>
+                                  <td className="p-2 text-xs text-center">
+                                    {row.expectedStart && row.expectedEnd ? (
+                                      <div className="font-bold">
+                                        {row.expectedStart} - {row.expectedEnd}
+                                        <div className="text-[10px] text-muted-foreground">
+                                          {row.scheduleScope === "employee" && "حسب الموظف"}
+                                          {row.scheduleScope === "group" && "حسب المجموعة"}
+                                          {row.scheduleScope === "branch" && "حسب الفرع"}
+                                          {row.scheduleScope === "global" && "افتراضي عام"}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <span className="text-muted-foreground">غير محدد</span>
+                                    )}
+                                  </td>
                                   <td className="p-2 text-xs text-center">{row.count}</td>
                                   <td className={`p-2 text-xs font-bold text-center ${duration !== "00:00" ? "text-green-700" : "text-muted-foreground"}`}>
                                     {duration}
+                                  </td>
+                                  <td className={`p-2 text-xs font-bold text-center ${row.deficitMinutes > 0 ? "text-red-700" : "text-green-700"}`}>
+                                    {formatMinutes(row.deficitMinutes)}
                                   </td>
                                   {activeDataTab === "all" && (
                                     <td className="p-2 text-xs">{row.branchName}</td>
@@ -1010,7 +1373,7 @@ export default function FingerprintHubPage() {
                             })}
                             {summary.length === 0 && (
                               <tr>
-                                <td colSpan={activeDataTab === "all" ? 8 : 7} className="p-6 text-center text-sm text-muted-foreground">
+                                <td colSpan={activeDataTab === "all" ? 10 : 9} className="p-6 text-center text-sm text-muted-foreground">
                                   {allLogs.length === 0
                                     ? "لا توجد سجلات. قم بتحديث الفرع أولاً."
                                     : "لا توجد سجلات في الفترة المختارة. غيّر الفلتر."}

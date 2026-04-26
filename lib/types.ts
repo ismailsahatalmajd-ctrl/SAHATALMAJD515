@@ -729,6 +729,20 @@ export interface AbsenceRecord {
   branchId?: string
 }
 
+export interface WorkScheduleRule {
+  id: string
+  name?: string
+  scopeType: 'global' | 'branch' | 'group' | 'employee'
+  branchId?: string
+  employeeId?: string
+  employeeIds?: string[]
+  startTime: string // HH:mm
+  endTime: string // HH:mm
+  active: boolean
+  createdAt: string
+  updatedAt?: string
+}
+
 export interface PlannedLeave {
   id: string
   employeeId: string

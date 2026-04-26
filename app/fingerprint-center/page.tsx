@@ -341,11 +341,29 @@ export default function FingerprintHubPage() {
   const dedupeLogs = (logs: any[]) => {
     const seen = new Set<string>()
     const deduped: any[] = []
+
+    const employeeByFingerprint = new Map(
+      employees
+        .filter((e) => e.fingerprintId)
+        .map((e) => [String(e.fingerprintId), e.id])
+    )
+
     for (const log of logs) {
-      const deviceUserId = String(log.deviceUserId ?? log.userId ?? log.uid ?? log.employeeId ?? "")
-      const recordTime = String(log.recordTime ?? "")
-      const branchId = String(log.__branchId ?? "")
-      const key = `${deviceUserId}|${recordTime}|${branchId}`
+      const parsed = parseRecordDate(log.recordTime)
+      if (!parsed) continue
+
+      const recordTime = format(parsed, "yyyy-MM-dd HH:mm:ss")
+      const rawDeviceUserId = String(log.deviceUserId ?? log.userId ?? log.uid ?? "")
+      const normalizedEmployeeId = String(
+        log.employeeId ||
+        employeeByFingerprint.get(rawDeviceUserId) ||
+        rawDeviceUserId ||
+        ""
+      )
+
+      // Important: do not include branch/source in dedupe key,
+      // so the same swipe is not counted twice after save + refresh.
+      const key = `${normalizedEmployeeId}|${recordTime}`
       if (seen.has(key)) continue
       seen.add(key)
       deduped.push(log)

@@ -44,6 +44,7 @@ export const dict: Dict = {
   "nav.barcodes": { ar: "الباركود", en: "Barcodes" },
   "nav.inventory": { ar: "الجرد", en: "Inventory" },
   "nav.branchInventory": { ar: "جرد الفرع", en: "Branch Inventory" },
+  "nav.fingerprintCenter": { ar: "مركز البصمات", en: "Fingerprint Hub" },
 
   // Footer
   "footer.copyright": { ar: "جميع الحقوق محفوظة", en: "All rights reserved" },

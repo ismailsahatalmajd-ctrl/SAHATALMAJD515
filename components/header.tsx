@@ -1,6 +1,6 @@
 "use client"
 
-import { Package, BarChart3, Receipt, ShoppingCart, Building2, Barcode, ChevronLeft, Settings, LogOut, Menu, Tag, Wrench, Server, Users, CalendarDays, Map as MapIcon, LayoutDashboard, MessageSquare, ClipboardList } from "lucide-react"
+import { Package, BarChart3, Receipt, ShoppingCart, Building2, Barcode, ChevronLeft, Settings, LogOut, Menu, Tag, Wrench, Server, Users, CalendarDays, Map as MapIcon, LayoutDashboard, MessageSquare, ClipboardList, Fingerprint } from "lucide-react"
 import Link from "next/link"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import Image from "next/image"
@@ -46,6 +46,7 @@ export function Header() {
     { href: "/warehouse-hub", key: "nav.warehouseHub", label: "مركز المستودع Hub", icon: LayoutDashboard },
     { href: "/admin/assets", key: "nav.assets", label: "إدارة الأصول", icon: Wrench },
     { href: "/employees", key: "hr.title", label: t("hr.title"), icon: Users },
+    { href: "/fingerprint-center", key: "nav.fingerprintCenter", label: t("nav.fingerprintCenter"), icon: Fingerprint },
     { href: "/admin/system", key: "nav.system", label: "موارد النظام", icon: Server },
     { href: "/admin/branch-notes", key: "nav.branchNotes", label: "ملاحظات الفروع", icon: MessageSquare },
     { href: "/settings", key: "common.settings", label: t("common.settings"), icon: Settings },
@@ -86,6 +87,7 @@ export function Header() {
       if (link.href === "/scanner") return shouldShow('showPages.scanner')
       if (link.href === "/label-designer") return shouldShow('showPages.labelDesigner')
       if (link.href === "/employees") return shouldShow('showPages.employees')
+      if (link.href === "/fingerprint-center") return shouldShow('showPages.employees')
       if (link.href === "/dashboard") return shouldShow('showPages.dashboard')
 
       return true

@@ -35,6 +35,7 @@ import {
 
 type ControlAction = "ping" | "pause" | "resume" | "restart"
 type FilterMode = "current_month" | "month" | "day" | "range"
+type SummaryViewMode = "detailed" | "grouped"
 
 type DailySummaryRow = {
   employeeId: string | undefined
@@ -52,6 +53,7 @@ type DailySummaryRow = {
   actualMinutes: number
   deficitMinutes: number
   scheduleScope?: "global" | "branch" | "group" | "employee"
+  daysCount?: number
 }
 
 type BranchBridgeConfig = {
@@ -135,6 +137,7 @@ export default function FingerprintHubPage() {
   const [exportingPdf, setExportingPdf] = useState(false)
 
   const [filterMode, setFilterMode] = useState<FilterMode>("current_month")
+  const [summaryViewMode, setSummaryViewMode] = useState<SummaryViewMode>("detailed")
   const [filterMonthYear, setFilterMonthYear] = useState<string>(() => format(new Date(), "yyyy-MM"))
   const [filterDay, setFilterDay] = useState<string>(() => format(new Date(), "yyyy-MM-dd"))
   const [filterFrom, setFilterFrom] = useState<string>("")
@@ -686,6 +689,54 @@ export default function FingerprintHubPage() {
     )
   }
 
+  const getGroupedSummary = (rows: DailySummaryRow[]): DailySummaryRow[] => {
+    const grouped = new Map<string, DailySummaryRow>()
+
+    for (const row of rows) {
+      const key = row.employeeId || row.deviceUserId
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          ...row,
+          date: "مجمع / Grouped",
+          count: row.count,
+          actualMinutes: row.actualMinutes,
+          expectedMinutes: row.expectedMinutes,
+          deficitMinutes: row.deficitMinutes,
+          branchName: row.branchName,
+          daysCount: 1,
+          first: row.first,
+          last: row.last,
+        })
+        continue
+      }
+
+      const acc = grouped.get(key)!
+      acc.count += row.count
+      acc.actualMinutes += row.actualMinutes
+      acc.expectedMinutes += row.expectedMinutes
+      acc.deficitMinutes += row.deficitMinutes
+      acc.daysCount = (acc.daysCount || 1) + 1
+      if (row.first < acc.first) acc.first = row.first
+      if (row.last > acc.last) acc.last = row.last
+
+      const branchSet = new Set(
+        `${acc.branchName || ""}|${row.branchName || ""}`
+          .split("|")
+          .map((x) => x.trim())
+          .filter(Boolean)
+      )
+      acc.branchName = Array.from(branchSet).join("، ")
+      if (!acc.branchName) acc.branchName = "-"
+      if (acc.scheduleScope !== row.scheduleScope) acc.scheduleScope = undefined
+      if ((acc.expectedStart !== row.expectedStart) || (acc.expectedEnd !== row.expectedEnd)) {
+        acc.expectedStart = undefined
+        acc.expectedEnd = undefined
+      }
+    }
+
+    return Array.from(grouped.values()).sort((a, b) => a.employeeName.localeCompare(b.employeeName))
+  }
+
   const formatDuration = (first: Date, last: Date, count: number): string => {
     if (count < 2) return "00:00"
     const diffMs = last.getTime() - first.getTime()
@@ -700,7 +751,7 @@ export default function FingerprintHubPage() {
     return `من ${filterFrom || "-"} إلى ${filterTo || "-"}`
   }
 
-  const exportSummaryPdf = async (rows: DailySummaryRow[]) => {
+  const exportSummaryPdf = async (rows: DailySummaryRow[], mode: SummaryViewMode) => {
     if (rows.length === 0) {
       toast({
         title: "لا توجد بيانات للتصدير",
@@ -719,13 +770,14 @@ export default function FingerprintHubPage() {
       await generateZkAttendanceReportPDF(
         rows.map((row) => ({
           employeeName: row.employeeName,
-          date: row.date,
-          firstSwipe: format(row.first, "HH:mm:ss"),
-          lastSwipe: format(row.last, "HH:mm:ss"),
+          date: mode === "grouped" ? `مجمع (${row.daysCount || 1} يوم)` : row.date,
+          firstSwipe: mode === "grouped" ? "-" : format(row.first, "HH:mm:ss"),
+          lastSwipe: mode === "grouped" ? "-" : format(row.last, "HH:mm:ss"),
           count: row.count,
-          duration: formatDuration(row.first, row.last, row.count),
+          duration: formatMinutes(row.actualMinutes),
+          branchName: row.branchName,
         })),
-        `${branchLabel} | ${getFilterLabel()}`
+        `${branchLabel} | ${getFilterLabel()} | ${mode === "grouped" ? "تجميع" : "تفريد"}`
       )
     } catch (error: any) {
       toast({
@@ -1227,6 +1279,19 @@ export default function FingerprintHubPage() {
                 {/* ── Filter Bar ── */}
                 <div className="flex flex-wrap items-end gap-3 p-3 bg-muted/40 rounded-lg border">
                   <div className="space-y-1">
+                    <Label className="text-xs font-bold">طريقة العرض / View</Label>
+                    <Select value={summaryViewMode} onValueChange={(v) => setSummaryViewMode(v as SummaryViewMode)}>
+                      <SelectTrigger className="h-9 w-44">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="detailed">تفريد / Detailed</SelectItem>
+                        <SelectItem value="grouped">تجميع / Grouped</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1">
                     <Label className="text-xs font-bold">الفترة / Period</Label>
                     <Select value={filterMode} onValueChange={(v) => setFilterMode(v as FilterMode)}>
                       <SelectTrigger className="h-9 w-44">
@@ -1294,7 +1359,8 @@ export default function FingerprintHubPage() {
                   const { logs: allLogs, users, saveCandidates } = getTabData(activeDataTab)
                   const filteredLogs = getFilteredLogs(allLogs)
                   const filteredSaveCandidates = getFilteredLogs(saveCandidates)
-                  const summary = getDailySummary(filteredLogs)
+                  const detailedSummary = getDailySummary(filteredLogs)
+                  const summary = summaryViewMode === "grouped" ? getGroupedSummary(detailedSummary) : detailedSummary
 
                   return (
                     <>
@@ -1305,7 +1371,7 @@ export default function FingerprintHubPage() {
                         <div className="flex flex-wrap gap-2">
                           <Button
                             variant="outline"
-                            onClick={() => exportSummaryPdf(summary)}
+                            onClick={() => exportSummaryPdf(summary, summaryViewMode)}
                             disabled={exportingPdf || summary.length === 0}
                             className="font-bold"
                           >
@@ -1325,81 +1391,121 @@ export default function FingerprintHubPage() {
                       </div>
 
                       <div className="border rounded-lg overflow-auto max-h-[500px]">
-                        <table className="w-full text-right border-collapse text-sm">
-                          <thead className="bg-muted/70 sticky top-0 z-10">
-                            <tr>
-                              <th className="p-2 text-xs font-black border-b">#</th>
-                              <th className="p-2 text-xs font-black border-b">اسم الموظف / Employee</th>
-                              <th className="p-2 text-xs font-black border-b">التاريخ / Date</th>
-                              <th className="p-2 text-xs font-black border-b text-blue-700">أول بصمة (حضور) / In</th>
-                              <th className="p-2 text-xs font-black border-b text-red-600">آخر بصمة (انصراف) / Out</th>
-                              <th className="p-2 text-xs font-black border-b">الدوام المعتمد</th>
-                              <th className="p-2 text-xs font-black border-b">البصمات</th>
-                              <th className="p-2 text-xs font-black border-b">الساعات</th>
-                              <th className="p-2 text-xs font-black border-b text-red-700">النقص</th>
-                              {activeDataTab === "all" && (
-                                <th className="p-2 text-xs font-black border-b">الفرع / Branch</th>
+                        {summaryViewMode === "detailed" ? (
+                          <table className="w-full text-right border-collapse text-sm">
+                            <thead className="bg-muted/70 sticky top-0 z-10">
+                              <tr>
+                                <th className="p-2 text-xs font-black border-b">#</th>
+                                <th className="p-2 text-xs font-black border-b">اسم الموظف / Employee</th>
+                                <th className="p-2 text-xs font-black border-b">التاريخ / Date</th>
+                                <th className="p-2 text-xs font-black border-b text-blue-700">أول بصمة (حضور) / In</th>
+                                <th className="p-2 text-xs font-black border-b text-red-600">آخر بصمة (انصراف) / Out</th>
+                                <th className="p-2 text-xs font-black border-b">الدوام المعتمد</th>
+                                <th className="p-2 text-xs font-black border-b">البصمات</th>
+                                <th className="p-2 text-xs font-black border-b">الساعات</th>
+                                <th className="p-2 text-xs font-black border-b text-red-700">النقص</th>
+                                {activeDataTab === "all" && (
+                                  <th className="p-2 text-xs font-black border-b">الفرع / Branch</th>
+                                )}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {summary.map((row, idx) => {
+                                const hasOut = row.count >= 2
+                                const duration = formatMinutes(row.actualMinutes)
+                                return (
+                                  <tr key={`${row.deviceUserId}_${row.date}`} className="hover:bg-muted/30">
+                                    <td className="p-2 text-xs text-muted-foreground">{idx + 1}</td>
+                                    <td className="p-2 text-xs font-semibold">{row.employeeName}</td>
+                                    <td className="p-2 text-xs">{row.date}</td>
+                                    <td className="p-2 text-xs font-bold text-blue-700">{format(row.first, "HH:mm:ss")}</td>
+                                    <td className="p-2 text-xs font-bold">
+                                      {hasOut ? (
+                                        <span className="text-red-600">{format(row.last, "HH:mm:ss")}</span>
+                                      ) : (
+                                        <span className="text-muted-foreground italic">لم يتم التسجيل</span>
+                                      )}
+                                    </td>
+                                    <td className="p-2 text-xs text-center">
+                                      {row.expectedStart && row.expectedEnd ? (
+                                        <div className="font-bold">
+                                          {row.expectedStart} - {row.expectedEnd}
+                                          <div className="text-[10px] text-muted-foreground">
+                                            {row.scheduleScope === "employee" && "حسب الموظف"}
+                                            {row.scheduleScope === "group" && "حسب المجموعة"}
+                                            {row.scheduleScope === "branch" && "حسب الفرع"}
+                                            {row.scheduleScope === "global" && "افتراضي عام"}
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <span className="text-muted-foreground">غير محدد</span>
+                                      )}
+                                    </td>
+                                    <td className="p-2 text-xs text-center">{row.count}</td>
+                                    <td className={`p-2 text-xs font-bold text-center ${duration !== "00:00" ? "text-green-700" : "text-muted-foreground"}`}>
+                                      {duration}
+                                    </td>
+                                    <td className={`p-2 text-xs font-bold text-center ${row.deficitMinutes > 0 ? "text-red-700" : "text-green-700"}`}>
+                                      {formatMinutes(row.deficitMinutes)}
+                                    </td>
+                                    {activeDataTab === "all" && (
+                                      <td className="p-2 text-xs">{row.branchName}</td>
+                                    )}
+                                  </tr>
+                                )
+                              })}
+                              {summary.length === 0 && (
+                                <tr>
+                                  <td colSpan={activeDataTab === "all" ? 10 : 9} className="p-6 text-center text-sm text-muted-foreground">
+                                    {allLogs.length === 0
+                                      ? "لا توجد سجلات. قم بتحديث الفرع أولاً."
+                                      : "لا توجد سجلات في الفترة المختارة. غيّر الفلتر."}
+                                  </td>
+                                </tr>
                               )}
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y">
-                            {summary.map((row, idx) => {
-                              const duration = formatDuration(row.first, row.last, row.count)
-                              const hasOut = row.count >= 2
-                              return (
-                                <tr key={`${row.deviceUserId}_${row.date}`} className="hover:bg-muted/30">
+                            </tbody>
+                          </table>
+                        ) : (
+                          <table className="w-full text-right border-collapse text-sm">
+                            <thead className="bg-muted/70 sticky top-0 z-10">
+                              <tr>
+                                <th className="p-2 text-xs font-black border-b">#</th>
+                                <th className="p-2 text-xs font-black border-b">اسم الموظف / Employee</th>
+                                <th className="p-2 text-xs font-black border-b">عدد الأيام</th>
+                                <th className="p-2 text-xs font-black border-b">البصمات</th>
+                                <th className="p-2 text-xs font-black border-b">الساعات المجمعة</th>
+                                <th className="p-2 text-xs font-black border-b text-red-700">النقص المجمع</th>
+                                <th className="p-2 text-xs font-black border-b">الفرع / Branch</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {summary.map((row, idx) => (
+                                <tr key={`${row.employeeId || row.deviceUserId}_${idx}`} className="hover:bg-muted/30">
                                   <td className="p-2 text-xs text-muted-foreground">{idx + 1}</td>
                                   <td className="p-2 text-xs font-semibold">{row.employeeName}</td>
-                                  <td className="p-2 text-xs">{row.date}</td>
-                                  <td className="p-2 text-xs font-bold text-blue-700">
-                                    {format(row.first, "HH:mm:ss")}
-                                  </td>
-                                  <td className="p-2 text-xs font-bold">
-                                    {hasOut ? (
-                                      <span className="text-red-600">{format(row.last, "HH:mm:ss")}</span>
-                                    ) : (
-                                      <span className="text-muted-foreground italic">لم يتم التسجيل</span>
-                                    )}
-                                  </td>
-                                  <td className="p-2 text-xs text-center">
-                                    {row.expectedStart && row.expectedEnd ? (
-                                      <div className="font-bold">
-                                        {row.expectedStart} - {row.expectedEnd}
-                                        <div className="text-[10px] text-muted-foreground">
-                                          {row.scheduleScope === "employee" && "حسب الموظف"}
-                                          {row.scheduleScope === "group" && "حسب المجموعة"}
-                                          {row.scheduleScope === "branch" && "حسب الفرع"}
-                                          {row.scheduleScope === "global" && "افتراضي عام"}
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <span className="text-muted-foreground">غير محدد</span>
-                                    )}
-                                  </td>
+                                  <td className="p-2 text-xs text-center">{row.daysCount || 1}</td>
                                   <td className="p-2 text-xs text-center">{row.count}</td>
-                                  <td className={`p-2 text-xs font-bold text-center ${duration !== "00:00" ? "text-green-700" : "text-muted-foreground"}`}>
-                                    {duration}
+                                  <td className={`p-2 text-xs font-bold text-center ${row.actualMinutes > 0 ? "text-green-700" : "text-muted-foreground"}`}>
+                                    {formatMinutes(row.actualMinutes)}
                                   </td>
                                   <td className={`p-2 text-xs font-bold text-center ${row.deficitMinutes > 0 ? "text-red-700" : "text-green-700"}`}>
                                     {formatMinutes(row.deficitMinutes)}
                                   </td>
-                                  {activeDataTab === "all" && (
-                                    <td className="p-2 text-xs">{row.branchName}</td>
-                                  )}
+                                  <td className="p-2 text-xs">{row.branchName || "-"}</td>
                                 </tr>
-                              )
-                            })}
-                            {summary.length === 0 && (
-                              <tr>
-                                <td colSpan={activeDataTab === "all" ? 10 : 9} className="p-6 text-center text-sm text-muted-foreground">
-                                  {allLogs.length === 0
-                                    ? "لا توجد سجلات. قم بتحديث الفرع أولاً."
-                                    : "لا توجد سجلات في الفترة المختارة. غيّر الفلتر."}
-                                </td>
-                              </tr>
-                            )}
-                          </tbody>
-                        </table>
+                              ))}
+                              {summary.length === 0 && (
+                                <tr>
+                                  <td colSpan={7} className="p-6 text-center text-sm text-muted-foreground">
+                                    {allLogs.length === 0
+                                      ? "لا توجد سجلات. قم بتحديث الفرع أولاً."
+                                      : "لا توجد سجلات في الفترة المختارة. غيّر الفلتر."}
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        )}
                       </div>
                     </>
                   )

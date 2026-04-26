@@ -188,6 +188,7 @@ export async function generateZkAttendanceReportPDF(
     lastSwipe: string; 
     count: number;
     duration: string;
+    branchName?: string;
   }>, 
   titleSuffix: string = ""
 ): Promise<void> {
@@ -202,6 +203,7 @@ export async function generateZkAttendanceReportPDF(
       <td style="color: #c05621; font-weight:bold;">${s.count > 1 ? s.lastSwipe : '<span style="color:#d9534f; font-size:10px;">لم يتم التبصيم</span>'}</td>
       <td>${s.count}</td>
       <td style="font-weight:bold; color: #38a169;">${s.duration}</td>
+      <td>${s.branchName || '-'}</td>
     </tr>
   `).join("")
 
@@ -249,10 +251,11 @@ export async function generateZkAttendanceReportPDF(
               <th>وقت الانصراف (Out)</th>
               <th>البصمات</th>
               <th>الساعات</th>
+              <th>الفرع</th>
             </tr>
           </thead>
           <tbody>
-            ${rowsHtml || '<tr><td colspan="6">لا توجد سجلات مزامنة حالياً / No synced records found</td></tr>'}
+            ${rowsHtml || '<tr><td colspan="8">لا توجد سجلات مزامنة حالياً / No synced records found</td></tr>'}
           </tbody>
         </table>
 

@@ -92,6 +92,18 @@ export default function FingerprintHubPage() {
   const [filterFrom, setFilterFrom] = useState<string>("")
   const [filterTo, setFilterTo] = useState<string>("")
 
+  const normalizedBranchNameMap = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const b of branches) {
+      const key = String(b.name || "").trim().toLowerCase()
+      if (!key) continue
+      const existing = map.get(key) || []
+      existing.push(b.id)
+      map.set(key, existing)
+    }
+    return map
+  }, [branches])
+
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LOCAL_CONFIG_KEY)
@@ -315,8 +327,13 @@ export default function FingerprintHubPage() {
     }
 
     const one = branchData[tabBranchId]
+    const selectedBranch = branches.find((b) => b.id === tabBranchId)
+    const selectedBranchNameKey = String(selectedBranch?.name || "").trim().toLowerCase()
+    const sameNameBranchIds = new Set(
+      selectedBranchNameKey ? (normalizedBranchNameMap.get(selectedBranchNameKey) || [tabBranchId]) : [tabBranchId]
+    )
     const fetchedLogs = one?.logs || []
-    const savedByBranch = savedFingerprintLogs.filter((x) => String(x.__branchId || "") === tabBranchId)
+    const savedByBranch = savedFingerprintLogs.filter((x) => sameNameBranchIds.has(String(x.__branchId || "")))
     return {
       users: one?.users || [],
       logs: dedupeLogs([...fetchedLogs, ...savedByBranch]),
@@ -836,7 +853,11 @@ export default function FingerprintHubPage() {
                 <TabsTrigger value="all" className="border">الكل / All</TabsTrigger>
                 {branches.map((branch) => (
                   <TabsTrigger key={branch.id} value={branch.id} className="border">
-                    {branch.name}
+                    {(() => {
+                      const key = String(branch.name || "").trim().toLowerCase()
+                      const isDuplicateName = (normalizedBranchNameMap.get(key)?.length || 0) > 1
+                      return isDuplicateName ? `${branch.name} (${branch.id.slice(0, 4)})` : branch.name
+                    })()}
                   </TabsTrigger>
                 ))}
               </TabsList>

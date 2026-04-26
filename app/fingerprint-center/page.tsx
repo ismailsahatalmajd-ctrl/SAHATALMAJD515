@@ -90,6 +90,8 @@ type WorkScheduleRule = {
 }
 
 const LOCAL_CONFIG_KEY = "fingerprint_hub_branch_configs_v1"
+const DEFAULT_WORK_START = "08:00"
+const DEFAULT_WORK_END = "16:00"
 
 const generateId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
@@ -487,7 +489,16 @@ export default function FingerprintHubPage() {
     const globalRules = activeRules.filter((r) => r.scopeType === "global")
     if (globalRules.length) return pickLatestRule(globalRules)
 
-    return undefined
+    // Fallback so deficit still calculates even before user defines rules.
+    return {
+      id: "__fallback_global__",
+      scopeType: "global" as const,
+      startTime: DEFAULT_WORK_START,
+      endTime: DEFAULT_WORK_END,
+      active: true,
+      createdAt: new Date(0).toISOString(),
+      name: "Fallback Global 08:00-16:00",
+    }
   }
 
   const getTabData = (tabBranchId: string) => {

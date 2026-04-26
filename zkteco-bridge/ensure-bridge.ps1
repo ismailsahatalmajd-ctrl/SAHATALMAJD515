@@ -17,5 +17,6 @@ if ($existing) {
     exit 0
 }
 
-Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'start', '""', '/min', '"' + $daemonCmd + '"' -WorkingDirectory $bridgeDir -WindowStyle Hidden
+$cmdLine = "start `"`" /min `"$daemonCmd`""
+Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', $cmdLine) -WorkingDirectory $bridgeDir -WindowStyle Hidden
 exit 0

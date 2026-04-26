@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { format } from "date-fns"
 import {
   Building2,
@@ -27,6 +28,19 @@ import {
 } from "lucide-react"
 
 type ControlAction = "ping" | "pause" | "resume" | "restart"
+type FilterMode = "current_month" | "month" | "day" | "range"
+
+type DailySummaryRow = {
+  employeeId: string | undefined
+  employeeName: string
+  deviceUserId: string
+  date: string
+  first: Date
+  last: Date
+  count: number
+  branchId: string
+  branchName: string
+}
 
 type BranchBridgeConfig = {
   ip: string
@@ -67,6 +81,12 @@ export default function FingerprintHubPage() {
   const [branchData, setBranchData] = useState<Record<string, BranchFetchedData>>({})
   const [activeDataTab, setActiveDataTab] = useState<string>("all")
   const [savingTab, setSavingTab] = useState<string | null>(null)
+
+  const [filterMode, setFilterMode] = useState<FilterMode>("current_month")
+  const [filterMonthYear, setFilterMonthYear] = useState<string>(() => format(new Date(), "yyyy-MM"))
+  const [filterDay, setFilterDay] = useState<string>(() => format(new Date(), "yyyy-MM-dd"))
+  const [filterFrom, setFilterFrom] = useState<string>("")
+  const [filterTo, setFilterTo] = useState<string>("")
 
   useEffect(() => {
     try {
@@ -253,10 +273,8 @@ export default function FingerprintHubPage() {
     }
   }
 
-  const saveFingerprintLogs = async (tabBranchId: string) => {
-    const { logs } = getTabData(tabBranchId)
-
-    if (logs.length === 0) {
+  const saveFingerprintLogs = async (tabBranchId: string, logsToSave: any[]) => {
+    if (logsToSave.length === 0) {
       toast({
         title: "لا توجد سجلات للحفظ",
         description: "قم بسحب بيانات الفرع أولاً.",
@@ -270,7 +288,7 @@ export default function FingerprintHubPage() {
       let savedCount = 0
       let skippedCount = 0
 
-      for (const log of logs) {
+      for (const log of logsToSave) {
         const deviceUserId = String(log.deviceUserId ?? log.userId ?? log.uid ?? "")
         if (!deviceUserId) {
           skippedCount++
@@ -326,6 +344,77 @@ export default function FingerprintHubPage() {
     } finally {
       setSavingTab(null)
     }
+  }
+
+  const getFilteredLogs = (logs: any[]): any[] => {
+    return logs.filter((log) => {
+      if (!log.recordTime) return false
+      const d = new Date(log.recordTime)
+      if (Number.isNaN(d.getTime())) return false
+      const dateStr = format(d, "yyyy-MM-dd")
+      const monthStr = format(d, "yyyy-MM")
+      switch (filterMode) {
+        case "current_month":
+          return monthStr === format(new Date(), "yyyy-MM")
+        case "month":
+          return filterMonthYear ? monthStr === filterMonthYear : true
+        case "day":
+          return filterDay ? dateStr === filterDay : true
+        case "range": {
+          if (filterFrom && filterTo) return dateStr >= filterFrom && dateStr <= filterTo
+          if (filterFrom) return dateStr >= filterFrom
+          if (filterTo) return dateStr <= filterTo
+          return true
+        }
+        default:
+          return true
+      }
+    })
+  }
+
+  const getDailySummary = (logs: any[]): DailySummaryRow[] => {
+    const map = new Map<string, DailySummaryRow>()
+    for (const log of logs) {
+      const deviceUserId = String(log.deviceUserId ?? log.userId ?? log.uid ?? "")
+      if (!deviceUserId) continue
+      const d = new Date(log.recordTime)
+      if (Number.isNaN(d.getTime())) continue
+      const dateStr = format(d, "yyyy-MM-dd")
+      const key = `${deviceUserId}_${dateStr}`
+      const employee = employees.find((e) => String(e.fingerprintId || "") === deviceUserId)
+      const branchId = log.__branchId || (activeDataTab !== "all" ? activeDataTab : "")
+      const branchName = branchId ? (branches.find((b) => b.id === branchId)?.name || branchId) : "-"
+      if (!map.has(key)) {
+        map.set(key, {
+          employeeId: employee?.id,
+          employeeName: employee?.name || "غير مربوط / Unmapped",
+          deviceUserId,
+          date: dateStr,
+          first: d,
+          last: d,
+          count: 1,
+          branchId,
+          branchName,
+        })
+      } else {
+        const row = map.get(key)!
+        row.count++
+        if (d < row.first) row.first = d
+        if (d > row.last) row.last = d
+      }
+    }
+    return Array.from(map.values()).sort(
+      (a, b) => b.date.localeCompare(a.date) || a.employeeName.localeCompare(b.employeeName)
+    )
+  }
+
+  const formatDuration = (first: Date, last: Date, count: number): string => {
+    if (count < 2) return "00:00"
+    const diffMs = last.getTime() - first.getTime()
+    const totalMins = Math.floor(diffMs / 60000)
+    const hours = Math.floor(totalMins / 60)
+    const mins = totalMins % 60
+    return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`
   }
 
   const syncBranch = async (branchId: string, branchName: string) => {
@@ -641,7 +730,7 @@ export default function FingerprintHubPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg font-black">عرض وحفظ البصمات / Fingerprints Viewer & Save</CardTitle>
+            <CardTitle className="text-lg font-black">خلاصة الحضور والانصراف / Daily In-Out Summary</CardTitle>
           </CardHeader>
           <CardContent>
             <Tabs value={activeDataTab} onValueChange={setActiveDataTab} className="space-y-4">
@@ -654,69 +743,152 @@ export default function FingerprintHubPage() {
                 ))}
               </TabsList>
 
-              <TabsContent value={activeDataTab} className="space-y-3">
+              <TabsContent value={activeDataTab} className="space-y-4">
+                {/* ── Filter Bar ── */}
+                <div className="flex flex-wrap items-end gap-3 p-3 bg-muted/40 rounded-lg border">
+                  <div className="space-y-1">
+                    <Label className="text-xs font-bold">الفترة / Period</Label>
+                    <Select value={filterMode} onValueChange={(v) => setFilterMode(v as FilterMode)}>
+                      <SelectTrigger className="h-9 w-44">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="current_month">الشهر الحالي / This Month</SelectItem>
+                        <SelectItem value="month">شهر محدد / Select Month</SelectItem>
+                        <SelectItem value="day">يوم محدد / Select Day</SelectItem>
+                        <SelectItem value="range">من - إلى / Date Range</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {filterMode === "month" && (
+                    <div className="space-y-1">
+                      <Label className="text-xs font-bold">الشهر / Month</Label>
+                      <Input
+                        type="month"
+                        value={filterMonthYear}
+                        onChange={(e) => setFilterMonthYear(e.target.value)}
+                        className="h-9 w-44"
+                      />
+                    </div>
+                  )}
+
+                  {filterMode === "day" && (
+                    <div className="space-y-1">
+                      <Label className="text-xs font-bold">اليوم / Day</Label>
+                      <Input
+                        type="date"
+                        value={filterDay}
+                        onChange={(e) => setFilterDay(e.target.value)}
+                        className="h-9 w-44"
+                      />
+                    </div>
+                  )}
+
+                  {filterMode === "range" && (
+                    <>
+                      <div className="space-y-1">
+                        <Label className="text-xs font-bold">من / From</Label>
+                        <Input
+                          type="date"
+                          value={filterFrom}
+                          onChange={(e) => setFilterFrom(e.target.value)}
+                          className="h-9 w-44"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs font-bold">إلى / To</Label>
+                        <Input
+                          type="date"
+                          value={filterTo}
+                          onChange={(e) => setFilterTo(e.target.value)}
+                          className="h-9 w-44"
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* ── Summary Table ── */}
                 {(() => {
-                  const data = getTabData(activeDataTab)
-                  const previewLogs = data.logs.slice(0, 150)
+                  const { logs: allLogs, users } = getTabData(activeDataTab)
+                  const filteredLogs = getFilteredLogs(allLogs)
+                  const summary = getDailySummary(filteredLogs)
 
                   return (
                     <>
                       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                         <div className="text-sm text-muted-foreground">
-                          Users: {data.users.length} | Logs: {data.logs.length}
+                          موظفين / Users: {users.length} | بصمات ظاهرة / Visible Logs: {filteredLogs.length} | إجمالي / Total: {allLogs.length}
                         </div>
                         <Button
-                          onClick={() => saveFingerprintLogs(activeDataTab)}
-                          disabled={savingTab !== null || data.logs.length === 0}
+                          onClick={() => saveFingerprintLogs(activeDataTab, filteredLogs)}
+                          disabled={savingTab !== null || filteredLogs.length === 0}
                           className="font-bold"
                         >
-                          {savingTab === activeDataTab ? "جاري الحفظ... / Saving..." : `حفظ السجلات / Save Logs (${data.logs.length})`}
+                          {savingTab === activeDataTab
+                            ? "جاري الحفظ... / Saving..."
+                            : `حفظ السجلات / Save Logs (${filteredLogs.length})`}
                         </Button>
                       </div>
 
-                      <div className="border rounded-lg overflow-auto max-h-[430px]">
-                        <table className="w-full text-right border-collapse">
-                          <thead className="bg-muted/60 sticky top-0 z-10">
+                      <div className="border rounded-lg overflow-auto max-h-[500px]">
+                        <table className="w-full text-right border-collapse text-sm">
+                          <thead className="bg-muted/70 sticky top-0 z-10">
                             <tr>
-                              <th className="p-2 text-xs font-black">الموظف / Employee</th>
-                              <th className="p-2 text-xs font-black">Device User ID</th>
-                              <th className="p-2 text-xs font-black">الوقت / Time</th>
-                              <th className="p-2 text-xs font-black">الفرع / Branch</th>
+                              <th className="p-2 text-xs font-black border-b">#</th>
+                              <th className="p-2 text-xs font-black border-b">اسم الموظف / Employee</th>
+                              <th className="p-2 text-xs font-black border-b">التاريخ / Date</th>
+                              <th className="p-2 text-xs font-black border-b text-blue-700">أول بصمة (حضور) / In</th>
+                              <th className="p-2 text-xs font-black border-b text-red-600">آخر بصمة (انصراف) / Out</th>
+                              <th className="p-2 text-xs font-black border-b">البصمات</th>
+                              <th className="p-2 text-xs font-black border-b">الساعات</th>
+                              {activeDataTab === "all" && (
+                                <th className="p-2 text-xs font-black border-b">الفرع / Branch</th>
+                              )}
                             </tr>
                           </thead>
                           <tbody className="divide-y">
-                            {previewLogs.map((log: any, idx: number) => {
-                              const deviceUserId = String(log.deviceUserId ?? log.userId ?? log.uid ?? "")
-                              const employee = employees.find((e) => String(e.fingerprintId || "") === deviceUserId)
-                              const branchName = log.__branchId
-                                ? (branches.find((b) => b.id === log.__branchId)?.name || log.__branchId)
-                                : (activeDataTab === "all" ? "-" : branches.find((b) => b.id === activeDataTab)?.name || "-")
-
+                            {summary.map((row, idx) => {
+                              const duration = formatDuration(row.first, row.last, row.count)
+                              const hasOut = row.count >= 2
                               return (
-                                <tr key={`${deviceUserId}_${log.recordTime}_${idx}`} className="hover:bg-muted/30">
-                                  <td className="p-2 text-xs font-semibold">{employee?.name || "غير مربوط / Unmapped"}</td>
-                                  <td className="p-2 text-xs">{deviceUserId || "-"}</td>
-                                  <td className="p-2 text-xs">{String(log.recordTime || "-")}</td>
-                                  <td className="p-2 text-xs">{branchName}</td>
+                                <tr key={`${row.deviceUserId}_${row.date}`} className="hover:bg-muted/30">
+                                  <td className="p-2 text-xs text-muted-foreground">{idx + 1}</td>
+                                  <td className="p-2 text-xs font-semibold">{row.employeeName}</td>
+                                  <td className="p-2 text-xs">{row.date}</td>
+                                  <td className="p-2 text-xs font-bold text-blue-700">
+                                    {format(row.first, "HH:mm:ss")}
+                                  </td>
+                                  <td className="p-2 text-xs font-bold">
+                                    {hasOut ? (
+                                      <span className="text-red-600">{format(row.last, "HH:mm:ss")}</span>
+                                    ) : (
+                                      <span className="text-muted-foreground italic">لم يتم التسجيل</span>
+                                    )}
+                                  </td>
+                                  <td className="p-2 text-xs text-center">{row.count}</td>
+                                  <td className={`p-2 text-xs font-bold text-center ${duration !== "00:00" ? "text-green-700" : "text-muted-foreground"}`}>
+                                    {duration}
+                                  </td>
+                                  {activeDataTab === "all" && (
+                                    <td className="p-2 text-xs">{row.branchName}</td>
+                                  )}
                                 </tr>
                               )
                             })}
-                            {previewLogs.length === 0 && (
+                            {summary.length === 0 && (
                               <tr>
-                                <td colSpan={4} className="p-4 text-center text-sm text-muted-foreground">
-                                  لا توجد سجلات معروضة الآن. قم بتحديث الفرع أولاً.
+                                <td colSpan={activeDataTab === "all" ? 8 : 7} className="p-6 text-center text-sm text-muted-foreground">
+                                  {allLogs.length === 0
+                                    ? "لا توجد سجلات. قم بتحديث الفرع أولاً."
+                                    : "لا توجد سجلات في الفترة المختارة. غيّر الفلتر."}
                                 </td>
                               </tr>
                             )}
                           </tbody>
                         </table>
                       </div>
-
-                      {data.logs.length > 150 && (
-                        <div className="text-xs text-muted-foreground text-center">
-                          يتم عرض أول 150 سجل فقط للمعاينة. الحفظ يشمل كل السجلات المسحوبة.
-                        </div>
-                      )}
                     </>
                   )
                 })()}

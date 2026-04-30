@@ -67,4 +67,7 @@ hs_err_pid*.log
 /build/
 .gradle/
 
+# Firebase Secrets
+newproject2-2afdc-firebase-adminsdk-fbsvc-95b0d31379.json
+
 

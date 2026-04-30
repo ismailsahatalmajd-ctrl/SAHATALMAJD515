@@ -19,6 +19,7 @@ import GlobalImageDropzone from "./global-image-dropzone"
 import { DualText } from "@/components/ui/dual-text"
 import { useAuth } from "@/components/auth-provider"
 import { useGranularPermissions } from "@/hooks/use-granular-permissions"
+import { getGranularKeysForRoute } from "@/lib/granular-page-mapping"
 
 import { canAccessPage } from "@/lib/auth-utils"
 
@@ -76,19 +77,11 @@ export function Header() {
       // Basic page access
       if (!canAccessPage(user as any, link.href)) return false
 
-      // Granular mapping
-      if (link.href === "/") return shouldShow('showPages.inventory')
-      if (link.href === "/purchases") return shouldShow('showPages.purchases')
-      if (link.href === "/issues") return shouldShow('showPages.issues')
-      if (link.href === "/returns") return shouldShow('showPages.returns')
-      if (link.href === "/reports") return shouldShow('showPages.reports')
-      if (link.href === "/branches") return shouldShow('showPages.branches')
-      if (link.href === "/history") return shouldShow('showPages.history')
-      if (link.href === "/scanner") return shouldShow('showPages.scanner')
-      if (link.href === "/label-designer") return shouldShow('showPages.labelDesigner')
-      if (link.href === "/employees") return shouldShow('showPages.employees')
-      if (link.href === "/fingerprint-center") return shouldShow('showPages.employees')
-      if (link.href === "/dashboard") return shouldShow('showPages.dashboard')
+      // Granular mapping from a centralized route-key map
+      const granularKeys = getGranularKeysForRoute(link.href)
+      if (granularKeys.length > 0) {
+        return granularKeys.some((k) => shouldShow(`showPages.${k}`))
+      }
 
       return true
     })

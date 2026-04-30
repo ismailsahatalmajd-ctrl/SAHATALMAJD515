@@ -1,8 +1,10 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { usePathname, useRouter } from "next/navigation"
 import { useLiveQuery } from "dexie-react-hooks"
 import { Header } from "@/components/header"
+import { useAuth } from "@/components/auth-provider"
 import { db } from "@/lib/db"
 import { addAbsenceRecord } from "@/lib/storage"
 import { useToast } from "@/hooks/use-toast"
@@ -59,6 +61,35 @@ type DailySummaryRow = {
 type BranchBridgeConfig = {
   ip: string
   port: string
+  bridgeId?: string
+}
+
+type BranchConfigSyncState = "synced" | "pending" | "error"
+
+type BranchConfigSyncMeta = {
+  syncState: BranchConfigSyncState
+  updatedAt?: string
+  lastSyncAt?: string
+  error?: string
+}
+
+type FingerprintMapStatus = "mapped" | "unmapped" | "needs_review"
+
+type FingerprintMappingRecord = {
+  employeeId?: string
+  employeeName?: string
+  fingerprintLabel?: string
+  status: FingerprintMapStatus
+  updatedAt: string
+}
+
+type BranchFingerprintMappings = Record<string, Record<string, FingerprintMappingRecord>>
+
+type BranchMappingSyncMeta = {
+  syncState: BranchConfigSyncState
+  updatedAt?: string
+  lastSyncAt?: string
+  error?: string
 }
 
 type SyncResult = {
@@ -73,6 +104,20 @@ type BranchFetchedData = {
   users: any[]
   logs: any[]
   updatedAt: string
+}
+
+type AuditEvent = {
+  id: string
+  at: string
+  action: string
+  branchId?: string
+  branchName?: string
+  actor: string
+  details?: string
+}
+
+type FingerprintHubPageProps = {
+  forcedMode?: "auto" | "branch" | "admin"
 }
 
 type WorkScheduleRule = {
@@ -90,6 +135,12 @@ type WorkScheduleRule = {
 }
 
 const LOCAL_CONFIG_KEY = "fingerprint_hub_branch_configs_v1"
+const LOCAL_CONFIG_META_KEY = "fingerprint_hub_branch_configs_meta_v1"
+const LOCAL_MAPPING_KEY = "fingerprint_hub_branch_mappings_v1"
+const LOCAL_MAPPING_META_KEY = "fingerprint_hub_branch_mappings_meta_v1"
+const LOCAL_AUDIT_KEY = "fingerprint_hub_audit_v1"
+const AUTO_SYNC_ENABLED_KEY = "fingerprint_hub_auto_sync_enabled_v1"
+const AUTO_SYNC_INTERVAL_KEY = "fingerprint_hub_auto_sync_interval_seconds_v1"
 const DEFAULT_WORK_START = "08:00"
 const DEFAULT_WORK_END = "16:00"
 
@@ -118,12 +169,18 @@ const formatMinutes = (mins: number): string => {
 
 const normalizeText = (value: string) => String(value || "").trim().toLowerCase()
 
-export default function FingerprintHubPage() {
+export default function FingerprintHubPage({ forcedMode = "auto" }: FingerprintHubPageProps) {
   const { toast } = useToast()
+  const { user } = useAuth()
+  const router = useRouter()
+  const pathname = usePathname()
   const branches = useLiveQuery(() => db.branches.toArray()) || []
   const employees = useLiveQuery(() => db.employees.toArray()) || []
   const absenceRecords = useLiveQuery(() => db.absenceRecords.toArray()) || []
   const workSchedules = (useLiveQuery(() => db.workSchedules.toArray()) || []) as WorkScheduleRule[]
+  const roleIsBranch = String(user?.role || "") === "branch"
+  const isBranchUser = forcedMode === "branch" ? true : forcedMode === "admin" ? false : roleIsBranch
+  const currentBranchId = String(user?.branchId || "")
 
   const [bridgeOnline, setBridgeOnline] = useState(false)
   const [bridgePaused, setBridgePaused] = useState(false)
@@ -132,6 +189,10 @@ export default function FingerprintHubPage() {
   const [bridgeControlLoading, setBridgeControlLoading] = useState<ControlAction | null>(null)
 
   const [branchConfigs, setBranchConfigs] = useState<Record<string, BranchBridgeConfig>>({})
+  const [branchConfigMeta, setBranchConfigMeta] = useState<Record<string, BranchConfigSyncMeta>>({})
+  const [branchMappings, setBranchMappings] = useState<BranchFingerprintMappings>({})
+  const [branchMappingMeta, setBranchMappingMeta] = useState<Record<string, BranchMappingSyncMeta>>({})
+  const [mappingBranchId, setMappingBranchId] = useState<string>("")
   const [syncingAll, setSyncingAll] = useState(false)
   const [syncingBranchId, setSyncingBranchId] = useState<string | null>(null)
   const [results, setResults] = useState<Record<string, SyncResult>>({})
@@ -139,6 +200,13 @@ export default function FingerprintHubPage() {
   const [activeDataTab, setActiveDataTab] = useState<string>("all")
   const [savingTab, setSavingTab] = useState<string | null>(null)
   const [exportingPdf, setExportingPdf] = useState(false)
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
+  const [autoSyncIntervalSeconds, setAutoSyncIntervalSeconds] = useState(10)
+  const [autoSyncLastRunAt, setAutoSyncLastRunAt] = useState<string | null>(null)
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
+  const autoSyncInFlightRef = useRef(false)
+  const configSyncTimersRef = useRef<Record<string, number>>({})
+  const mappingSyncTimersRef = useRef<Record<string, number>>({})
 
   const [filterMode, setFilterMode] = useState<FilterMode>("current_month")
   const [summaryViewMode, setSummaryViewMode] = useState<SummaryViewMode>("detailed")
@@ -153,6 +221,12 @@ export default function FingerprintHubPage() {
   const [scheduleEmployeeIds, setScheduleEmployeeIds] = useState<string[]>([])
   const [scheduleStartTime, setScheduleStartTime] = useState<string>("08:00")
   const [scheduleEndTime, setScheduleEndTime] = useState<string>("16:00")
+
+  const visibleBranches = useMemo(() => {
+    if (!isBranchUser) return branches
+    if (!currentBranchId) return []
+    return branches.filter((b) => b.id === currentBranchId)
+  }, [branches, isBranchUser, currentBranchId])
 
   const normalizedBranchNameMap = useMemo(() => {
     const map = new Map<string, string[]>()
@@ -169,15 +243,453 @@ export default function FingerprintHubPage() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LOCAL_CONFIG_KEY)
-      if (!raw) return
-      const parsed = JSON.parse(raw)
-      if (parsed && typeof parsed === "object") {
-        setBranchConfigs(parsed)
+      const rawMeta = localStorage.getItem(LOCAL_CONFIG_META_KEY)
+
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed === "object") {
+          setBranchConfigs(parsed)
+        }
+      }
+
+      if (rawMeta) {
+        const parsedMeta = JSON.parse(rawMeta)
+        if (parsedMeta && typeof parsedMeta === "object") {
+          setBranchConfigMeta(parsedMeta)
+        }
       }
     } catch {
       // ignore local storage parsing errors
     }
   }, [])
+
+  const persistLocalBranchConfigState = (
+    nextConfigs: Record<string, BranchBridgeConfig>,
+    nextMeta: Record<string, BranchConfigSyncMeta>
+  ) => {
+    setBranchConfigs(nextConfigs)
+    setBranchConfigMeta(nextMeta)
+    try {
+      localStorage.setItem(LOCAL_CONFIG_KEY, JSON.stringify(nextConfigs))
+      localStorage.setItem(LOCAL_CONFIG_META_KEY, JSON.stringify(nextMeta))
+    } catch {
+      // ignore local storage write errors
+    }
+  }
+
+  const markBranchConfigMeta = (branchId: string, patch: Partial<BranchConfigSyncMeta>) => {
+    setBranchConfigMeta((prev) => {
+      const next: Record<string, BranchConfigSyncMeta> = {
+        ...prev,
+        [branchId]: {
+          ...(prev[branchId] || {}),
+          ...patch,
+          syncState: (patch.syncState || "pending") as BranchConfigSyncState,
+        },
+      }
+
+      try {
+        localStorage.setItem(LOCAL_CONFIG_META_KEY, JSON.stringify(next))
+      } catch {
+        // ignore local storage write errors
+      }
+
+      return next
+    })
+  }
+
+  const upsertBranchConfigToCloud = async (branchId: string, cfg: BranchBridgeConfig, updatedAt: string) => {
+    const { getApp } = await import("firebase/app")
+    const { getFirestore, doc, setDoc } = await import("firebase/firestore")
+    const firestoreDb = getFirestore(getApp())
+    const branchRef = doc(firestoreDb, "branches", branchId)
+
+    await setDoc(branchRef, {
+      fingerprintConfig: {
+        ip: cfg.ip,
+        port: cfg.port,
+        bridgeId: cfg.bridgeId || "",
+        updatedAt,
+      },
+    }, { merge: true })
+  }
+
+  const flushBranchConfigToCloud = async (branchId: string) => {
+    const cfg = branchConfigs[branchId]
+    if (!cfg) return
+    const updatedAt = new Date().toISOString()
+
+    markBranchConfigMeta(branchId, {
+      syncState: "pending",
+      updatedAt,
+      error: undefined,
+    })
+
+    try {
+      await upsertBranchConfigToCloud(branchId, cfg, updatedAt)
+      markBranchConfigMeta(branchId, {
+        syncState: "synced",
+        updatedAt,
+        lastSyncAt: new Date().toISOString(),
+        error: undefined,
+      })
+      appendAuditEvent({
+        action: "config_synced",
+        branchId,
+        branchName: branches.find((b) => b.id === branchId)?.name || branchId,
+        details: `IP ${cfg.ip}:${cfg.port}`,
+      })
+    } catch (error: any) {
+      markBranchConfigMeta(branchId, {
+        syncState: "error",
+        updatedAt,
+        error: String(error?.message || error || "Cloud sync failed"),
+      })
+      appendAuditEvent({
+        action: "config_sync_error",
+        branchId,
+        branchName: branches.find((b) => b.id === branchId)?.name || branchId,
+        details: String(error?.message || error || "Cloud sync failed"),
+      })
+    }
+  }
+
+  const queueBranchConfigCloudSync = (branchId: string) => {
+    const currentTimer = configSyncTimersRef.current[branchId]
+    if (currentTimer) {
+      clearTimeout(currentTimer)
+    }
+
+    const timer = window.setTimeout(() => {
+      void flushBranchConfigToCloud(branchId)
+    }, 900)
+
+    configSyncTimersRef.current[branchId] = timer
+  }
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LOCAL_MAPPING_KEY)
+      const rawMeta = localStorage.getItem(LOCAL_MAPPING_META_KEY)
+      const rawAudit = localStorage.getItem(LOCAL_AUDIT_KEY)
+
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed === "object") {
+          setBranchMappings(parsed)
+        }
+      }
+
+      if (rawMeta) {
+        const parsedMeta = JSON.parse(rawMeta)
+        if (parsedMeta && typeof parsedMeta === "object") {
+          setBranchMappingMeta(parsedMeta)
+        }
+      }
+
+      if (rawAudit) {
+        const parsedAudit = JSON.parse(rawAudit)
+        if (Array.isArray(parsedAudit)) {
+          setAuditEvents(parsedAudit)
+        }
+      }
+    } catch {
+      // ignore local storage parsing errors
+    }
+  }, [])
+
+  const appendAuditEvent = (event: Omit<AuditEvent, "id" | "at" | "actor">) => {
+    setAuditEvents((prev) => {
+      const next: AuditEvent[] = [
+        {
+          id: generateId(),
+          at: new Date().toISOString(),
+          actor: isBranchUser ? `branch:${currentBranchId || "unknown"}` : "admin",
+          ...event,
+        },
+        ...prev,
+      ].slice(0, 300)
+
+      try {
+        localStorage.setItem(LOCAL_AUDIT_KEY, JSON.stringify(next))
+      } catch {
+        // ignore local storage write errors
+      }
+
+      return next
+    })
+  }
+
+  const persistLocalBranchMappingState = (
+    nextMappings: BranchFingerprintMappings,
+    nextMeta: Record<string, BranchMappingSyncMeta>
+  ) => {
+    setBranchMappings(nextMappings)
+    setBranchMappingMeta(nextMeta)
+    try {
+      localStorage.setItem(LOCAL_MAPPING_KEY, JSON.stringify(nextMappings))
+      localStorage.setItem(LOCAL_MAPPING_META_KEY, JSON.stringify(nextMeta))
+    } catch {
+      // ignore local storage write errors
+    }
+  }
+
+  const markBranchMappingMeta = (branchId: string, patch: Partial<BranchMappingSyncMeta>) => {
+    setBranchMappingMeta((prev) => {
+      const next: Record<string, BranchMappingSyncMeta> = {
+        ...prev,
+        [branchId]: {
+          ...(prev[branchId] || {}),
+          ...patch,
+          syncState: (patch.syncState || "pending") as BranchConfigSyncState,
+        },
+      }
+
+      try {
+        localStorage.setItem(LOCAL_MAPPING_META_KEY, JSON.stringify(next))
+      } catch {
+        // ignore local storage write errors
+      }
+
+      return next
+    })
+  }
+
+  const upsertBranchMappingsToCloud = async (
+    branchId: string,
+    mappings: Record<string, FingerprintMappingRecord>,
+    updatedAt: string
+  ) => {
+    const { getApp } = await import("firebase/app")
+    const { getFirestore, doc, setDoc } = await import("firebase/firestore")
+    const firestoreDb = getFirestore(getApp())
+    const branchRef = doc(firestoreDb, "branches", branchId)
+
+    await setDoc(branchRef, {
+      fingerprintMappings: mappings,
+      fingerprintMappingsUpdatedAt: updatedAt,
+    }, { merge: true })
+  }
+
+  const flushBranchMappingsToCloud = async (branchId: string) => {
+    const branchMapping = branchMappings[branchId] || {}
+    const updatedAt = new Date().toISOString()
+
+    markBranchMappingMeta(branchId, {
+      syncState: "pending",
+      updatedAt,
+      error: undefined,
+    })
+
+    try {
+      await upsertBranchMappingsToCloud(branchId, branchMapping, updatedAt)
+      markBranchMappingMeta(branchId, {
+        syncState: "synced",
+        updatedAt,
+        lastSyncAt: new Date().toISOString(),
+        error: undefined,
+      })
+      appendAuditEvent({
+        action: "mapping_synced",
+        branchId,
+        branchName: branches.find((b) => b.id === branchId)?.name || branchId,
+        details: `Mapped IDs: ${Object.keys(branchMapping).length}`,
+      })
+    } catch (error: any) {
+      markBranchMappingMeta(branchId, {
+        syncState: "error",
+        updatedAt,
+        error: String(error?.message || error || "Mapping cloud sync failed"),
+      })
+      appendAuditEvent({
+        action: "mapping_sync_error",
+        branchId,
+        branchName: branches.find((b) => b.id === branchId)?.name || branchId,
+        details: String(error?.message || error || "Mapping cloud sync failed"),
+      })
+    }
+  }
+
+  const queueBranchMappingCloudSync = (branchId: string) => {
+    const currentTimer = mappingSyncTimersRef.current[branchId]
+    if (currentTimer) {
+      clearTimeout(currentTimer)
+    }
+
+    const timer = window.setTimeout(() => {
+      void flushBranchMappingsToCloud(branchId)
+    }, 900)
+
+    mappingSyncTimersRef.current[branchId] = timer
+  }
+
+  useEffect(() => {
+    if (visibleBranches.length === 0) return
+
+    let alive = true
+
+    const loadCloudConfigs = async () => {
+      try {
+        const { getApp } = await import("firebase/app")
+        const { getFirestore, doc, getDoc } = await import("firebase/firestore")
+        const firestoreDb = getFirestore(getApp())
+
+        const cloudUpdates: Record<string, BranchBridgeConfig> = {}
+        const cloudMetaUpdates: Record<string, BranchConfigSyncMeta> = {}
+        const cloudMappingUpdates: BranchFingerprintMappings = {}
+        const cloudMappingMetaUpdates: Record<string, BranchMappingSyncMeta> = {}
+
+        for (const branch of visibleBranches) {
+          // eslint-disable-next-line no-await-in-loop
+          const snap = await getDoc(doc(firestoreDb, "branches", branch.id))
+          const docData: any = snap.data() || {}
+          const fingerprintConfig: any = docData.fingerprintConfig
+          if (!fingerprintConfig || typeof fingerprintConfig !== "object") continue
+
+          const cloudUpdatedAt = String(fingerprintConfig.updatedAt || "")
+          const localUpdatedAt = String(branchConfigMeta[branch.id]?.updatedAt || "")
+
+          const cloudTs = new Date(cloudUpdatedAt).getTime()
+          const localTs = new Date(localUpdatedAt).getTime()
+          const cloudIsNewer = Number.isFinite(cloudTs) && (!Number.isFinite(localTs) || cloudTs >= localTs)
+
+          if (cloudIsNewer) {
+            cloudUpdates[branch.id] = {
+              ip: String(fingerprintConfig.ip || ""),
+              port: String(fingerprintConfig.port || "4370"),
+              bridgeId: String(fingerprintConfig.bridgeId || ""),
+            }
+            cloudMetaUpdates[branch.id] = {
+              syncState: "synced",
+              updatedAt: cloudUpdatedAt || new Date().toISOString(),
+              lastSyncAt: new Date().toISOString(),
+            }
+          }
+
+          const cloudMappings = docData.fingerprintMappings
+          if (cloudMappings && typeof cloudMappings === "object") {
+            const cloudMapUpdatedAt = String(docData.fingerprintMappingsUpdatedAt || "")
+            const localMapUpdatedAt = String(branchMappingMeta[branch.id]?.updatedAt || "")
+            const cloudMapTs = new Date(cloudMapUpdatedAt).getTime()
+            const localMapTs = new Date(localMapUpdatedAt).getTime()
+            const cloudMapIsNewer = Number.isFinite(cloudMapTs) && (!Number.isFinite(localMapTs) || cloudMapTs >= localMapTs)
+
+            if (cloudMapIsNewer) {
+              cloudMappingUpdates[branch.id] = cloudMappings as Record<string, FingerprintMappingRecord>
+              cloudMappingMetaUpdates[branch.id] = {
+                syncState: "synced",
+                updatedAt: cloudMapUpdatedAt || new Date().toISOString(),
+                lastSyncAt: new Date().toISOString(),
+              }
+            }
+          }
+        }
+
+        if (!alive) return
+
+        if (Object.keys(cloudUpdates).length > 0) {
+          const nextConfigs = { ...branchConfigs, ...cloudUpdates }
+          const nextMeta = { ...branchConfigMeta, ...cloudMetaUpdates }
+          persistLocalBranchConfigState(nextConfigs, nextMeta)
+        }
+
+        if (Object.keys(cloudMappingUpdates).length > 0) {
+          const nextMappings = { ...branchMappings, ...cloudMappingUpdates }
+          const nextMappingMeta = { ...branchMappingMeta, ...cloudMappingMetaUpdates }
+          persistLocalBranchMappingState(nextMappings, nextMappingMeta)
+        }
+      } catch {
+        // ignore cloud load errors to keep local fallback active
+      }
+    }
+
+    void loadCloudConfigs()
+
+    return () => {
+      alive = false
+    }
+    // visible branches are the cloud source list for loading docs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleBranches.length])
+
+  useEffect(() => {
+    if (visibleBranches.length === 0) return
+
+    const firstBranchId = visibleBranches[0]?.id || ""
+
+    if (isBranchUser && currentBranchId) {
+      setActiveDataTab(currentBranchId)
+      setMappingBranchId(currentBranchId)
+      setScheduleBranchId(currentBranchId)
+      if (scheduleScope === "global") {
+        setScheduleScope("branch")
+      }
+      return
+    }
+
+    if (!mappingBranchId && firstBranchId) {
+      setMappingBranchId(firstBranchId)
+    }
+  }, [visibleBranches, isBranchUser, currentBranchId, mappingBranchId, scheduleScope])
+
+  useEffect(() => {
+    const pendingBranchIds = Object.entries(branchConfigMeta)
+      .filter(([, meta]) => meta?.syncState === "pending")
+      .map(([branchId]) => branchId)
+
+    if (pendingBranchIds.length === 0) return
+
+    const timer = window.setInterval(() => {
+      for (const branchId of pendingBranchIds) {
+        void flushBranchConfigToCloud(branchId)
+      }
+    }, 12000)
+
+    return () => clearInterval(timer)
+    // re-run when pending set changes
+  }, [branchConfigMeta])
+
+  useEffect(() => {
+    const pendingBranchIds = Object.entries(branchMappingMeta)
+      .filter(([, meta]) => meta?.syncState === "pending")
+      .map(([branchId]) => branchId)
+
+    if (pendingBranchIds.length === 0) return
+
+    const timer = window.setInterval(() => {
+      for (const branchId of pendingBranchIds) {
+        void flushBranchMappingsToCloud(branchId)
+      }
+    }, 12000)
+
+    return () => clearInterval(timer)
+  }, [branchMappingMeta])
+
+  useEffect(() => {
+    try {
+      const rawEnabled = localStorage.getItem(AUTO_SYNC_ENABLED_KEY)
+      const rawInterval = localStorage.getItem(AUTO_SYNC_INTERVAL_KEY)
+
+      if (rawEnabled === "1") setAutoSyncEnabled(true)
+      if (rawEnabled === "0") setAutoSyncEnabled(false)
+
+      const parsedInterval = Number(rawInterval || "")
+      if (Number.isFinite(parsedInterval) && parsedInterval >= 5) {
+        setAutoSyncIntervalSeconds(parsedInterval)
+      }
+    } catch {
+      // ignore local storage parsing errors
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(AUTO_SYNC_ENABLED_KEY, autoSyncEnabled ? "1" : "0")
+      localStorage.setItem(AUTO_SYNC_INTERVAL_KEY, String(Math.max(5, Math.floor(autoSyncIntervalSeconds || 10))))
+    } catch {
+      // ignore local storage write errors
+    }
+  }, [autoSyncEnabled, autoSyncIntervalSeconds])
 
   useEffect(() => {
     let mounted = true
@@ -231,21 +743,63 @@ export default function FingerprintHubPage() {
     }
   }, [])
 
-  const saveConfig = (next: Record<string, BranchBridgeConfig>) => {
-    setBranchConfigs(next)
-    try {
-      localStorage.setItem(LOCAL_CONFIG_KEY, JSON.stringify(next))
-    } catch {
-      // ignore local storage write errors
-    }
+  const saveConfig = (next: Record<string, BranchBridgeConfig>, nextMeta?: Record<string, BranchConfigSyncMeta>) => {
+    persistLocalBranchConfigState(next, nextMeta || branchConfigMeta)
   }
 
   const getBranchConfig = (branchId: string): BranchBridgeConfig => {
-    return branchConfigs[branchId] || { ip: "192.168.10.121", port: "4370" }
+    return branchConfigs[branchId] || { ip: "192.168.10.121", port: "4370", bridgeId: "" }
+  }
+
+  const getMappedEmployee = (branchId: string, deviceUserId: string) => {
+    const branchMap = branchMappings[branchId] || {}
+    const record = branchMap[deviceUserId]
+    if (!record?.employeeId) return undefined
+    return employees.find((e) => e.id === record.employeeId)
+  }
+
+  const setMappingForDeviceUser = (branchId: string, deviceUserId: string, employeeId: string) => {
+    const employee = employees.find((e) => e.id === employeeId)
+    const updatedAt = new Date().toISOString()
+    const nextBranchMap = {
+      ...(branchMappings[branchId] || {}),
+      [deviceUserId]: {
+        employeeId,
+        employeeName: employee?.name || "",
+        fingerprintLabel: `#${deviceUserId}`,
+        status: "mapped" as const,
+        updatedAt,
+      },
+    }
+
+    const nextMappings = {
+      ...branchMappings,
+      [branchId]: nextBranchMap,
+    }
+
+    const nextMeta = {
+      ...branchMappingMeta,
+      [branchId]: {
+        ...(branchMappingMeta[branchId] || { syncState: "pending" as const }),
+        syncState: "pending" as const,
+        updatedAt,
+        error: undefined,
+      },
+    }
+
+    persistLocalBranchMappingState(nextMappings, nextMeta)
+    queueBranchMappingCloudSync(branchId)
+    appendAuditEvent({
+      action: "mapping_updated",
+      branchId,
+      branchName: branches.find((b) => b.id === branchId)?.name || branchId,
+      details: `deviceUserId ${deviceUserId} -> ${employee?.name || employeeId}`,
+    })
   }
 
   const setBranchConfigField = (branchId: string, field: keyof BranchBridgeConfig, value: string) => {
     const current = getBranchConfig(branchId)
+    const updatedAt = new Date().toISOString()
     const next = {
       ...branchConfigs,
       [branchId]: {
@@ -253,10 +807,22 @@ export default function FingerprintHubPage() {
         [field]: value,
       },
     }
-    saveConfig(next)
+
+    const nextMeta = {
+      ...branchConfigMeta,
+      [branchId]: {
+        ...(branchConfigMeta[branchId] || { syncState: "pending" as const }),
+        syncState: "pending" as const,
+        updatedAt,
+        error: undefined,
+      },
+    }
+
+    saveConfig(next, nextMeta)
+    queueBranchConfigCloudSync(branchId)
   }
 
-  const waitForSyncResult = async (requestId: string, branchId: string) => {
+  const waitForSyncResult = async (requestId: string, branchId: string, expectedBridgeId?: string) => {
     const { getApp } = await import("firebase/app")
     const { getFirestore, doc, onSnapshot } = await import("firebase/firestore")
     const firestoreDb = getFirestore(getApp())
@@ -274,6 +840,11 @@ export default function FingerprintHubPage() {
 
         if (data.requestId !== requestId) return
         if (data.branchId && data.branchId !== branchId) return
+        if (expectedBridgeId) {
+          const responseBridgeId = String(data.bridgeId || data.executedBridgeId || data.targetBridgeId || "")
+          if (responseBridgeId && responseBridgeId !== expectedBridgeId) return
+          if (data.targetBridgeId && String(data.targetBridgeId) !== expectedBridgeId) return
+        }
 
         if (data.status === "processing") {
           setResults((prev) => ({
@@ -361,6 +932,7 @@ export default function FingerprintHubPage() {
 
       const recordTime = format(parsed, "yyyy-MM-dd HH:mm:ss")
       const rawDeviceUserId = String(log.deviceUserId ?? log.userId ?? log.uid ?? "")
+      const branchId = String(log.__branchId || "")
       const normalizedEmployeeId = String(
         log.employeeId ||
         employeeByFingerprint.get(rawDeviceUserId) ||
@@ -368,9 +940,8 @@ export default function FingerprintHubPage() {
         ""
       )
 
-      // Important: do not include branch/source in dedupe key,
-      // so the same swipe is not counted twice after save + refresh.
-      const key = `${normalizedEmployeeId}|${recordTime}`
+      // Keep branch in key so identical device numbers across branches stay isolated.
+      const key = `${branchId}|${normalizedEmployeeId}|${recordTime}`
       if (seen.has(key)) continue
       seen.add(key)
       deduped.push(log)
@@ -387,12 +958,24 @@ export default function FingerprintHubPage() {
   }
 
   const addScheduleRule = async () => {
+    if (isBranchUser && !currentBranchId) {
+      toast({ title: "تعذر تحديد الفرع", description: "تأكد من حساب الفرع ثم أعد المحاولة.", variant: "destructive" })
+      return
+    }
+
+    if (isBranchUser && scheduleScope === "global") {
+      toast({ title: "غير مسموح", description: "حساب الفرع لا يمكنه إنشاء قاعدة عامة.", variant: "destructive" })
+      return
+    }
+
     if (!scheduleStartTime || !scheduleEndTime) {
       toast({ title: "حدد وقت الدوام", description: "أدخل بداية ونهاية الدوام.", variant: "destructive" })
       return
     }
 
-    if (scheduleScope === "branch" && !scheduleBranchId) {
+    const effectiveScheduleBranchId = isBranchUser ? currentBranchId : scheduleBranchId
+
+    if (scheduleScope === "branch" && !effectiveScheduleBranchId) {
       toast({ title: "اختر الفرع", description: "يلزم اختيار فرع للقاعدة.", variant: "destructive" })
       return
     }
@@ -415,13 +998,13 @@ export default function FingerprintHubPage() {
       active: true,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      branchId: scheduleScope === "global" ? undefined : (scheduleBranchId || undefined),
+      branchId: scheduleScope === "global" ? undefined : (effectiveScheduleBranchId || undefined),
       employeeId: scheduleScope === "employee" ? scheduleEmployeeId : undefined,
       employeeIds: scheduleScope === "group" ? [...scheduleEmployeeIds] : undefined,
       name: scheduleScope === "global"
         ? "الافتراضي العام / Global Default"
         : scheduleScope === "branch"
-          ? `فرع ${branches.find((b) => b.id === scheduleBranchId)?.name || ""}`
+          ? `فرع ${branches.find((b) => b.id === effectiveScheduleBranchId)?.name || ""}`
           : scheduleScope === "employee"
             ? `موظف ${employees.find((e) => e.id === scheduleEmployeeId)?.name || ""}`
             : `مجموعة (${scheduleEmployeeIds.length})`,
@@ -522,6 +1105,10 @@ export default function FingerprintHubPage() {
   }
 
   const getTabData = (tabBranchId: string) => {
+    if (isBranchUser && tabBranchId === "all" && currentBranchId) {
+      return getTabData(currentBranchId)
+    }
+
     const employeeById = new Map(employees.map((e) => [e.id, e]))
     const savedFingerprintLogs = absenceRecords
       .filter((r) => {
@@ -586,7 +1173,14 @@ export default function FingerprintHubPage() {
           continue
         }
 
-        const employee = employees.find((e) => String(e.fingerprintId || "") === deviceUserId)
+        const effectiveBranchId = tabBranchId === "all" ? String(log.__branchId || "") : tabBranchId
+        if (!effectiveBranchId) {
+          skippedCount++
+          continue
+        }
+
+        const mappedEmployee = getMappedEmployee(effectiveBranchId, deviceUserId)
+        const employee = mappedEmployee || employees.find((e) => String(e.fingerprintId || "") === deviceUserId)
         if (!employee) {
           skippedCount++
           continue
@@ -599,9 +1193,11 @@ export default function FingerprintHubPage() {
         }
 
         const recordTimeStr = format(parsed, "yyyy-MM-dd HH:mm:ss")
-        const existing = await db.absenceRecords
+        const existingForTime = await db.absenceRecords
           .where({ employeeId: employee.id, recordTime: recordTimeStr })
-          .first()
+          .toArray()
+
+        const existing = existingForTime.find((item) => String(item.branchId || "") === effectiveBranchId)
 
         if (existing) {
           skippedCount++
@@ -616,7 +1212,7 @@ export default function FingerprintHubPage() {
           category: "fingerprint",
           notes: `بصمة من مركز البصمات / Fingerprint Hub`,
           recordTime: recordTimeStr,
-          branchId: tabBranchId === "all" ? (log.__branchId || undefined) : tabBranchId,
+          branchId: effectiveBranchId,
         })
 
         savedCount++
@@ -670,13 +1266,14 @@ export default function FingerprintHubPage() {
       if (!deviceUserId) continue
       const d = parseRecordDate(log.recordTime)
       if (!d) continue
+      const branchId = log.__branchId || (activeDataTab !== "all" ? activeDataTab : "")
       const dateStr = format(d, "yyyy-MM-dd")
-      const key = `${deviceUserId}_${dateStr}`
-      const employee = log.employeeId
+      const key = `${branchId}_${deviceUserId}_${dateStr}`
+      const mappedEmployee = getMappedEmployee(branchId, deviceUserId)
+      const employee = mappedEmployee || (log.employeeId
         ? employees.find((e) => e.id === log.employeeId)
         : employees.find((e) => normalizeText(String(e.fingerprintId || "")) === normalizeText(deviceUserId)) ||
-          employees.find((e) => normalizeText(e.name || "") === normalizeText(String(log.employeeName || "")))
-      const branchId = log.__branchId || (activeDataTab !== "all" ? activeDataTab : "")
+          employees.find((e) => normalizeText(e.name || "") === normalizeText(String(log.employeeName || ""))))
       const branchName = branchId ? (branches.find((b) => b.id === branchId)?.name || branchId) : "-"
       if (!map.has(key)) {
         map.set(key, {
@@ -822,24 +1419,29 @@ export default function FingerprintHubPage() {
     }
   }
 
-  const syncBranch = async (branchId: string, branchName: string) => {
+  const syncBranch = async (branchId: string, branchName: string, options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent)
     if (!bridgeOnline) {
-      toast({
-        title: "Bridge غير متصل / Bridge offline",
-        description: "شغّل الجسر على كمبيوتر الفرع أولاً.",
-        variant: "destructive",
-      })
+      if (!silent) {
+        toast({
+          title: "Bridge غير متصل / Bridge offline",
+          description: "شغّل الجسر على كمبيوتر الفرع أولاً.",
+          variant: "destructive",
+        })
+      }
       return
     }
 
     const cfg = getBranchConfig(branchId)
     const portNumber = Number(cfg.port)
-    if (!cfg.ip || !Number.isFinite(portNumber) || portNumber <= 0) {
-      toast({
-        title: "إعدادات غير صحيحة / Invalid settings",
-        description: `تحقق من IP/Port لفرع ${branchName}`,
-        variant: "destructive",
-      })
+    if (!cfg.ip || !cfg.bridgeId || !Number.isFinite(portNumber) || portNumber <= 0) {
+      if (!silent) {
+        toast({
+          title: "إعدادات غير صحيحة / Invalid settings",
+          description: `تحقق من IP/Port/Bridge ID لفرع ${branchName}`,
+          variant: "destructive",
+        })
+      }
       return
     }
 
@@ -861,48 +1463,112 @@ export default function FingerprintHubPage() {
         requestId,
         branchId,
         branchName,
+        targetBridgeId: cfg.bridgeId,
         requestedAt: new Date().toISOString(),
-        requestedBy: "fingerprint-hub",
+        requestedBy: isBranchUser ? `fingerprint-hub:branch:${branchId}` : "fingerprint-hub:admin",
         zkIp: cfg.ip,
         zkPort: portNumber,
       }, { merge: true })
 
-      await waitForSyncResult(requestId, branchId)
-      toast({ title: `تم تحديث ${branchName}`, description: "Sync completed successfully" })
-    } catch (error: any) {
-      toast({
-        title: `فشل تحديث ${branchName}`,
-        description: String(error?.message || error),
-        variant: "destructive",
+      await waitForSyncResult(requestId, branchId, cfg.bridgeId)
+      appendAuditEvent({
+        action: "branch_sync_done",
+        branchId,
+        branchName,
+        details: `Request ${requestId}`,
       })
+      if (!silent) {
+        toast({ title: `تم تحديث ${branchName}`, description: "Sync completed successfully" })
+      }
+    } catch (error: any) {
+      appendAuditEvent({
+        action: "branch_sync_error",
+        branchId,
+        branchName,
+        details: String(error?.message || error || "Sync failed"),
+      })
+      if (!silent) {
+        toast({
+          title: `فشل تحديث ${branchName}`,
+          description: String(error?.message || error),
+          variant: "destructive",
+        })
+      }
     } finally {
       setSyncingBranchId((curr) => (curr === branchId ? null : curr))
     }
   }
 
-  const syncAllBranches = async () => {
-    if (branches.length === 0) {
-      toast({ title: "لا توجد فروع", description: "أضف فروعًا أولاً ثم أعد المحاولة." })
+  const syncAllBranches = async (options?: { silent?: boolean; origin?: "manual" | "auto" }) => {
+    const silent = Boolean(options?.silent)
+    if (visibleBranches.length === 0) {
+      if (!silent) {
+        toast({ title: "لا توجد فروع", description: "أضف فروعًا أولاً ثم أعد المحاولة." })
+      }
       return
     }
 
     setSyncingAll(true)
     try {
-      for (const branch of branches) {
+      for (const branch of visibleBranches) {
         // Sequential sync avoids collisions because current bridge backend uses one status document.
         // This can be made parallel after migrating to per-branch request documents.
         // eslint-disable-next-line no-await-in-loop
-        await syncBranch(branch.id, branch.name)
+        await syncBranch(branch.id, branch.name, { silent })
       }
-      toast({
-        title: "تم إنهاء تحديث كل الفروع / All branches synced",
-        description: "راجع النتائج لكل فرع في القائمة أدناه.",
-      })
+      if (!silent) {
+        toast({
+          title: isBranchUser ? "تم تحديث الفرع / Branch synced" : "تم إنهاء تحديث كل الفروع / All branches synced",
+          description: "راجع النتائج لكل فرع في القائمة أدناه.",
+        })
+      }
     } finally {
       setSyncingAll(false)
       setSyncingBranchId(null)
     }
   }
+
+  useEffect(() => {
+    if (!autoSyncEnabled) return
+
+    const intervalSeconds = Math.max(5, Math.floor(autoSyncIntervalSeconds || 10))
+
+    const runAutoSync = async () => {
+      if (autoSyncInFlightRef.current) return
+      if (!bridgeOnline || bridgePaused) return
+      if (syncingAll || syncingBranchId !== null) return
+      if (visibleBranches.length === 0) return
+
+      autoSyncInFlightRef.current = true
+      setAutoSyncLastRunAt(new Date().toISOString())
+      try {
+        await syncAllBranches({ silent: true, origin: "auto" })
+      } finally {
+        autoSyncInFlightRef.current = false
+      }
+    }
+
+    const warmup = setTimeout(() => {
+      void runAutoSync()
+    }, 3000)
+
+    const timer = setInterval(() => {
+      void runAutoSync()
+    }, intervalSeconds * 1000)
+
+    return () => {
+      clearTimeout(warmup)
+      clearInterval(timer)
+    }
+  }, [
+    autoSyncEnabled,
+    autoSyncIntervalSeconds,
+    bridgeOnline,
+    bridgePaused,
+    syncingAll,
+    syncingBranchId,
+    visibleBranches.length,
+  ])
 
   const handleBridgeControl = async (action: ControlAction) => {
     if (!bridgeOnline && action !== "ping") {
@@ -973,6 +1639,76 @@ export default function FingerprintHubPage() {
 
   const connectedCount = useMemo(() => (bridgeOnline ? 1 : 0), [bridgeOnline])
 
+  const effectiveMappingBranchId = isBranchUser ? currentBranchId : mappingBranchId
+
+  const mappingCandidates = useMemo(() => {
+    if (!effectiveMappingBranchId) return [] as string[]
+    const fromLogs = (branchData[effectiveMappingBranchId]?.logs || [])
+      .map((log) => String(log.deviceUserId ?? log.userId ?? log.uid ?? "").trim())
+      .filter(Boolean)
+
+    const fromUsers = (branchData[effectiveMappingBranchId]?.users || [])
+      .map((item) => String(item.deviceUserId ?? item.userId ?? item.uid ?? item.id ?? "").trim())
+      .filter(Boolean)
+
+    return Array.from(new Set([...fromLogs, ...fromUsers])).sort((a, b) => Number(a) - Number(b))
+  }, [branchData, effectiveMappingBranchId])
+
+  const mappingMetaForActiveBranch = effectiveMappingBranchId ? branchMappingMeta[effectiveMappingBranchId] : undefined
+
+  const adminUnmappedQueue = useMemo(() => {
+    if (isBranchUser) return [] as Array<{ branchId: string; branchName: string; deviceUserId: string }>
+
+    const rows: Array<{ branchId: string; branchName: string; deviceUserId: string }> = []
+
+    for (const branch of visibleBranches) {
+      const branchId = branch.id
+      const branchName = branch.name
+      const ids = new Set<string>()
+
+      for (const log of branchData[branchId]?.logs || []) {
+        const id = String(log.deviceUserId ?? log.userId ?? log.uid ?? "").trim()
+        if (id) ids.add(id)
+      }
+
+      for (const item of branchData[branchId]?.users || []) {
+        const id = String(item.deviceUserId ?? item.userId ?? item.uid ?? item.id ?? "").trim()
+        if (id) ids.add(id)
+      }
+
+      for (const deviceUserId of ids) {
+        const mapped = branchMappings[branchId]?.[deviceUserId]
+        if (mapped?.employeeId) continue
+        rows.push({ branchId, branchName, deviceUserId })
+      }
+    }
+
+    rows.sort((a, b) => a.branchName.localeCompare(b.branchName) || Number(a.deviceUserId) - Number(b.deviceUserId))
+    return rows
+  }, [isBranchUser, visibleBranches, branchData, branchMappings])
+
+  const visibleWorkSchedules = useMemo(() => {
+    if (!isBranchUser || !currentBranchId) return workSchedules
+    return workSchedules.filter((rule) => !rule.branchId || rule.branchId === currentBranchId)
+  }, [workSchedules, isBranchUser, currentBranchId])
+
+  useEffect(() => {
+    if (forcedMode !== "auto") return
+    if (pathname !== "/fingerprint-center") return
+    if (!user) return
+
+    if (roleIsBranch) {
+      router.replace("/fingerprint-center/branch")
+      return
+    }
+
+    router.replace("/fingerprint-center/admin")
+  }, [forcedMode, pathname, user, roleIsBranch, router])
+
+  if (forcedMode === "auto" && pathname === "/fingerprint-center") {
+    return null
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -985,9 +1721,9 @@ export default function FingerprintHubPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button onClick={syncAllBranches} disabled={syncingAll || syncingBranchId !== null} className="font-bold">
+            <Button onClick={() => { void syncAllBranches() }} disabled={syncingAll || syncingBranchId !== null} className="font-bold">
               <RefreshCw className="h-4 w-4 ml-2" />
-              {syncingAll ? "جاري التحديث... / Syncing..." : "تحديث كل الفروع / Sync All"}
+              {syncingAll ? "جاري التحديث... / Syncing..." : isBranchUser ? "تحديث الفرع / Sync Branch" : "تحديث كل الفروع / Sync All"}
             </Button>
           </div>
         </div>
@@ -1033,6 +1769,35 @@ export default function FingerprintHubPage() {
               <div className="text-xs text-muted-foreground">MVP: single bridge backend document</div>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-bold">السحب التلقائي / Auto Pull</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <label className="flex items-center gap-2 text-sm font-semibold">
+                <Checkbox checked={autoSyncEnabled} onCheckedChange={(v) => setAutoSyncEnabled(v === true)} />
+                تفعيل السحب التلقائي
+              </label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={5}
+                  step={1}
+                  value={autoSyncIntervalSeconds}
+                  onChange={(e) => {
+                    const n = Number(e.target.value || 10)
+                    setAutoSyncIntervalSeconds(Number.isFinite(n) ? Math.max(5, Math.floor(n)) : 10)
+                  }}
+                  className="h-8"
+                />
+                <span className="text-xs text-muted-foreground">ثانية / sec</span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {autoSyncLastRunAt ? `Last auto run: ${new Date(autoSyncLastRunAt).toLocaleString()}` : "لم يتم تشغيل السحب التلقائي بعد"}
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         <Card>
@@ -1060,17 +1825,191 @@ export default function FingerprintHubPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle className="text-lg font-black">ربط أرقام البصمة بالموظفين / Fingerprint Mapping</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {!isBranchUser && (
+              <div className="max-w-sm space-y-1">
+                <Label className="text-xs font-bold">الفرع / Branch</Label>
+                <Select value={mappingBranchId} onValueChange={setMappingBranchId}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="اختر الفرع" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {visibleBranches.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="text-xs text-muted-foreground">
+              {(() => {
+                if (!mappingMetaForActiveBranch) return "Mapping: local only"
+                if (mappingMetaForActiveBranch.syncState === "synced") {
+                  const at = mappingMetaForActiveBranch.lastSyncAt ? new Date(mappingMetaForActiveBranch.lastSyncAt).toLocaleString() : "-"
+                  return `Mapping: synced at ${at}`
+                }
+                if (mappingMetaForActiveBranch.syncState === "pending") return "Mapping: pending cloud sync"
+                return `Mapping: sync error ${mappingMetaForActiveBranch.error ? `(${mappingMetaForActiveBranch.error})` : ""}`
+              })()}
+            </div>
+
+            {effectiveMappingBranchId && mappingCandidates.length > 0 ? (
+              <div className="border rounded-lg overflow-auto">
+                <table className="w-full text-right border-collapse text-sm">
+                  <thead className="bg-muted/60">
+                    <tr>
+                      <th className="p-2 text-xs font-black border-b">رقم الجهاز / Device User ID</th>
+                      <th className="p-2 text-xs font-black border-b">الحالة</th>
+                      <th className="p-2 text-xs font-black border-b">الموظف</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {mappingCandidates.map((deviceUserId) => {
+                      const mapped = branchMappings[effectiveMappingBranchId]?.[deviceUserId]
+                      return (
+                        <tr key={`${effectiveMappingBranchId}_${deviceUserId}`}>
+                          <td className="p-2 font-semibold">{deviceUserId}</td>
+                          <td className="p-2 text-xs">
+                            {mapped?.employeeId ? "mapped" : "unmapped"}
+                          </td>
+                          <td className="p-2">
+                            <Select
+                              value={mapped?.employeeId || ""}
+                              onValueChange={(employeeId) => setMappingForDeviceUser(effectiveMappingBranchId, deviceUserId, employeeId)}
+                            >
+                              <SelectTrigger className="h-8 max-w-md">
+                                <SelectValue placeholder="اختر موظف / Select employee" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {employees.map((employee) => (
+                                  <SelectItem key={employee.id} value={employee.id}>{employee.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">
+                لا توجد أرقام بصمة ظاهرة حالياً لهذا الفرع. اسحب بيانات الفرع أولاً.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {!isBranchUser && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg font-black">مراجعة غير المعرّف / Unmapped Review Queue</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="text-xs text-muted-foreground">
+                راجع الأرقام غير المعرفة واربطها بالموظفين من هنا.
+              </div>
+
+              <div className="border rounded-lg overflow-auto max-h-[320px]">
+                <table className="w-full text-right border-collapse text-sm">
+                  <thead className="bg-muted/60 sticky top-0 z-10">
+                    <tr>
+                      <th className="p-2 text-xs font-black border-b">الفرع / Branch</th>
+                      <th className="p-2 text-xs font-black border-b">رقم الجهاز / Device User ID</th>
+                      <th className="p-2 text-xs font-black border-b">ربط سريع / Quick Map</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {adminUnmappedQueue.map((item) => (
+                      <tr key={`${item.branchId}_${item.deviceUserId}`}>
+                        <td className="p-2 text-xs font-semibold">{item.branchName}</td>
+                        <td className="p-2 text-xs font-bold">{item.deviceUserId}</td>
+                        <td className="p-2">
+                          <Select onValueChange={(employeeId) => setMappingForDeviceUser(item.branchId, item.deviceUserId, employeeId)}>
+                            <SelectTrigger className="h-8 max-w-md">
+                              <SelectValue placeholder="اختر موظف / Select employee" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {employees.map((employee) => (
+                                <SelectItem key={employee.id} value={employee.id}>{employee.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </td>
+                      </tr>
+                    ))}
+                    {adminUnmappedQueue.length === 0 && (
+                      <tr>
+                        <td colSpan={3} className="p-4 text-center text-sm text-muted-foreground">
+                          لا توجد حالات غير معرفة حالياً.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {!isBranchUser && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg font-black">سجل التغييرات / Audit Visibility</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="border rounded-lg overflow-auto max-h-[300px]">
+                <table className="w-full text-right border-collapse text-sm">
+                  <thead className="bg-muted/60 sticky top-0 z-10">
+                    <tr>
+                      <th className="p-2 text-xs font-black border-b">الوقت / Time</th>
+                      <th className="p-2 text-xs font-black border-b">الإجراء / Action</th>
+                      <th className="p-2 text-xs font-black border-b">الفرع / Branch</th>
+                      <th className="p-2 text-xs font-black border-b">المستخدم / Actor</th>
+                      <th className="p-2 text-xs font-black border-b">تفاصيل / Details</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {auditEvents.map((event) => (
+                      <tr key={event.id}>
+                        <td className="p-2 text-xs">{new Date(event.at).toLocaleString()}</td>
+                        <td className="p-2 text-xs font-semibold">{event.action}</td>
+                        <td className="p-2 text-xs">{event.branchName || event.branchId || "-"}</td>
+                        <td className="p-2 text-xs">{event.actor}</td>
+                        <td className="p-2 text-xs">{event.details || "-"}</td>
+                      </tr>
+                    ))}
+                    {auditEvents.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="p-4 text-center text-sm text-muted-foreground">
+                          لا توجد أحداث تدقيق حالياً.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card>
+          <CardHeader>
             <CardTitle className="text-lg font-black flex items-center gap-2">
               <Building2 className="h-5 w-5" />
               الفروع / Branches
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {branches.length === 0 && (
+            {visibleBranches.length === 0 && (
               <div className="text-sm text-muted-foreground">لا توجد فروع حالياً. أضف الفروع أولاً من صفحة الفروع.</div>
             )}
 
-            {branches.map((branch) => {
+            {visibleBranches.map((branch) => {
               const cfg = getBranchConfig(branch.id)
               const result = results[branch.id] || { status: "idle" as const }
               const isSyncingThisBranch = syncingBranchId === branch.id
@@ -1120,8 +2059,29 @@ export default function FingerprintHubPage() {
                         className="h-9"
                       />
                     </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Bridge ID</Label>
+                        <Input
+                          value={cfg.bridgeId || ""}
+                          onChange={(e) => setBranchConfigField(branch.id, "bridgeId", e.target.value)}
+                          placeholder={`bridge_${branch.id.slice(0, 6)}`}
+                          className="h-9"
+                        />
+                      </div>
                     <div className="md:col-span-2 p-2 bg-muted/50 rounded text-xs">
                       <div>{result.message || "لا توجد نتيجة بعد / No result yet"}</div>
+                        <div className="mt-1">
+                          {(() => {
+                            const meta = branchConfigMeta[branch.id]
+                            if (!meta) return "Config: local only"
+                            if (meta.syncState === "synced") {
+                              const at = meta.lastSyncAt ? new Date(meta.lastSyncAt).toLocaleString() : "-"
+                              return `Config: synced at ${at}`
+                            }
+                            if (meta.syncState === "pending") return "Config: pending cloud sync"
+                            return `Config: sync error ${meta.error ? `(${meta.error})` : ""}`
+                          })()}
+                        </div>
                       {typeof result.users === "number" && typeof result.logs === "number" && (
                         <div className="mt-1 font-semibold">Users: {result.users} | Logs: {result.logs}</div>
                       )}
@@ -1146,7 +2106,7 @@ export default function FingerprintHubPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="global">افتراضي عام / Global</SelectItem>
+                    {!isBranchUser && <SelectItem value="global">افتراضي عام / Global</SelectItem>}
                     <SelectItem value="branch">حسب الفرع / Branch</SelectItem>
                     <SelectItem value="group">مجموعة موظفين / Group</SelectItem>
                     <SelectItem value="employee">موظف محدد / Employee</SelectItem>
@@ -1154,7 +2114,7 @@ export default function FingerprintHubPage() {
                 </Select>
               </div>
 
-              {scheduleScope !== "global" && (
+              {!isBranchUser && scheduleScope !== "global" && (
                 <div className="space-y-1 md:col-span-2">
                   <Label className="text-xs font-bold">الفرع / Branch</Label>
                   <Select value={scheduleBranchId} onValueChange={setScheduleBranchId}>
@@ -1162,7 +2122,7 @@ export default function FingerprintHubPage() {
                       <SelectValue placeholder="اختر فرع" />
                     </SelectTrigger>
                     <SelectContent>
-                      {branches.map((b) => (
+                      {visibleBranches.map((b) => (
                         <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -1244,7 +2204,7 @@ export default function FingerprintHubPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {workSchedules
+                  {visibleWorkSchedules
                     .slice()
                     .sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime())
                     .map((rule) => {
@@ -1275,7 +2235,7 @@ export default function FingerprintHubPage() {
                         </tr>
                       )
                     })}
-                  {workSchedules.length === 0 && (
+                  {visibleWorkSchedules.length === 0 && (
                     <tr>
                       <td colSpan={6} className="p-4 text-center text-sm text-muted-foreground">
                         لا توجد قواعد دوام بعد. أضف قاعدة عامة أولاً (مثال: 08:00 - 16:00).
@@ -1295,8 +2255,9 @@ export default function FingerprintHubPage() {
           <CardContent>
             <Tabs value={activeDataTab} onValueChange={setActiveDataTab} className="space-y-4">
               <TabsList className="flex flex-wrap h-auto gap-2 bg-transparent p-0">
-                <TabsTrigger value="all" className="border">الكل / All</TabsTrigger>
-                {branches.map((branch) => (
+                <TabsTrigger value="live-adms" className="border bg-blue-50 text-blue-700 font-black">البصمات المباشرة / Live ADMS</TabsTrigger>
+                {!isBranchUser && <TabsTrigger value="all" className="border">الكل / All</TabsTrigger>}
+                {visibleBranches.map((branch) => (
                   <TabsTrigger key={branch.id} value={branch.id} className="border">
                     {(() => {
                       const key = String(branch.name || "").trim().toLowerCase()
@@ -1307,7 +2268,49 @@ export default function FingerprintHubPage() {
                 ))}
               </TabsList>
 
-              <TabsContent value={activeDataTab} className="space-y-4">
+              <TabsContent value="live-adms" className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-blue-700">آخر 50 بصمة تم استلامها من أجهزة ADMS</h3>
+                  <Badge variant="outline" className="bg-blue-50">تحديث تلقائي / Live</Badge>
+                </div>
+                <div className="border rounded-lg overflow-auto max-h-[600px]">
+                  <table className="w-full text-right border-collapse text-sm">
+                    <thead className="bg-blue-50 sticky top-0 z-10">
+                      <tr>
+                        <th className="p-2 text-xs font-black border-b">الوقت</th>
+                        <th className="p-2 text-xs font-black border-b">اسم الموظف</th>
+                        <th className="p-2 text-xs font-black border-b">الفرع</th>
+                        <th className="p-2 text-xs font-black border-b">الحالة</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {absenceRecords
+                        .filter(r => r.category === 'fingerprint' || String(r.notes || '').includes('ADMS'))
+                        .sort((a, b) => new Date(b.recordTime || 0).getTime() - new Date(a.recordTime || 0).getTime())
+                        .slice(0, 50)
+                        .map((log, idx) => (
+                          <tr key={idx} className="hover:bg-blue-50/30">
+                            <td className="p-2 text-xs font-bold">{log.recordTime}</td>
+                            <td className="p-2 text-xs font-black text-blue-800">{log.employeeName}</td>
+                            <td className="p-2 text-xs">{branches.find(b => b.id === log.branchId)?.name || log.branchId || '-'}</td>
+                            <td className="p-2 text-xs">
+                              <Badge variant="outline" className="text-[10px] h-5 bg-green-50 text-green-700">تم الحفظ</Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      {absenceRecords.filter(r => r.category === 'fingerprint' || String(r.notes || '').includes('ADMS')).length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="p-10 text-center text-muted-foreground italic">
+                            لا توجد بصمات مباشرة مسجلة بعد.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </TabsContent>
+
+              <TabsContent value={activeDataTab === "live-adms" ? "none" : activeDataTab} className="space-y-4">
                 {/* ── Filter Bar ── */}
                 <div className="flex flex-wrap items-end gap-3 p-3 bg-muted/40 rounded-lg border">
                   <div className="space-y-1">

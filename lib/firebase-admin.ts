@@ -43,7 +43,10 @@ export const initAdminApp = (): App => {
     }
 
     return initAdmin({
-        credential: cert(serviceAccount),
+        credential: cert({
+            ...serviceAccount,
+            privateKey: serviceAccount.private_key.replace(/\\n/g, '\n'),
+        }),
         storageBucket: bucketName,
     });
 };

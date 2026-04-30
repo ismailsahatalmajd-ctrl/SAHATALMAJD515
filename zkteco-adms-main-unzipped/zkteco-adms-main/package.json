@@ -1,0 +1,30 @@
+{
+    "name": "zkteco-bridge",
+    "version": "1.0.0",
+    "description": "HTTP bridge for ZKTeco MB460 biometric devices",
+    "type": "module",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js",
+        "dev": "node --watch server.js"
+    },
+    "dependencies": {
+        "@types/qs": "^6.14.0",
+        "dotenv": "^16.3.1",
+        "express": "^4.18.2",
+        "node-fetch": "^3.3.2",
+        "qs": "^6.14.0"
+    },
+    "keywords": [
+        "zkteco",
+        "biometric",
+        "bridge",
+        "http"
+    ],
+    "author": "",
+    "license": "MIT",
+    "devDependencies": {
+        "@types/express": "^5.0.3",
+        "@types/node": "^24.7.2"
+    }
+}

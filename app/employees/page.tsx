@@ -2346,7 +2346,7 @@ export default function EmployeesHREPage() {
                      {/* فاصل */}
                      <div className="relative flex items-center gap-2 py-1">
                        <div className="flex-1 border-t border-dashed border-slate-300" />
-                       <span className="text-xs text-muted-foreground whitespace-nowrap">أو من البيت</span>
+                       <span className="text-xs text-muted-foreground whitespace-nowrap">أو عن بعد / Remote</span>
                        <div className="flex-1 border-t border-dashed border-slate-300" />
                      </div>
 
@@ -2361,7 +2361,7 @@ export default function EmployeesHREPage() {
                        {zk_remote_status === "processing" && "كمبيوتر العمل يجلب البيانات..."}
                        {zk_remote_status === "done"       && "تمت المزامنة عن بُعد ✓"}
                        {zk_remote_status === "error"      && "أعد المحاولة"}
-                       {zk_remote_status === "idle"       && "مزامنة عن بُعد (من البيت)"}
+                       {zk_remote_status === "idle"       && "مزامنة عن بُعد / sync"}
                      </Button>
 
                      {/* رسالة الحالة */}

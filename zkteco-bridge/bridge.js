@@ -60,6 +60,8 @@ const firebaseConfig = {
 // غيّر هذه القيم حسب إعدادات شبكة العمل
 const ZK_IP   = process.env.ZK_IP   || '192.168.1.100';
 const ZK_PORT = process.env.ZK_PORT  || 4370;
+const BRIDGE_ID = String(process.env.BRIDGE_ID || process.env.COMPUTERNAME || '').trim();
+const BRANCH_ID = String(process.env.BRANCH_ID || '').trim();
 
 // ─── التهيئة ──────────────────────────────────────────────────────────────────
 const app = initializeApp(firebaseConfig);
@@ -85,6 +87,8 @@ async function publishHeartbeat() {
       bridgeOnline: true,
       bridgeLastSeenAt: new Date().toISOString(),
       bridgeHost: process.env.COMPUTERNAME || 'unknown-host',
+      bridgeId: BRIDGE_ID || undefined,
+      bridgeBranchId: BRANCH_ID || undefined,
       bridgePaused,
     }, { merge: true });
   } catch (error) {
@@ -200,6 +204,19 @@ async function processPendingRequest(data) {
   if (!data || data.status !== 'pending') return;
   if (isProcessing) return;
 
+  const requestedTargetBridgeId = String(data.targetBridgeId || '').trim();
+  const requestedBranchId = String(data.branchId || '').trim();
+
+  // Ignore requests intended for another bridge instance.
+  if (requestedTargetBridgeId && BRIDGE_ID && requestedTargetBridgeId !== BRIDGE_ID) {
+    return;
+  }
+
+  // Optional strict branch guard when BRANCH_ID is configured for this bridge.
+  if (requestedBranchId && BRANCH_ID && requestedBranchId !== BRANCH_ID) {
+    return;
+  }
+
   if (bridgePaused) {
     const requestId = data.requestId || `req_${Date.now()}`;
     await setDoc(bridgeRef, {
@@ -238,6 +255,8 @@ async function processPendingRequest(data) {
     requestId,
     bridgeOnline: true,
     bridgeLastSeenAt: new Date().toISOString(),
+    bridgeId: BRIDGE_ID || undefined,
+    bridgeBranchId: BRANCH_ID || undefined,
     status: 'processing',
     processingAt: new Date().toISOString(),
   }, { merge: true });
@@ -284,6 +303,8 @@ async function processPendingRequest(data) {
       requestedBy: data.requestedBy,
       zkIp: ip,
       zkPort: port,
+      bridgeId: BRIDGE_ID || undefined,
+      bridgeBranchId: BRANCH_ID || requestedBranchId || undefined,
       completedAt: new Date().toISOString(),
       bridgeOnline: true,
       bridgeLastSeenAt: new Date().toISOString(),
@@ -310,6 +331,8 @@ async function processPendingRequest(data) {
       requestedBy: data.requestedBy,
       zkIp: ip,
       zkPort: port,
+      bridgeId: BRIDGE_ID || undefined,
+      bridgeBranchId: BRANCH_ID || requestedBranchId || undefined,
       completedAt: new Date().toISOString(),
       bridgeOnline: true,
       bridgeLastSeenAt: new Date().toISOString(),

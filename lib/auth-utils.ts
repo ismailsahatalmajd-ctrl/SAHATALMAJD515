@@ -203,7 +203,13 @@ export function canAccessPage(user: User | null, path: string): boolean {
     if (path.startsWith('/branches') || path.startsWith('/branch-requests')) return hasPermission(user, 'page.branches');
     if (path.startsWith('/employees')) return hasPermission(user, 'hr.view');
     if (path === '/dashboard') return hasPermission(user, 'page.dashboard');
-    if (path.startsWith('/history') || path.startsWith('/scanner') || path.startsWith('/label-designer') || path.startsWith('/admin')) return (user.role as any) === 'owner' || (user.role as any) === 'manager' || (user.role as any) === 'admin';
+    // These pages are additionally controlled by granular showPages toggles in the header.
+    // Keep role-only restriction for /admin, but allow non-admin users to pass base gate
+    // for scanner/history/label-designer when inventory page permission is granted.
+    if (path.startsWith('/history') || path.startsWith('/scanner') || path.startsWith('/label-designer')) {
+        return hasPermission(user, 'page.inventory');
+    }
+    if (path.startsWith('/admin')) return (user.role as any) === 'owner' || (user.role as any) === 'manager' || (user.role as any) === 'admin';
 
     return true; // Public or un-protected pages
 }

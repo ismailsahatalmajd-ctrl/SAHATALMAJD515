@@ -18,39 +18,102 @@ import { useLiveQuery } from "dexie-react-hooks"
 export function GranularUserControls({ targetUserId = "user_of_123478" }: { targetUserId?: string }) {
   const { toast } = useToast()
   const [perms, setPerms] = useState<GranularPermissions>(DEFAULT_GRANULAR_PERMISSIONS)
+  const [selectedUserId, setSelectedUserId] = useState<string>(targetUserId)
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
 
-  const cloudStatus = useLiveQuery(() => db.userPreferences.get(targetUserId))
+  const cloudStatus = useLiveQuery(() => db.userPreferences.get(selectedUserId), [selectedUserId])
+  const users = useLiveQuery(
+    async () => {
+      const rows = await db.branches.toArray()
+      const prefRows = await db.userPreferences.toArray()
+      const map = new Map<string, { id: string; username: string; name: string }>()
+
+      // Include all branches/users as requested (no restrictive filtering).
+      rows.forEach((b) => {
+        const normalizedId = String(b.id || "").trim()
+        const fallbackUsername =
+          normalizedId === "user_of_123478" ? "OF123478" : ""
+        map.set(b.id, {
+          id: b.id,
+          username: (b.username || "").trim() || fallbackUsername,
+          name: b.name || b.username || b.id,
+        })
+      })
+
+      // Include user ids that only exist in granular preferences.
+      prefRows.forEach((p: any) => {
+        const id = String(p?.userId || p?.id || "").trim()
+        if (!id || map.has(id)) return
+        map.set(id, { id, username: "", name: id })
+      })
+
+      // Ensure OF123478 demo/test user is always visible if used in this environment.
+      if (!map.has("user_of_123478")) {
+        map.set("user_of_123478", {
+          id: "user_of_123478",
+          username: "OF123478",
+          name: "مستخدم العرض (OF123478)",
+        })
+      } else {
+        // Ensure display name for legacy records where username is missing.
+        const existing = map.get("user_of_123478")!
+        map.set("user_of_123478", {
+          ...existing,
+          username: existing.username || "OF123478",
+          name: existing.name || "مستخدم العرض (OF123478)",
+        })
+      }
+
+      return Array.from(map.values()).sort((a, b) =>
+        (a.username || a.name).localeCompare(b.username || b.name, "ar"),
+      )
+    },
+    [],
+    [],
+  )
+
+  useEffect(() => {
+    setSelectedUserId(targetUserId)
+  }, [targetUserId])
+
+  useEffect(() => {
+    if (!users || users.length === 0) return
+    const exists = users.some((u) => u.id === selectedUserId)
+    if (!exists) {
+      setSelectedUserId(users[0].id)
+    }
+  }, [users, selectedUserId])
 
   const loadData = async () => {
     setLoading(true)
-    const p = await getGranularPermissions(targetUserId)
+    const p = await getGranularPermissions(selectedUserId)
     setPerms(p)
     setLoading(false)
   }
 
   useEffect(() => {
+    if (!selectedUserId) return
     loadData()
     
     const handleUpdate = (e: any) => {
-      if (e.detail?.userId === targetUserId) {
+      if (e.detail?.userId === selectedUserId) {
         loadData()
       }
     }
     window.addEventListener('granular_permissions_updated' as any, handleUpdate)
     return () => window.removeEventListener('granular_permissions_updated' as any, handleUpdate)
-  }, [targetUserId])
+  }, [selectedUserId])
 
   const handleRefresh = async () => {
     setSyncing(true)
     try {
       const { db: firestore } = await import("@/lib/firebase")
       const { getDoc, doc } = await import("firebase/firestore")
-      const snap = await getDoc(doc(firestore, 'granularPermissions', targetUserId))
+      const snap = await getDoc(doc(firestore, 'granularPermissions', selectedUserId))
       if (snap.exists()) {
         const cloudData = snap.data() as GranularPermissions
-        await db.userPreferences.put({ ...cloudData, id: targetUserId, userId: targetUserId })
+        await db.userPreferences.put({ ...cloudData, id: selectedUserId, userId: selectedUserId })
         setPerms({ ...DEFAULT_GRANULAR_PERMISSIONS, ...cloudData })
         toast({ title: "تم التحديث من السحابة", description: "تمت مزامنة أحدث الإعدادات." })
       } else {
@@ -66,7 +129,7 @@ export function GranularUserControls({ targetUserId = "user_of_123478" }: { targ
   const handleReset = async () => {
     if (confirm("هل أنت متأكد من إعادة الضبط للإعدادات الافتراضية؟")) {
       setPerms(DEFAULT_GRANULAR_PERMISSIONS)
-      await saveGranularPermissions(targetUserId, DEFAULT_GRANULAR_PERMISSIONS)
+      await saveGranularPermissions(selectedUserId, DEFAULT_GRANULAR_PERMISSIONS)
       toast({ title: "تمت إعادة الضبط" })
     }
   }
@@ -84,7 +147,7 @@ export function GranularUserControls({ targetUserId = "user_of_123478" }: { targ
     setPerms(next)
     
     // Auto-save (async)
-    await saveGranularPermissions(targetUserId, next)
+    await saveGranularPermissions(selectedUserId, next)
     
     toast({
       title: "تم الحفظ تلقائياً",
@@ -102,11 +165,31 @@ export function GranularUserControls({ targetUserId = "user_of_123478" }: { targ
           <div>
             <CardTitle className="flex items-center gap-2">
               <Shield className="h-5 w-5 text-primary" />
-              تحكم دقيق في واجهة المستخدم (OF123478)
+              تحكم دقيق في واجهة المستخدم
             </CardTitle>
             <CardDescription>
               تحديد العناصر والصفحات التي تظهر للمستخدم المقيد بشكل تفصيلي. يتم الحفظ تلقائياً.
             </CardDescription>
+            <div className="mt-3 max-w-sm space-y-2">
+              <Label htmlFor="granular-user-select">المستخدم المستهدف</Label>
+              <select
+                id="granular-user-select"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={selectedUserId}
+                onChange={(e) => setSelectedUserId(e.target.value)}
+              >
+                {(!users || users.length === 0) && (
+                  <option value={targetUserId}>
+                    {targetUserId} (افتراضي)
+                  </option>
+                )}
+                {(users || []).map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.username ? `${u.username} - ${u.name}` : u.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="flex flex-col items-end gap-2">
             <div className="flex items-center gap-2">

@@ -509,7 +509,12 @@ export const dict: Dict = {
   "products.columns.stockStatus": { ar: "حالة المخزون", en: "Stock Status" },
   "products.columns.turnoverRate": { ar: "معدل الدوران", en: "Turnover Rate" },
   "products.columns.status": { ar: "الحالة", en: "Status" },
+  "products.columns.daysUntilStockout": { ar: "المدة المتبقية (تقريبي)", en: "Days Remaining (Estimated)" },
+  "products.columns.notes": { ar: "المدة المتبقية", en: "Remaining Duration" },
+  "products.consumption.refPeriod": { ar: "فترة الاستهلاك المرجعية (أيام)", en: "Consumption Reference Period (days)" },
+  "products.consumption.refPeriodHint": { ar: "عدد الأيام التي تمثل إجمالي المصروفات المسجلة (الافتراضي 30 يوم)", en: "Number of days the total recorded issues represent (default 30 days)" },
   "products.status.outOfStock": { ar: "نفاذ", en: "Out of Stock" },
+  "products.status.remainingStock": { ar: "الكمية المتبقية في المخزون", en: "Remaining stock quantity" },
 
   "products.columns.actions": { ar: "الإجراءات", en: "Actions" },
   "products.columns.warehousePositionCode": { ar: "كود موقع المستودع", en: "Warehouse Position Code" },

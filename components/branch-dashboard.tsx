@@ -275,26 +275,79 @@ export function BranchDashboard() {
     if (cart.length === 0) return []
     return await db.products.where('id').anyOf(cart.map(c => c.productId)).toArray()
   }, [cart]) || []
-  const normalizeBranch = (s: string) => (s || "").toLowerCase().trim()
+  const normalizeBranch = (value: unknown) => String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
 
-  const matchesBranch = (targetId: string, targetName?: string) => {
-    if (!branchId || !branch) return false;
-    // Main match by ID
-    if (targetId === branchId) return true;
-    // Fallback: match by Normalized Name (handles ID mismatch after sync/migration)
-    if (targetName && branch.name && normalizeBranch(targetName) === normalizeBranch(branch.name)) return true;
-    return false;
+  const branchMatchKeys = useMemo(() => {
+    if (!branchId || !branch) return new Set<string>()
+    const keys = [
+      branchId,
+      branch.id,
+      branch.name,
+      branch.username,
+      branch.code,
+      user?.branchId,
+      user?.email,
+      user?.displayName,
+    ]
+      .map(normalizeBranch)
+      .filter(Boolean)
+
+    return new Set(keys)
+  }, [branchId, branch, user])
+
+  const matchesBranch = (targetId?: string, targetName?: string, target?: any) => {
+    if (!branchId || !branch || branchMatchKeys.size === 0) return false
+
+    const candidates = [
+      targetId,
+      targetName,
+      target?.branchId,
+      target?.branchName,
+      target?.branchCode,
+      target?.branchUsername,
+      target?.createdBy,
+      target?.userId,
+      target?.userName,
+    ]
+      .map(normalizeBranch)
+      .filter(Boolean)
+
+    for (const candidate of candidates) {
+      if (branchMatchKeys.has(candidate)) return true
+
+      // Legacy data may contain slightly different branch labels.
+      if (candidate.length >= 5) {
+        for (const key of branchMatchKeys) {
+          if (key.length >= 5 && (candidate.includes(key) || key.includes(candidate))) {
+            return true
+          }
+        }
+      }
+    }
+
+    return false
   }
 
-  const invoices = (allInvoicesData as any[] || []).filter(i => matchesBranch(i.branchId, i.branchName)) as any[]
-  const requests = (allRequests as any[] || []).filter((r) => matchesBranch(r.branchId, r.branchName)) as any[]
-  const issues = (allIssuesData as any[] || []).filter((i) => matchesBranch(i.branchId, i.branchName)) as any[]
+  const invoices = (allInvoicesData as any[] || []).filter(i => matchesBranch(i.branchId, i.branchName, i)) as any[]
+  const requests = (allRequests as any[] || []).filter((r) => matchesBranch(r.branchId, r.branchName, r)) as any[]
+  const issues = (allIssuesData as any[] || []).filter((i) => matchesBranch(i.branchId, i.branchName, i)) as any[]
 
-  const displayInvoices = invoices.slice(0, 50)
+  const displayInvoices = invoices
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   const displayRequests = requests
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 50)
-  const displayIssues = issues.slice(0, 50)
+  const displayIssues = issues
+
+  const combinedRequestsAndInvoices = useMemo(() => {
+    const combined = [
+      ...displayRequests.map(r => ({ ...r, itemType: 'request' })),
+      ...displayInvoices.map(i => ({ ...i, itemType: 'invoice' }))
+    ]
+    return combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  }, [displayRequests, displayInvoices])
 
   const [requestType, setRequestType] = useState<"supply" | "return">("return")
   const [requestNotes, setRequestNotes] = useState("")
@@ -1030,7 +1083,7 @@ export function BranchDashboard() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Request No / رقم الطلب</TableHead>
+                    <TableHead>No / رقم</TableHead>
                     <TableHead>Type / النوع</TableHead>
                     <TableHead>Status / الحالة</TableHead>
                     <TableHead>Date / التاريخ</TableHead>
@@ -1039,33 +1092,41 @@ export function BranchDashboard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(displayRequests as any[]).length === 0 ? <TableRow><TableCell colSpan={6} className="text-center">No Requests / لا توجد طلبات</TableCell></TableRow> :
-                    (displayRequests as any[]).map(r => (
-                      <TableRow key={r.id}>
-                        <TableCell>{r.requestNumber || r.id.slice(0, 8)}</TableCell>
+                  {combinedRequestsAndInvoices.length === 0 ? <TableRow><TableCell colSpan={6} className="text-center">No Items / لا توجد عناصر</TableCell></TableRow> :
+                    combinedRequestsAndInvoices.map(item => (
+                      <TableRow key={item.id}>
+                        <TableCell>{item.requestNumber || item.invoiceNumber || item.id.slice(0, 8)}</TableCell>
                         <TableCell>
-                          <Badge variant={r.type === 'return' ? 'destructive' : 'default'}>
-                            {r.type === 'return' ? 'Return / مرتجع' : 'Supply / توريد'}
-                          </Badge>
+                          {item.itemType === 'invoice' ? (
+                            <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">Invoice / فاتورة</Badge>
+                          ) : (
+                            <Badge variant={item.type === 'return' ? 'destructive' : 'default'}>
+                              {item.type === 'return' ? 'Return / مرتجع' : 'Supply / توريد'}
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell>
-                          <Badge variant={r.status === 'approved' || r.status === 'shipped' || r.status === 'received' ? 'default' : r.status === 'cancelled' ? 'destructive' : 'secondary'}
-                            className={
-                              r.status === 'shipped' ? "bg-blue-100 text-blue-800 hover:bg-blue-100" :
-                                r.status === 'received' ? "bg-green-100 text-green-800 hover:bg-green-100" : ""
-                            }
-                          >
-                            {r.status === 'submitted' ? 'Pending / قيد المراجعة' :
-                              r.status === 'approved' ? 'Approved / مقبول' :
-                                r.status === 'shipped' ? 'Shipped / تم الشحن' :
-                                  r.status === 'received' ? 'Received / تم الاستلام' :
-                                    r.status === 'cancelled' ? 'Rejected / مرفوض' : r.status}
-                          </Badge>
+                          {item.itemType === 'invoice' ? (
+                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">Completed / مكتملة</Badge>
+                          ) : (
+                            <Badge variant={item.status === 'approved' || item.status === 'shipped' || item.status === 'received' ? 'default' : item.status === 'cancelled' ? 'destructive' : 'secondary'}
+                              className={
+                                item.status === 'shipped' ? "bg-blue-100 text-blue-800 hover:bg-blue-100" :
+                                  item.status === 'received' ? "bg-green-100 text-green-800 hover:bg-green-100" : ""
+                              }
+                            >
+                              {item.status === 'submitted' ? 'Pending / قيد المراجعة' :
+                                item.status === 'approved' ? 'Approved / مقبول' :
+                                  item.status === 'shipped' ? 'Shipped / تم الشحن' :
+                                    item.status === 'received' ? 'Received / تم الاستلام' :
+                                      item.status === 'cancelled' ? 'Rejected / مرفوض' : item.status}
+                            </Badge>
+                          )}
                         </TableCell>
-                        <TableCell dir="ltr" className="text-right">{new Date(r.createdAt).toLocaleDateString('en-GB')} {new Date(r.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</TableCell>
-                        <TableCell>{r.notes}</TableCell>
+                        <TableCell dir="ltr" className="text-right">{new Date(item.createdAt).toLocaleDateString('en-GB')} {new Date(item.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</TableCell>
+                        <TableCell>{item.notes}</TableCell>
                         <TableCell>
-                          <Button size="icon" variant="ghost" onClick={() => generateBranchRequestPDF(r)}>
+                          <Button size="icon" variant="ghost" onClick={() => item.itemType === 'invoice' ? generateBranchInvoicePDF(item) : generateBranchRequestPDF(item)}>
                             <Printer className="w-4 h-4" />
                           </Button>
                         </TableCell>
@@ -1191,8 +1252,35 @@ export function BranchDashboard() {
                 </TableBody>
               </Table>
             </TabsContent>
-            <TabsContent value="invoices" className="pt-4">
-              <div className="text-muted-foreground">Issued Invoices Count: / عدد الفواتير المصدرة: {invoices.length}</div>
+            <TabsContent value="invoices" className="space-y-4 pt-4">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Invoice No / رقم الفاتورة</TableHead>
+                    <TableHead>Total / الإجمالي</TableHead>
+                    <TableHead>Date / التاريخ</TableHead>
+                    <TableHead>Notes / ملاحظات</TableHead>
+                    <TableHead>Print / طباعة</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {displayInvoices.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center">No Invoices / لا توجد فواتير</TableCell></TableRow> :
+                    displayInvoices.map(inv => (
+                      <TableRow key={inv.id}>
+                        <TableCell>{inv.invoiceNumber || inv.id.slice(0, 8)}</TableCell>
+                        <TableCell>{inv.totalValue.toFixed(2)}</TableCell>
+                        <TableCell dir="ltr" className="text-right">{new Date(inv.createdAt).toLocaleDateString('en-GB')} {new Date(inv.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</TableCell>
+                        <TableCell>{inv.notes}</TableCell>
+                        <TableCell>
+                          <Button size="icon" variant="ghost" onClick={() => generateBranchInvoicePDF(inv)}>
+                            <Printer className="w-4 h-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  }
+                </TableBody>
+              </Table>
             </TabsContent>
           </Tabs>
         </CardContent>

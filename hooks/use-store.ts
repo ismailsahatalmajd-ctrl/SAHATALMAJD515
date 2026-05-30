@@ -1,7 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks"
 import { db } from "@/lib/db"
 import { useState, useEffect, useMemo } from 'react'
-import type { Branch, Location, Product, Transaction, Category, Unit, Issue, InventoryAdjustment, Return, ReceivingNote } from "@/lib/types"
+import type { Branch, Location, Product, Transaction, Category, Unit, Issue, InventoryAdjustment, Return, ReceivingNote, ReceiptInspectionVoucher } from "@/lib/types"
 import type { PurchaseRequest } from "@/lib/purchase-request-types"
 import type { BranchRequest } from "@/lib/branch-request-types"
 import type { BranchInvoice } from "@/lib/branch-invoice-types"
@@ -92,12 +92,12 @@ export function useReturnsRealtime() {
 
 export function useBranchRequestsRealtime() {
     const table = useMemo(() => db.branchRequests.toCollection().reverse(), [])
-    return useDexieTableProgressive(table, 20)
+    return useDexieTableProgressive(table, 1000)
 }
 
 export function useBranchInvoicesRealtime() {
     const table = useMemo(() => db.branchInvoices.toCollection().reverse(), [])
-    return useDexieTableProgressive(table, 20)
+    return useDexieTableProgressive(table, 1000)
 }
 
 export function useAdjustmentsRealtime() {
@@ -107,6 +107,11 @@ export function useAdjustmentsRealtime() {
 export function useReceivingNotesRealtime() {
     const table = useMemo(() => db.receivingNotes.toCollection().reverse(), [])
     return useDexieTableProgressive<ReceivingNote>(table, 20)
+}
+
+export function useReceiptInspectionVouchersRealtime() {
+    const table = useMemo(() => db.receiptInspectionVouchers.toCollection().reverse(), [])
+    return useDexieTableProgressive<ReceiptInspectionVoucher>(table, 20)
 }
 
 export function useLocationsRealtime() {

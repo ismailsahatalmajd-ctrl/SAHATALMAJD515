@@ -1556,18 +1556,7 @@ export function ProductsTable({
                               const val = parseFloat(calculatedValue.toFixed(5))
                               content = formatCurrency(val)
                             }
-                            if (key === 'currentStockValue') {
-                              // ✅ Calculate dynamically: currentStock × averagePrice (or price)
-                              const op = Number(product.openingStock) || 0
-                              const pu = Number(product.purchases) || 0
-                              const ret = Number(product.returns) || 0
-                              const adj = Number(product.adjustments) || 0
-                              const iss = Number(product.issues) || 0
-                              const stock = op + pu + ret + adj - iss
-                              const price = Number(product.averagePrice) || Number(product.price) || 0
-                              content = formatCurrency(stock * price)
-                            }
-                            if (['price', 'averagePrice', 'adjustmentsValue'].includes(key)) {
+                            if (['price', 'averagePrice', 'currentStockValue', 'adjustmentsValue'].includes(key)) {
                               const numericVal = Number(content)
                               content = formatCurrency(isNaN(numericVal) ? 0 : numericVal)
                             }
@@ -1731,16 +1720,7 @@ export function ProductsTable({
         const items = statusKeys.map((key) => {
           const list = filteredProducts.filter((p) => getStatusKey(p) === key)
           const count = list.length
-          const value = list.reduce((sum, p) => {
-            const op = Number(p.openingStock) || 0
-            const pu = Number(p.purchases) || 0
-            const ret = Number(p.returns) || 0
-            const adj = Number(p.adjustments) || 0
-            const iss = Number(p.issues) || 0
-            const stock = op + pu + ret + adj - iss
-            const price = Number(p.averagePrice) || Number(p.price) || 0
-            return sum + (stock * price)
-          }, 0)
+          const value = list.reduce((sum, p) => sum + Number(p.currentStockValue || 0), 0)
           return { key, count, value }
         })
         return (

@@ -131,10 +131,45 @@ export interface ReceivingNote {
   driverName: string
   driverSignature?: string
   stampImage?: string
+  /** رقم عملية الشراء (operationNumber) — سند استلام واحد لكل فاتورة/عملية */
+  linkedPurchaseOperationNumber?: string
   createdAt: string
   updatedAt: string
   createdBy?: string
   lastModifiedBy?: string
+}
+
+export interface ReceiptInspectionVoucherItem {
+  id: string
+  productId?: string
+  productCode?: string
+  productName: string
+  unit: string
+  orderedQty: number
+  receivedQty: number
+  acceptedQty: number
+  rejectedQty: number
+  expiryDate?: string
+  itemInspectionNote?: string
+}
+
+export interface ReceiptInspectionVoucher {
+  id: string
+  voucherNumber: string
+  purchaseOperationNumber: string
+  supplierName: string
+  supplierInvoiceNumber?: string
+  poNumber?: string
+  receivedAt: string
+  inspectionStatus: "passed" | "failed" | "partial"
+  generalNotes?: string
+  receiverName?: string
+  qualityOfficerName?: string
+  warehouseManagerName?: string
+  items: ReceiptInspectionVoucherItem[]
+  createdAt: string
+  updatedAt: string
+  createdBy?: string
 }
 
 export interface Supplier {

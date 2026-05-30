@@ -317,6 +317,7 @@ export function GranularUserControls({ targetUserId = "user_of_123478" }: { targ
                     <ToggleItem label="حد المخزون الأدنى" path="inventoryPage.columns.minStockLimit" perms={perms} onToggle={handleToggle} />
                     <ToggleItem label="حالة المخزون" path="inventoryPage.columns.stockStatus" perms={perms} onToggle={handleToggle} />
                     <ToggleItem label="الإجراءات" path="inventoryPage.columns.actions" perms={perms} onToggle={handleToggle} />
+                    <ToggleItem label="المدة المتبقية" path="inventoryPage.columns.notes" perms={perms} onToggle={handleToggle} />
                   </div>
                 </section>
 

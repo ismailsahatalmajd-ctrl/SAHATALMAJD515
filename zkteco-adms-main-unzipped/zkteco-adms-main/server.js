@@ -297,8 +297,9 @@ app.get("/health", (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 ${SERVER_NAME} v${SERVER_VERSION} running on port ${PORT}`);
+const port = process.env.PORT || process.env.BRIDGE_PORT || 9000;
+app.listen(port, () => {
+  console.log(`🚀 ${SERVER_NAME} v${SERVER_VERSION} running on port ${port}`);
   console.log(`📡 ADMS Protocol Endpoints:`);
   console.log(`   GET  /iclock/getoptions - Device configuration`);
   console.log(`   GET  /iclock/gettime    - Server time sync`);
@@ -309,7 +310,7 @@ app.listen(PORT, () => {
   console.log(`   GET  /iclock/info       - Server information`);
   console.log(`   GET  /iclock/status     - Server status`);
   console.log(`   POST /iclock/command    - Device commands`);
-  console.log(`🏥 Health check: http://localhost:${PORT}/health`);
+  console.log(`🏥 Health check: http://localhost:${port}/health`);
   console.log(`🔗 Vercel API: ${API_URL}`);
   console.log(`⚙️ Configuration loaded from .env file`);
 });

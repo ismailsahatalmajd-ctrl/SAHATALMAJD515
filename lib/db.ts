@@ -33,13 +33,15 @@ import type {
   BranchInventoryReport
   ,OperationRequest,
   LabelTemplate,
-  WorkScheduleRule
+  WorkScheduleRule,
+  ReceiptInspectionVoucher,
 } from './types';
 import type { BranchInvoice } from './branch-invoice-types';
 import type { BranchRequest } from './branch-request-types';
 import type { PurchaseRequest } from './purchase-request-types';
 
 export class InventoryDatabase extends Dexie {
+  receiptInspectionVouchers!: Table<ReceiptInspectionVoucher>;
   products!: Table<Product>;
   categories!: Table<Category>;
   transactions!: Table<Transaction>;
@@ -202,6 +204,62 @@ export class InventoryDatabase extends Dexie {
     this.version(18).stores({
       workSchedules: 'id, scopeType, branchId, employeeId, startTime, endTime, active, createdAt, updatedAt, *employeeIds'
     });
+
+    // Version 19: Receiving note linked to purchase operation (one GRN per invoice)
+    this.version(19).stores({
+      receivingNotes: 'id, noteNumber, supplierName, createdAt, linkedPurchaseOperationNumber'
+    });
+    // Version 20: Receipt inspection vouchers
+    this.version(20).stores({
+      products: 'id, productCode, productName, category, location, quantity, currentStock, isLowStock',
+      categories: 'id, name',
+      transactions: 'id, productId, type, createdAt',
+      branches: 'id, name, location',
+      units: 'id, name',
+      issues: 'id, productId, branchId, status, delivered, createdAt, invoiceNumber',
+      returns: 'id, productId, branchId, status, createdAt',
+      locations: 'id, name',
+      issueDrafts: 'id, branchId, complete, updatedAt',
+      purchaseOrders: 'id, status, createdAt',
+      verificationLogs: 'id, issueId, status, timestamp',
+      inventoryAdjustments: 'id, productId, createdAt',
+      branchInvoices: 'id, branchId, invoiceNumber, createdAt',
+      branchRequests: 'id, branchId, status, type, createdAt',
+      branchRequestDrafts: 'id, branchId, updatedAt',
+      purchaseRequests: 'id, status, createdAt',
+      settings: 'key',
+      auditLogs: 'id, timestamp, userId, action, entity, entityId',
+      notifications: 'id, type, date, read',
+      backups: 'id, timestamp, version',
+      imageCache: 'key, timestamp',
+      syncQueue: 'id, table, op, ts, attempts, deviceId, syncedToDevices',
+      conflictLogs: 'id, table, recordId, ts',
+      changeLogs: 'id, table, entityId, ts',
+      userSessions: 'id, userId, deviceId, lastActive',
+      userPreferences: 'userId',
+      productImages: 'productId',
+      branchInventory: 'id, branchId, productId, [branchId+productId], productName, currentStock',
+      consumptionRecords: 'id, branchId, productId, date, createdAt',
+      branchAssets: 'id, branchId, category, status, createdAt',
+      maintenanceReports: 'id, assetId, branchId, status, reportedDate',
+      assetRequests: 'id, branchId, status, requestDate',
+      assetStatusReports: 'id, branchId, generatedAt',
+      receivingNotes: 'id, noteNumber, supplierName, createdAt, linkedPurchaseOperationNumber',
+      suppliers: 'id, name, createdAt',
+      employees: 'id, name, department, createdAt',
+      overtimeReasons: 'id, name, createdAt',
+      overtimeEntries: 'id, employeeId, date, status, createdAt',
+      absenceRecords: 'id, employeeId, date, type, createdAt',
+      plannedLeaves: 'id, employeeId, startDate, endDate, status, createdAt',
+      warehouseLocations: 'id, zone, aisle, rack, positionCode, status, createdAt',
+      warehouseDesignElements: 'id, warehouseId, type, createdAt',
+      branchNotes: 'id, expiresAt, *targetBranchIds',
+      branchInventoryReports: 'id, branchId, reportCode, createdAt',
+      operationRequests: 'id, operationType, status, createdAt, operationNumber, entityId',
+      labelTemplates: 'id, name, updatedAt, createdAt',
+      workSchedules: 'id, scopeType, branchId, employeeId, startTime, endTime, active, createdAt, updatedAt, *employeeIds',
+      receiptInspectionVouchers: 'id, voucherNumber, purchaseOperationNumber, supplierName, createdAt'
+    });
   }
 }
 
@@ -236,7 +294,7 @@ if (typeof window === 'undefined') {
     'branchRequests', 'branchRequestDrafts', 'purchaseRequests', 'receivingNotes', 'settings', 'auditLogs',
     'notifications', 'backups', 'imageCache', 'syncQueue', 'conflictLogs',
     'changeLogs', 'userSessions', 'userPreferences', 'productImages', 'suppliers',
-    'employees', 'overtimeReasons', 'overtimeEntries', 'absenceRecords', 'plannedLeaves', 'warehouseLocations', 'branchNotes', 'branchInventoryReports', 'operationRequests', 'labelTemplates', 'workSchedules'
+    'employees', 'overtimeReasons', 'overtimeEntries', 'absenceRecords', 'plannedLeaves', 'warehouseLocations', 'branchNotes', 'branchInventoryReports', 'operationRequests', 'labelTemplates', 'workSchedules' , 'receiptInspectionVouchers'
   ];
 
   tables.forEach(table => {
@@ -285,7 +343,7 @@ if (typeof window === 'undefined') {
       'branchRequests', 'branchRequestDrafts', 'purchaseRequests', 'receivingNotes', 'settings', 'auditLogs',
       'notifications', 'backups', 'imageCache', 'syncQueue', 'conflictLogs',
       'changeLogs', 'userSessions', 'userPreferences', 'productImages', 'suppliers',
-      'employees', 'overtimeReasons', 'overtimeEntries', 'absenceRecords', 'plannedLeaves', 'warehouseLocations', 'branchNotes', 'branchInventoryReports', 'operationRequests', 'labelTemplates', 'workSchedules'
+      'employees', 'overtimeReasons', 'overtimeEntries', 'absenceRecords', 'plannedLeaves', 'warehouseLocations', 'branchNotes', 'branchInventoryReports', 'operationRequests', 'labelTemplates', 'workSchedules', 'receiptInspectionVouchers'
     ];
 
     tables.forEach(table => {

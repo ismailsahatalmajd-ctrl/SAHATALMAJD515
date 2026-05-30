@@ -677,7 +677,40 @@ export const syncAllCloudToLocal = async (onProgress: (msg: string) => void) => 
             }
         }
 
-        onProgress(`✅ تم تحميل ${total} منتج و ${totalImg} صورة بنجاح`);
+        // 3. Branch Requests
+        onProgress("جاري تحميل طلبات الفرع...");
+        const qRequests = query(collection(firestore, COLLECTIONS.BRANCH_REQUESTS));
+        const snapRequests = await getDocs(qRequests);
+        if (snapRequests.size > 0) {
+            const requests = snapRequests.docs.map(d => ({ ...d.data(), id: d.id }));
+            await localDb.branchRequests.bulkPut(requests);
+            requests.forEach(it => updateStoreCache(COLLECTIONS.BRANCH_REQUESTS, it));
+            notify("branch_requests_change");
+        }
+
+        // 4. Branch Invoices
+        onProgress("جاري تحميل فواتير الفرع...");
+        const qInvoices = query(collection(firestore, COLLECTIONS.BRANCH_INVOICES));
+        const snapInvoices = await getDocs(qInvoices);
+        if (snapInvoices.size > 0) {
+            const invoices = snapInvoices.docs.map(d => ({ ...d.data(), id: d.id }));
+            await localDb.branchInvoices.bulkPut(invoices);
+            invoices.forEach(it => updateStoreCache(COLLECTIONS.BRANCH_INVOICES, it));
+            notify("branch_invoices_change");
+        }
+
+        // 5. Issues (Shipments)
+        onProgress("جاري تحميل الشحنات...");
+        const qIssues = query(collection(firestore, COLLECTIONS.ISSUES));
+        const snapIssues = await getDocs(qIssues);
+        if (snapIssues.size > 0) {
+            const issues = snapIssues.docs.map(d => ({ ...d.data(), id: d.id }));
+            await localDb.issues.bulkPut(issues);
+            issues.forEach(it => updateStoreCache(COLLECTIONS.ISSUES, it));
+            notify("issues_change");
+        }
+
+        onProgress(`✅ تم التحميل بنجاح`);
         notify("products_change");
         notify("change");
     } catch (e) {
@@ -895,6 +928,19 @@ export async function syncReceivingNote(note: any) {
     }
 }
 
+export async function syncReceiptInspectionVoucher(voucher: any) {
+    if (!firestore) return;
+    try {
+        await setDoc(doc(firestore, "receipt_inspection_vouchers", voucher.id), {
+            ...voucher,
+            updatedAt: new Date().toISOString()
+        }, { merge: true });
+    } catch (e) {
+        console.error("ReceiptInspectionVoucher Sync Error:", e);
+        throw e;
+    }
+}
+
 export const syncSupplier = (r: any) => syncRecord(COLLECTIONS.SUPPLIERS, r);
 export const deleteSupplierApi = (id: string) => deleteRecord(COLLECTIONS.SUPPLIERS, id);
 
@@ -909,6 +955,20 @@ export async function deleteAllReceivingNotesApi(ids: string[]) {
         await batch.commit();
     } catch (e) {
         console.error("ReceivingNotes Batch Delete Error:", e);
+        throw e;
+    }
+}
+
+export async function deleteAllReceiptInspectionVouchersApi(ids: string[]) {
+    if (!firestore) return;
+    try {
+        const batch = writeBatch(firestore);
+        ids.forEach(id => {
+            batch.delete(doc(firestore, "receipt_inspection_vouchers", id));
+        });
+        await batch.commit();
+    } catch (e) {
+        console.error("ReceiptInspectionVouchers Batch Delete Error:", e);
         throw e;
     }
 }

@@ -20,7 +20,8 @@ import type {
   PlannedLeave,
   WarehouseLocation,
   WarehouseDesignElement,
-  LabelTemplate
+  LabelTemplate,
+  ReceiptInspectionVoucher,
 } from "./types"
 import type { BranchInvoice } from './branch-invoice-types'
 import type { BranchRequest } from './branch-request-types'
@@ -49,6 +50,7 @@ export class DataStore {
     branchRequestDrafts: BranchRequestDraft[]
     purchaseRequests: PurchaseRequest[]
     receivingNotes: ReceivingNote[]
+    receiptInspectionVouchers: ReceiptInspectionVoucher[]
     suppliers: Supplier[]
     employees: Employee[]
     overtimeReasons: OvertimeReason[]
@@ -76,6 +78,7 @@ export class DataStore {
       branchRequestDrafts: [],
       purchaseRequests: [],
       receivingNotes: [],
+      receiptInspectionVouchers: [],
       suppliers: [],
       employees: [],
       overtimeReasons: [],
@@ -146,6 +149,7 @@ export class DataStore {
           { name: "warehouseLocations", label: "مواقع المستودع", query: db.warehouseLocations },
           { name: "warehouseDesignElements", label: "مخطط المستودع", query: db.warehouseDesignElements },
           { name: "labelTemplates", label: "قوالب الملصقات", query: db.labelTemplates },
+          { name: "receiptInspectionVouchers", label: "سندات الاستلام والفحص", query: db.receiptInspectionVouchers },
         ]
 
         let completed = 0;
@@ -215,6 +219,7 @@ export class DataStore {
         this.cache.warehouseLocations = (results[23] as WarehouseLocation[]) || []
         this.cache.warehouseDesignElements = (results[24] as WarehouseDesignElement[]) || []
         this.cache.labelTemplates = (results[25] as LabelTemplate[]) || []
+        this.cache.receiptInspectionVouchers = (results[26] as ReceiptInspectionVoucher[]) || []
 
         broadcastProgress(100, "اكتمل التحميل");
         console.log("DataStore: Initialization complete");

@@ -21,7 +21,7 @@ export const TABLE_VIEW_MODES: TableViewConfig[] = [
             'unit', 'openingStock', 'purchases', 'issues',
             'inventoryCount', 'currentStock', 'difference',
             'price', 'averagePrice', 'currentStockValue', 'issuesValue', 'turnoverRate',
-            'status', 'actions'
+            'status', 'daysUntilStockout', 'actions'
         ]
     },
     {
@@ -43,14 +43,14 @@ export const TABLE_VIEW_MODES: TableViewConfig[] = [
         label: 'Inventory Tracking',
         labelAr: 'تتبع المخزون',
         icon: Box,
-        columns: ['image', 'productName', 'openingStock', 'purchases', 'returns', 'issues', 'currentStock', 'status', 'actions']
+        columns: ['image', 'productName', 'openingStock', 'purchases', 'returns', 'issues', 'currentStock', 'status', 'daysUntilStockout', 'actions']
     },
     {
         id: 'analytics',
         label: 'Analytics',
         labelAr: 'تحليل الأداء',
         icon: BarChart2,
-        columns: ['productName', 'category', 'turnoverRate', 'lastActivity', 'status', 'difference', 'actions']
+        columns: ['productName', 'category', 'turnoverRate', 'lastActivity', 'status', 'daysUntilStockout', 'difference', 'actions']
     },
     {
         id: 'all',
@@ -63,7 +63,7 @@ export const TABLE_VIEW_MODES: TableViewConfig[] = [
             'openingStock', 'purchases', 'returns', 'issues',
             'inventoryCount', 'currentStock', 'difference',
             'price', 'averagePrice', 'currentStockValue', 'issuesValue', 'turnoverRate',
-            'lastActivity', 'status', 'actions'
+            'lastActivity', 'status', 'daysUntilStockout', 'actions'
         ]
     }
 ]

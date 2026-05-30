@@ -152,12 +152,11 @@ export default function DashboardPage() {
   }, [products, query, categoryFilter, locationFilter])
 
   const [cart, setCart] = useState<BranchInvoiceItem[]>([])
-  const invoices = mounted ? getInvoicesByBranch(branchId).slice(0, 5) : []
+  const invoices = mounted ? getInvoicesByBranch(branchId) : []
   const requests = mounted ? getBranchRequests()
     .filter((r) => r.branchId === branchId)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 5) : []
-  const issues = mounted ? getIssues().filter((i) => i.branchId === branchId).slice(0, 5) : []
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) : []
+  const issues = mounted ? getIssues().filter((i) => i.branchId === branchId) : []
 
   const [requestType, setRequestType] = useState<"supply" | "return">("return")
   const [requestNotes, setRequestNotes] = useState("")
@@ -605,8 +604,35 @@ export default function DashboardPage() {
                   </TableBody>
                 </Table>
               </TabsContent>
-              <TabsContent value="invoices" className="pt-4">
-                <div className="text-muted-foreground">Issued Invoices Count: / عدد الفواتير المصدرة: {invoices.length}</div>
+              <TabsContent value="invoices" className="space-y-4 pt-4">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Invoice No / رقم الفاتورة</TableHead>
+                      <TableHead>Total / الإجمالي</TableHead>
+                      <TableHead>Date / التاريخ</TableHead>
+                      <TableHead>Notes / ملاحظات</TableHead>
+                      <TableHead>Print / طباعة</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {invoices.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center">No Invoices / لا توجد فواتير</TableCell></TableRow> :
+                      invoices.map(inv => (
+                        <TableRow key={inv.id}>
+                          <TableCell>{inv.invoiceNumber || inv.id.slice(0, 8)}</TableCell>
+                          <TableCell>{inv.totalValue.toFixed(2)}</TableCell>
+                          <TableCell>{new Date(inv.createdAt).toLocaleDateString('ar-SA')} {new Date(inv.createdAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}</TableCell>
+                          <TableCell>{inv.notes}</TableCell>
+                          <TableCell>
+                            <Button size="icon" variant="ghost" onClick={() => generateBranchInvoicePDF(inv)}>
+                              <Printer className="w-4 h-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    }
+                  </TableBody>
+                </Table>
               </TabsContent>
             </Tabs>
           </CardContent>

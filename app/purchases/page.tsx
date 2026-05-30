@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { ProductImage } from "@/components/product-image"
 import { cn } from "@/lib/utils"
-import type { Product, Transaction } from "@/lib/types"
+import type { Product, ReceiptInspectionVoucher, Transaction } from "@/lib/types"
 import { PurchaseRequestsSection } from "@/components/purchase-requests"
 import { useI18n } from "@/components/language-provider"
 import { DualText } from "@/components/ui/dual-text"
@@ -27,7 +27,10 @@ import { useAuth } from "@/components/auth-provider"
 import { useProducts, useTransactions, saveDocument } from "@/hooks/use-firestore"
 import {
   deleteReceivingNote,
+  deleteReceiptInspectionVoucher,
+  generateReceiptInspectionVoucherNumber,
   generateNextItemNumber,
+  saveReceiptInspectionVoucher,
   updateProduct,
   deleteProduct,
   deleteTransaction,
@@ -50,6 +53,7 @@ import { SupplierCombobox } from "@/components/supplier-combobox"
 import {
   useProductsRealtime,
   usePurchasesRealtime,
+  useReceiptInspectionVouchersRealtime,
   useReceivingNotesRealtime
 } from "@/hooks/use-store"
 import { removeFromStoreCache } from "@/lib/data-store"
@@ -88,6 +92,7 @@ export default function PurchasesPage() {
   const { data: realtimeProducts } = useProductsRealtime()
   const { data: realtimePurchases } = usePurchasesRealtime()
   const { data: receivingNotes } = useReceivingNotesRealtime()
+  const { data: receiptInspectionVouchers } = useReceiptInspectionVouchersRealtime()
 
   // Cloud Hooks (Optional, for redundancy or background)
   const { data: cloudProducts } = useProducts()
@@ -123,6 +128,16 @@ export default function PurchasesPage() {
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isReceivingNoteOpen, setIsReceivingNoteOpen] = useState(false)
+  const [isInspectionVoucherOpen, setIsInspectionVoucherOpen] = useState(false)
+  const [isSavingInspectionVoucher, setIsSavingInspectionVoucher] = useState(false)
+  const [voucherNumber, setVoucherNumber] = useState("")
+  const [voucherPurchaseOperationNumber, setVoucherPurchaseOperationNumber] = useState("")
+  const [voucherReceivedAt, setVoucherReceivedAt] = useState(() => new Date().toISOString().slice(0, 16))
+  const [voucherReceiverName, setVoucherReceiverName] = useState("")
+  const [voucherQualityOfficerName, setVoucherQualityOfficerName] = useState("")
+  const [voucherWarehouseManagerName, setVoucherWarehouseManagerName] = useState("")
+  const [voucherGeneralNotes, setVoucherGeneralNotes] = useState("")
+  const [voucherItems, setVoucherItems] = useState<ReceiptInspectionVoucher["items"]>([])
   const [showQuickAdd, setShowQuickAdd] = useState(false)
   const submittingRef = useRef(false)
 
@@ -158,6 +173,82 @@ export default function PurchasesPage() {
       )
     })
   }, [searchTerm, purchases, products])
+
+  const productMap = useMemo(() => {
+    return new Map(products.map((product) => [product.id, product]))
+  }, [products])
+
+  const purchaseOperationOptions = useMemo(() => {
+    const grouped = (purchases as Transaction[]).reduce((acc, tr) => {
+      if (tr.type !== "purchase") return acc
+
+      const operationNumber = String(tr.operationNumber || tr.id.slice(0, 13))
+      if (!acc[operationNumber]) {
+        acc[operationNumber] = {
+          operationNumber,
+          createdAt: tr.createdAt,
+          supplierName: tr.supplierName || "",
+          supplierInvoiceNumber: tr.supplierInvoiceNumber || "",
+          lines: [] as Transaction[],
+        }
+      }
+
+      acc[operationNumber].lines.push(tr)
+
+      if (tr.createdAt > acc[operationNumber].createdAt) {
+        acc[operationNumber].createdAt = tr.createdAt
+      }
+      if (!acc[operationNumber].supplierName && tr.supplierName) {
+        acc[operationNumber].supplierName = tr.supplierName
+      }
+      if (!acc[operationNumber].supplierInvoiceNumber && tr.supplierInvoiceNumber) {
+        acc[operationNumber].supplierInvoiceNumber = tr.supplierInvoiceNumber
+      }
+
+      return acc
+    }, {} as Record<string, {
+      operationNumber: string
+      createdAt: string
+      supplierName: string
+      supplierInvoiceNumber: string
+      lines: Transaction[]
+    }>)
+
+    return Object.values(grouped).sort((a, b) => {
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    })
+  }, [purchases])
+
+  const selectedVoucherOperation = useMemo(() => {
+    return purchaseOperationOptions.find((group) => group.operationNumber === voucherPurchaseOperationNumber)
+  }, [purchaseOperationOptions, voucherPurchaseOperationNumber])
+
+  useEffect(() => {
+    if (!selectedVoucherOperation) {
+      setVoucherItems([])
+      return
+    }
+
+    setVoucherItems(
+      selectedVoucherOperation.lines.map((line, index) => {
+        const product = productMap.get(line.productId)
+        const receivedQty = Number(line.quantity) || 0
+        return {
+          id: `${selectedVoucherOperation.operationNumber}-${line.productId || index}`,
+          productId: line.productId,
+          productCode: product?.productCode || "",
+          productName: line.productName,
+          unit: product?.unit || (line as any).unit || "قطعة",
+          orderedQty: receivedQty,
+          receivedQty,
+          acceptedQty: receivedQty,
+          rejectedQty: 0,
+          expiryDate: "",
+          itemInspectionNote: "",
+        }
+      }),
+    )
+  }, [productMap, selectedVoucherOperation])
 
   // Calculation Helpers
   const totalPurchases = (filteredPurchases as Transaction[] || []).reduce((sum, p) => sum + (Number(p.totalAmount) || 0), 0)
@@ -258,6 +349,209 @@ export default function PurchasesPage() {
       }
     }
     return Array.from(byId.values())
+  }
+
+  const openInspectionVoucherDialog = () => {
+    setVoucherNumber(generateReceiptInspectionVoucherNumber())
+    setVoucherPurchaseOperationNumber("")
+    setVoucherReceivedAt(new Date().toISOString().slice(0, 16))
+    setVoucherReceiverName("")
+    setVoucherQualityOfficerName("")
+    setVoucherWarehouseManagerName("")
+    setVoucherGeneralNotes("")
+    setVoucherItems([])
+    setIsInspectionVoucherOpen(true)
+  }
+
+  const updateVoucherItem = (
+    itemId: string,
+    field: "receivedQty" | "acceptedQty" | "expiryDate" | "itemInspectionNote",
+    value: string,
+  ) => {
+    setVoucherItems((prev) => prev.map((item) => {
+      if (item.id !== itemId) return item
+
+      if (field === "receivedQty") {
+        const receivedQty = Math.max(0, Number(value) || 0)
+        const acceptedQty = Math.min(Number(item.acceptedQty) || 0, receivedQty)
+        return {
+          ...item,
+          receivedQty,
+          acceptedQty,
+          rejectedQty: Math.max(receivedQty - acceptedQty, 0),
+        }
+      }
+
+      if (field === "acceptedQty") {
+        const acceptedQty = Math.max(0, Math.min(Number(value) || 0, Number(item.receivedQty) || 0))
+        return {
+          ...item,
+          acceptedQty,
+          rejectedQty: Math.max((Number(item.receivedQty) || 0) - acceptedQty, 0),
+        }
+      }
+
+      return {
+        ...item,
+        [field]: value,
+      }
+    }))
+  }
+
+  const getInspectionStatus = (items: ReceiptInspectionVoucher["items"]) => {
+    const allAccepted = items.every((item) => Number(item.acceptedQty) === Number(item.receivedQty))
+    const allRejected = items.every((item) => Number(item.acceptedQty) === 0)
+
+    if (allAccepted) return "passed" as const
+    if (allRejected) return "failed" as const
+    return "partial" as const
+  }
+
+  const handleSaveInspectionVoucher = async () => {
+    if (!selectedVoucherOperation) {
+      toast({
+        title: "بيانات ناقصة",
+        description: "اختر عملية شراء أولاً لإنشاء سند الاستلام والفحص.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (voucherItems.length === 0) {
+      toast({
+        title: "بيانات ناقصة",
+        description: "لا توجد أصناف داخل السند.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSavingInspectionVoucher(true)
+
+    try {
+      const normalizedItems = voucherItems.map((item) => {
+        const receivedQty = Math.max(0, Number(item.receivedQty) || 0)
+        const acceptedQty = Math.max(0, Math.min(Number(item.acceptedQty) || 0, receivedQty))
+        return {
+          ...item,
+          receivedQty,
+          acceptedQty,
+          rejectedQty: Math.max(receivedQty - acceptedQty, 0),
+          expiryDate: item.expiryDate || undefined,
+          itemInspectionNote: item.itemInspectionNote || undefined,
+        }
+      })
+
+      const now = new Date().toISOString()
+      const voucher: ReceiptInspectionVoucher = {
+        id: self.crypto.randomUUID(),
+        voucherNumber: voucherNumber || generateReceiptInspectionVoucherNumber(),
+        purchaseOperationNumber: selectedVoucherOperation.operationNumber,
+        supplierName: selectedVoucherOperation.supplierName,
+        supplierInvoiceNumber: selectedVoucherOperation.supplierInvoiceNumber || undefined,
+        receivedAt: voucherReceivedAt ? new Date(voucherReceivedAt).toISOString() : now,
+        inspectionStatus: getInspectionStatus(normalizedItems),
+        generalNotes: voucherGeneralNotes || undefined,
+        receiverName: voucherReceiverName || undefined,
+        qualityOfficerName: voucherQualityOfficerName || undefined,
+        warehouseManagerName: voucherWarehouseManagerName || undefined,
+        items: normalizedItems,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: (user as any)?.displayName || (user as any)?.email || (user as any)?.uid || undefined,
+      }
+
+      await saveReceiptInspectionVoucher(voucher)
+
+      toast({
+        title: "تم الحفظ",
+        description: `تم إنشاء سند الاستلام والفحص ${voucher.voucherNumber} بنجاح.`,
+      })
+
+      setIsInspectionVoucherOpen(false)
+    } catch (error: any) {
+      const duplicateError = error?.message === "DUPLICATE_RIV_FOR_PURCHASE"
+      toast({
+        title: duplicateError ? "السند موجود" : "تعذر الحفظ",
+        description: duplicateError
+          ? "يوجد بالفعل سند استلام وفحص لهذه العملية."
+          : error?.message || "حدث خطأ غير متوقع أثناء حفظ السند.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSavingInspectionVoucher(false)
+    }
+  }
+
+  const handlePrintInspectionVoucher = (voucher: ReceiptInspectionVoucher) => {
+    const printWindow = window.open("", "_blank", "width=1000,height=800")
+    if (!printWindow) return
+
+    const rows = voucher.items.map((item, index) => `
+      <tr>
+        <td>${index + 1}</td>
+        <td>${item.productName}</td>
+        <td>${item.unit}</td>
+        <td>${item.orderedQty}</td>
+        <td>${item.receivedQty}</td>
+        <td>${item.acceptedQty}</td>
+        <td>${item.rejectedQty}</td>
+        <td>${item.itemInspectionNote || "-"}</td>
+      </tr>
+    `).join("")
+
+    printWindow.document.write(`
+      <html lang="ar" dir="rtl">
+        <head>
+          <title>${voucher.voucherNumber}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 24px; color: #0f172a; }
+            h1, h2, p { margin: 0 0 12px; }
+            .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 24px; margin-bottom: 20px; }
+            .meta div { padding: 8px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: center; font-size: 12px; }
+            th { background: #eff6ff; }
+            .status { display: inline-block; padding: 4px 10px; border-radius: 999px; background: #dbeafe; color: #1d4ed8; font-weight: 700; }
+          </style>
+        </head>
+        <body>
+          <h1>سند استلام وفحص</h1>
+          <h2>Receipt & Inspection Voucher</h2>
+          <div class="meta">
+            <div><strong>رقم السند:</strong> ${voucher.voucherNumber}</div>
+            <div><strong>رقم العملية:</strong> ${voucher.purchaseOperationNumber}</div>
+            <div><strong>المورد:</strong> ${voucher.supplierName}</div>
+            <div><strong>رقم فاتورة المورد:</strong> ${voucher.supplierInvoiceNumber || "-"}</div>
+            <div><strong>الحالة:</strong> <span class="status">${voucher.inspectionStatus}</span></div>
+            <div><strong>التاريخ:</strong> ${formatArabicGregorianDateTime(new Date(voucher.receivedAt || voucher.createdAt))}</div>
+            <div><strong>المستلم:</strong> ${voucher.receiverName || "-"}</div>
+            <div><strong>مسؤول الجودة:</strong> ${voucher.qualityOfficerName || "-"}</div>
+            <div><strong>مدير المستودع:</strong> ${voucher.warehouseManagerName || "-"}</div>
+            <div><strong>ملاحظات:</strong> ${voucher.generalNotes || "-"}</div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>الصنف</th>
+                <th>الوحدة</th>
+                <th>المطلوب</th>
+                <th>المستلم</th>
+                <th>المقبول</th>
+                <th>المرفوض</th>
+                <th>ملاحظة الفحص</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </body>
+      </html>
+    `)
+
+    printWindow.document.close()
+    printWindow.focus()
+    printWindow.print()
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -448,6 +742,10 @@ export default function PurchasesPage() {
                   <Button onClick={() => setIsReceivingNoteOpen(true)} variant="outline" className="gap-2 border-primary/20 hover:bg-primary/5 transition-all text-sm font-semibold h-10 px-4 rounded-xl">
                     <Truck className="h-4 w-4 text-primary" />
                     سند استلام بضاعة / Goods Receipt Note
+                  </Button>
+                  <Button onClick={openInspectionVoucherDialog} variant="outline" className="gap-2 border-amber-200 hover:bg-amber-50 transition-all text-sm font-semibold h-10 px-4 rounded-xl">
+                    <AlertCircle className="h-4 w-4 text-amber-600" />
+                    سند استلام وفحص / Receipt & Inspection
                   </Button>
                   <ReceivingNoteDialog open={isReceivingNoteOpen} onOpenChange={setIsReceivingNoteOpen} />
                 </>
@@ -731,6 +1029,161 @@ export default function PurchasesPage() {
                 </DialogContent>
                 </Dialog>
               )}
+              <Dialog open={isInspectionVoucherOpen} onOpenChange={setIsInspectionVoucherOpen}>
+                <DialogContent className="max-w-6xl max-h-[92vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>سند استلام وفحص / Receipt & Inspection Voucher</DialogTitle>
+                    <DialogDescription>
+                      اختر عملية شراء ثم راجع كميات الاستلام والقبول لكل صنف قبل حفظ السند.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>رقم السند</Label>
+                      <Input value={voucherNumber} readOnly className="bg-slate-50" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>عملية الشراء</Label>
+                      <Select value={voucherPurchaseOperationNumber} onValueChange={setVoucherPurchaseOperationNumber}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="اختر عملية شراء" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {purchaseOperationOptions.map((group) => (
+                            <SelectItem key={group.operationNumber} value={group.operationNumber}>
+                              {group.operationNumber.slice(-8)} | {group.supplierName || "بدون مورد"} | {group.lines.length} أصناف
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>وقت الاستلام</Label>
+                      <Input type="datetime-local" value={voucherReceivedAt} onChange={(e) => setVoucherReceivedAt(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>المورد</Label>
+                      <Input value={selectedVoucherOperation?.supplierName || ""} readOnly className="bg-slate-50" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>المستلم</Label>
+                      <Input value={voucherReceiverName} onChange={(e) => setVoucherReceiverName(e.target.value)} placeholder="اسم المستلم" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>مسؤول الجودة</Label>
+                      <Input value={voucherQualityOfficerName} onChange={(e) => setVoucherQualityOfficerName(e.target.value)} placeholder="اسم مسؤول الجودة" />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>مدير المستودع</Label>
+                      <Input value={voucherWarehouseManagerName} onChange={(e) => setVoucherWarehouseManagerName(e.target.value)} placeholder="اسم مدير المستودع" />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>ملاحظات عامة</Label>
+                      <textarea
+                        value={voucherGeneralNotes}
+                        onChange={(e) => setVoucherGeneralNotes(e.target.value)}
+                        placeholder="أي ملاحظات عامة على السند أو الفحص"
+                        className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>الصنف</TableHead>
+                          <TableHead className="text-center">الوحدة</TableHead>
+                          <TableHead className="text-center">المطلوب</TableHead>
+                          <TableHead className="text-center">المستلم</TableHead>
+                          <TableHead className="text-center">المقبول</TableHead>
+                          <TableHead className="text-center">المرفوض</TableHead>
+                          <TableHead className="text-center">الصلاحية</TableHead>
+                          <TableHead>ملاحظة الفحص</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {voucherItems.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                              اختر عملية شراء ليتم تحميل الأصناف تلقائيًا.
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          voucherItems.map((item) => (
+                            <TableRow key={item.id}>
+                              <TableCell>
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{item.productName}</span>
+                                  <span className="text-xs text-muted-foreground">{item.productCode || "بدون كود"}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-center">{item.unit}</TableCell>
+                              <TableCell className="text-center font-bold">{item.orderedQty}</TableCell>
+                              <TableCell className="p-2">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  value={item.receivedQty}
+                                  onChange={(e) => updateVoucherItem(item.id, "receivedQty", e.target.value)}
+                                  className="text-center"
+                                />
+                              </TableCell>
+                              <TableCell className="p-2">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={item.receivedQty}
+                                  value={item.acceptedQty}
+                                  onChange={(e) => updateVoucherItem(item.id, "acceptedQty", e.target.value)}
+                                  className="text-center"
+                                />
+                              </TableCell>
+                              <TableCell className="text-center font-bold text-red-600">{item.rejectedQty}</TableCell>
+                              <TableCell className="p-2">
+                                <Input
+                                  type="date"
+                                  value={item.expiryDate || ""}
+                                  onChange={(e) => updateVoucherItem(item.id, "expiryDate", e.target.value)}
+                                />
+                              </TableCell>
+                              <TableCell className="p-2">
+                                <Input
+                                  value={item.itemInspectionNote || ""}
+                                  onChange={(e) => updateVoucherItem(item.id, "itemInspectionNote", e.target.value)}
+                                  placeholder="ملاحظة على الصنف"
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {voucherItems.length > 0 && (
+                    <div className="flex items-center justify-between rounded-lg border bg-slate-50 px-4 py-3 text-sm">
+                      <span>
+                        الحالة المتوقعة: <strong>{getInspectionStatus(voucherItems)}</strong>
+                      </span>
+                      <span>
+                        إجمالي المرفوض: <strong>{voucherItems.reduce((sum, item) => sum + (Number(item.rejectedQty) || 0), 0)}</strong>
+                      </span>
+                    </div>
+                  )}
+
+                  <DialogFooter>
+                    <Button type="button" variant="secondary" onClick={() => setIsInspectionVoucherOpen(false)}>
+                      إلغاء
+                    </Button>
+                    <Button type="button" onClick={handleSaveInspectionVoucher} disabled={isSavingInspectionVoucher || voucherItems.length === 0}>
+                      {isSavingInspectionVoucher ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      حفظ السند
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
           </div>
 
@@ -801,6 +1254,15 @@ export default function PurchasesPage() {
                       سندات الاستلام / GRNs
                       {receivingNotes.length > 0 && (
                         <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px] bg-blue-100 text-blue-700 border-none">{receivingNotes.length}</Badge>
+                      )}
+                    </TabsTrigger>
+                  )}
+                  {shouldShow('purchasesPage.historyGRN') && (
+                    <TabsTrigger value="inspection" className="rounded-lg gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                      <AlertCircle className="h-4 w-4" />
+                      سندات الاستلام والفحص / RIVs
+                      {receiptInspectionVouchers.length > 0 && (
+                        <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px] bg-amber-100 text-amber-700 border-none">{receiptInspectionVouchers.length}</Badge>
                       )}
                     </TabsTrigger>
                   )}
@@ -1000,6 +1462,91 @@ export default function PurchasesPage() {
                                     onClick={() => {
                                       if (confirm("هل أنت متأكد من حذف هذا السند؟")) {
                                         deleteReceivingNote(note.id)
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="inspection">
+                  <div className="overflow-x-auto overflow-y-auto max-h-[600px] relative rounded-md border">
+                    <Table>
+                      <TableHeader className="sticky top-0 bg-white dark:bg-slate-950 z-10 shadow-sm border-b">
+                        <TableRow>
+                          <TableHead className="w-[160px] font-bold">رقم السند</TableHead>
+                          <TableHead className="w-[170px] font-bold">رقم العملية</TableHead>
+                          <TableHead className="min-w-[150px] font-bold">المورد</TableHead>
+                          <TableHead className="text-center font-bold">الحالة</TableHead>
+                          <TableHead className="text-center font-bold">عدد الأصناف</TableHead>
+                          <TableHead className="w-[180px] font-bold">التاريخ</TableHead>
+                          <TableHead className="w-[100px] text-center font-bold">الإجراءات</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {receiptInspectionVouchers.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center py-10 text-muted-foreground italic">
+                              <div className="flex flex-col items-center gap-2">
+                                <span className="text-sm">لا توجد سندات استلام وفحص مسجلة</span>
+                                <span className="text-[10px] uppercase opacity-60">No inspection vouchers recorded yet</span>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          receiptInspectionVouchers.map((voucher) => (
+                            <TableRow key={voucher.id} className="hover:bg-amber-50/40 transition-colors">
+                              <TableCell className="font-bold text-amber-700">{voucher.voucherNumber}</TableCell>
+                              <TableCell className="font-mono text-xs">{voucher.purchaseOperationNumber}</TableCell>
+                              <TableCell className="font-medium">{voucher.supplierName}</TableCell>
+                              <TableCell className="text-center">
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "font-bold border-none",
+                                    voucher.inspectionStatus === "passed" && "bg-green-100 text-green-700",
+                                    voucher.inspectionStatus === "failed" && "bg-red-100 text-red-700",
+                                    voucher.inspectionStatus === "partial" && "bg-amber-100 text-amber-700",
+                                  )}
+                                >
+                                  {voucher.inspectionStatus}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <Badge variant="secondary" className="font-bold">{voucher.items.length}</Badge>
+                              </TableCell>
+                              <TableCell className="text-xs">{formatArabicGregorianDateTime(new Date(voucher.receivedAt || voucher.createdAt))}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center justify-center gap-2">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                                    onClick={() => handlePrintInspectionVoucher(voucher)}
+                                  >
+                                    <Printer className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-red-400 hover:text-red-600 hover:bg-red-50"
+                                    onClick={() => {
+                                      if (confirm("هل أنت متأكد من حذف هذا السند؟")) {
+                                        deleteReceiptInspectionVoucher(voucher.id).catch((error) => {
+                                          toast({
+                                            title: "تعذر الحذف",
+                                            description: error?.message || "حدث خطأ أثناء حذف السند.",
+                                            variant: "destructive",
+                                          })
+                                        })
                                       }
                                     }}
                                   >

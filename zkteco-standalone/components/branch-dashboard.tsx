@@ -274,20 +274,65 @@ export function BranchDashboard() {
     if (cart.length === 0) return []
     return await db.products.where('id').anyOf(cart.map(c => c.productId)).toArray()
   }, [cart]) || []
-  const normalizeBranch = (s: string) => (s || "").toLowerCase().trim()
+  const normalizeBranch = (value: unknown) => String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
 
-  const matchesBranch = (targetId: string, targetName?: string) => {
-    if (!branchId || !branch) return false;
-    // Main match by ID
-    if (targetId === branchId) return true;
-    // Fallback: match by Normalized Name (handles ID mismatch after sync/migration)
-    if (targetName && branch.name && normalizeBranch(targetName) === normalizeBranch(branch.name)) return true;
-    return false;
+  const branchMatchKeys = useMemo(() => {
+    if (!branchId || !branch) return new Set<string>()
+    const keys = [
+      branchId,
+      branch.id,
+      branch.name,
+      branch.username,
+      branch.code,
+      user?.branchId,
+      user?.email,
+      user?.displayName,
+    ]
+      .map(normalizeBranch)
+      .filter(Boolean)
+
+    return new Set(keys)
+  }, [branchId, branch, user])
+
+  const matchesBranch = (targetId?: string, targetName?: string, target?: any) => {
+    if (!branchId || !branch || branchMatchKeys.size === 0) return false
+
+    const candidates = [
+      targetId,
+      targetName,
+      target?.branchId,
+      target?.branchName,
+      target?.branchCode,
+      target?.branchUsername,
+      target?.createdBy,
+      target?.userId,
+      target?.userName,
+    ]
+      .map(normalizeBranch)
+      .filter(Boolean)
+
+    for (const candidate of candidates) {
+      if (branchMatchKeys.has(candidate)) return true
+
+      // Legacy data may contain slightly different branch labels.
+      if (candidate.length >= 5) {
+        for (const key of branchMatchKeys) {
+          if (key.length >= 5 && (candidate.includes(key) || key.includes(candidate))) {
+            return true
+          }
+        }
+      }
+    }
+
+    return false
   }
 
-  const invoices = (allInvoicesData as any[] || []).filter(i => matchesBranch(i.branchId, i.branchName)) as any[]
-  const requests = (allRequests as any[] || []).filter((r) => matchesBranch(r.branchId, r.branchName)) as any[]
-  const issues = (allIssuesData as any[] || []).filter((i) => matchesBranch(i.branchId, i.branchName)) as any[]
+  const invoices = (allInvoicesData as any[] || []).filter(i => matchesBranch(i.branchId, i.branchName, i)) as any[]
+  const requests = (allRequests as any[] || []).filter((r) => matchesBranch(r.branchId, r.branchName, r)) as any[]
+  const issues = (allIssuesData as any[] || []).filter((i) => matchesBranch(i.branchId, i.branchName, i)) as any[]
 
   const displayInvoices = invoices.slice(0, 50)
   const displayRequests = requests

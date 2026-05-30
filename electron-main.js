@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, protocol, net, ipcMain } = require('electron')
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
+const { createRequire } = require('module');
 
 // Register the 'app' protocol
 protocol.registerSchemesAsPrivileged([
@@ -19,14 +20,19 @@ console.log('================================');
 let mainWindow;
 
 function loadZkLib() {
+    const resourcePath = process.resourcesPath || '';
     const candidates = [
-        // Bundled inside the app folder (zklib/ sibling of electron-main.js)
+        // Bundled inside app resources as extraResources
+        path.join(resourcePath, 'node-zklib', 'zklib.js'),
+        path.join(resourcePath, 'node-zklib'),
+        // Bundled in app folder node_modules when included by electron-builder files list
+        path.join(__dirname, 'node_modules', 'node-zklib', 'zklib.js'),
+        path.join(__dirname, 'node_modules', 'node-zklib'),
+        // Legacy local bundle path (kept for backward compatibility)
         path.join(__dirname, 'zklib', 'node-zklib'),
-        // Bundled as extraResources (resources/ level)
-        path.join(process.resourcesPath || '', 'node-zklib'),
-        // Standard node resolution (dev mode)
-        'node-zklib',
     ];
+
+    const appRequire = createRequire(path.join(__dirname, 'package.json'));
 
     let lastError = null;
     for (const candidate of candidates) {
@@ -37,6 +43,13 @@ function loadZkLib() {
         } catch (err) {
             lastError = err;
         }
+    }
+
+    try {
+        // Dev or normal node module resolution from app root.
+        return appRequire('node-zklib');
+    } catch (err) {
+        lastError = err;
     }
 
     throw lastError || new Error('node-zklib module not found');

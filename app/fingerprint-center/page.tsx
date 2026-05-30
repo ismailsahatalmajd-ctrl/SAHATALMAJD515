@@ -2255,7 +2255,6 @@ export default function FingerprintHubPage({ forcedMode = "auto" }: FingerprintH
           <CardContent>
             <Tabs value={activeDataTab} onValueChange={setActiveDataTab} className="space-y-4">
               <TabsList className="flex flex-wrap h-auto gap-2 bg-transparent p-0">
-                <TabsTrigger value="live-adms" className="border bg-blue-50 text-blue-700 font-black">البصمات المباشرة / Live ADMS</TabsTrigger>
                 {!isBranchUser && <TabsTrigger value="all" className="border">الكل / All</TabsTrigger>}
                 {visibleBranches.map((branch) => (
                   <TabsTrigger key={branch.id} value={branch.id} className="border">
@@ -2268,49 +2267,7 @@ export default function FingerprintHubPage({ forcedMode = "auto" }: FingerprintH
                 ))}
               </TabsList>
 
-              <TabsContent value="live-adms" className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-blue-700">آخر 50 بصمة تم استلامها من أجهزة ADMS</h3>
-                  <Badge variant="outline" className="bg-blue-50">تحديث تلقائي / Live</Badge>
-                </div>
-                <div className="border rounded-lg overflow-auto max-h-[600px]">
-                  <table className="w-full text-right border-collapse text-sm">
-                    <thead className="bg-blue-50 sticky top-0 z-10">
-                      <tr>
-                        <th className="p-2 text-xs font-black border-b">الوقت</th>
-                        <th className="p-2 text-xs font-black border-b">اسم الموظف</th>
-                        <th className="p-2 text-xs font-black border-b">الفرع</th>
-                        <th className="p-2 text-xs font-black border-b">الحالة</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {absenceRecords
-                        .filter(r => r.category === 'fingerprint' || String(r.notes || '').includes('ADMS'))
-                        .sort((a, b) => new Date(b.recordTime || 0).getTime() - new Date(a.recordTime || 0).getTime())
-                        .slice(0, 50)
-                        .map((log, idx) => (
-                          <tr key={idx} className="hover:bg-blue-50/30">
-                            <td className="p-2 text-xs font-bold">{log.recordTime}</td>
-                            <td className="p-2 text-xs font-black text-blue-800">{log.employeeName}</td>
-                            <td className="p-2 text-xs">{branches.find(b => b.id === log.branchId)?.name || log.branchId || '-'}</td>
-                            <td className="p-2 text-xs">
-                              <Badge variant="outline" className="text-[10px] h-5 bg-green-50 text-green-700">تم الحفظ</Badge>
-                            </td>
-                          </tr>
-                        ))}
-                      {absenceRecords.filter(r => r.category === 'fingerprint' || String(r.notes || '').includes('ADMS')).length === 0 && (
-                        <tr>
-                          <td colSpan={4} className="p-10 text-center text-muted-foreground italic">
-                            لا توجد بصمات مباشرة مسجلة بعد.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </TabsContent>
-
-              <TabsContent value={activeDataTab === "live-adms" ? "none" : activeDataTab} className="space-y-4">
+              <TabsContent value={activeDataTab} className="space-y-4">
                 {/* ── Filter Bar ── */}
                 <div className="flex flex-wrap items-end gap-3 p-3 bg-muted/40 rounded-lg border">
                   <div className="space-y-1">

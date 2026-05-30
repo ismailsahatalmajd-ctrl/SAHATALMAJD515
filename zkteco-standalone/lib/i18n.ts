@@ -498,6 +498,9 @@ export const dict: Dict = {
   "products.columns.minStockLimit": { ar: "حد المخزون الأدنى", en: "Min Stock Limit" },
   "products.columns.stockStatus": { ar: "حالة المخزون", en: "Stock Status" },
   "products.columns.turnoverRate": { ar: "معدل الدوران", en: "Turnover Rate" },
+  "products.columns.daysUntilStockout": { ar: "المدة المتبقية", en: "Days Remaining" },
+  "products.consumption.refPeriod": { ar: "فترة الاستهلاك المرجعية (أيام)", en: "Consumption Reference Period (days)" },
+  "products.consumption.refPeriodHint": { ar: "عدد الأيام التي تمثل إجمالي المصروفات المسجلة (الافتراضي 30 يوم)", en: "Number of days the total recorded issues represent (default 30 days)" },
   "products.columns.status": { ar: "الحالة", en: "Status" },
   "products.status.outOfStock": { ar: "نفاذ", en: "Out of Stock" },
 
@@ -518,7 +521,6 @@ export const dict: Dict = {
   "common.reset": { ar: "إعادة تعيين", en: "Reset" },
   "common.showAll": { ar: "إظهار الكل", en: "Show All" },
   "common.hideAll": { ar: "إخفاء الكل", en: "Hide All" },
-
   // Image messages
   "products.image.uploadNew": { ar: "اضغط لرفع صورة جديدة", en: "Click to upload a new image" },
   "products.image.unavailable": { ar: "الصورة غير متاحة حالياً", en: "Image currently unavailable" },

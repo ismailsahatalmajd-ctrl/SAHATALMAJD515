@@ -242,6 +242,8 @@ export async function pullAllData() {
       save('branches', db.branches),
       save('transactions', db.transactions),
       save('branchRequests', db.branchRequests),
+      save('branchInvoices', db.branchInvoices),
+      save('issues', db.issues),
       save('product_images', db.productImages)
     ])
     return 1

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useMemo } from "react"
+import { useState, useCallback, useMemo, useEffect } from "react"
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription
 } from "@/components/ui/dialog"
@@ -24,12 +24,32 @@ import {
 import { generateReceivingNotePDF } from "@/lib/receiving-note-pdf-generator"
 import type { ReceivingNote, ReceivingNoteItem, Product } from "@/lib/types"
 
+/** بيانات مُحمّلة من فاتورة شراء لملء سند الاستلام (سند واحد لكل عملية). */
+export type PurchasePresetForGRN = {
+    operationNumber: string
+    supplierName: string
+    supplierInvoiceNumber?: string
+    lines: {
+        productId: string
+        productCode?: string
+        productName: string
+        unit: string
+        quantity: number
+        unitPrice: number
+        totalAmount: number
+        notes?: string
+        image?: string
+    }[]
+}
+
 interface ReceivingNoteDialogProps {
     open: boolean
     onOpenChange: (open: boolean) => void
+    /** إن وُجد — يملأ الجدول من فاتورة الشراء ويربط السند بالعملية */
+    purchasePreset?: PurchasePresetForGRN | null
 }
 
-export function ReceivingNoteDialog({ open, onOpenChange }: ReceivingNoteDialogProps) {
+export function ReceivingNoteDialog({ open, onOpenChange, purchasePreset = null }: ReceivingNoteDialogProps) {
     const { t } = useI18n()
     const [supplierName, setSupplierName] = useState("")
     const [receiverName, setReceiverName] = useState("")
@@ -49,6 +69,36 @@ export function ReceivingNoteDialog({ open, onOpenChange }: ReceivingNoteDialogP
     useMemo(() => {
         if (open) loadProducts()
     }, [open, loadProducts])
+
+    useEffect(() => {
+        if (!open) return
+        if (purchasePreset) {
+            setSupplierName(purchasePreset.supplierName)
+            setReceiverName("")
+            setDriverName("")
+            setSearchQuery("")
+            setItems(
+                purchasePreset.lines.map((line) => ({
+                    id: uuidv4(),
+                    productId: line.productId,
+                    productCode: line.productCode,
+                    productName: line.productName,
+                    unit: line.unit,
+                    quantity: line.quantity,
+                    price: line.unitPrice,
+                    total: line.totalAmount,
+                    notes: line.notes || "",
+                    image: line.image,
+                }))
+            )
+        } else {
+            setSupplierName("")
+            setReceiverName("")
+            setDriverName("")
+            setItems([])
+            setSearchQuery("")
+        }
+    }, [open, purchasePreset])
 
     const filteredProducts = useMemo(() => {
         if (!searchQuery.trim()) return products
@@ -123,6 +173,7 @@ export function ReceivingNoteDialog({ open, onOpenChange }: ReceivingNoteDialogP
                 receiverName,
                 driverName,
                 items,
+                linkedPurchaseOperationNumber: purchasePreset?.operationNumber,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
             }
@@ -141,8 +192,12 @@ export function ReceivingNoteDialog({ open, onOpenChange }: ReceivingNoteDialogP
             setSupplierName("")
             setDriverName("")
             setItems([])
-        } catch (error) {
+        } catch (error: unknown) {
             console.error(error)
+            if (error instanceof Error && error.message === "DUPLICATE_GRN_FOR_PURCHASE") {
+                toast.error("يوجد سند استلام مسجل مسبقاً لهذه الفاتورة / A GRN already exists for this purchase")
+                return
+            }
             toast.error("فشل في الحفظ / Failed to save")
         } finally {
             setIsSubmitting(false)
@@ -160,7 +215,9 @@ export function ReceivingNoteDialog({ open, onOpenChange }: ReceivingNoteDialogP
                                 <span>سند استلام بضاعة (GRN) / Goods Receiving Note</span>
                             </DialogTitle>
                             <DialogDescription className="text-xs text-slate-500 mt-1">
-                                إثبات استلام بضاعة من مورد بدون فاتورة | Receipt proof from supplier without invoice
+                                {purchasePreset
+                                    ? `مرتبط بعملية شراء — سند واحد لهذه الفاتورة | Linked to purchase #${purchasePreset.operationNumber.slice(-8)}${purchasePreset.supplierInvoiceNumber ? ` — Inv: ${purchasePreset.supplierInvoiceNumber}` : ""}`
+                                    : "إثبات استلام بضاعة من مورد | Goods receipt from supplier"}
                             </DialogDescription>
                         </div>
                     </div>

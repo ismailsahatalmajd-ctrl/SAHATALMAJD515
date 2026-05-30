@@ -568,6 +568,7 @@ export default function Home() {
       { key: 'issuesValue', title: 'قيمة المصروفات<br>Issues Value' },
       { key: 'turnoverRate', title: 'معدل الدوران<br>Turnover Rate' },
       { key: 'status', title: 'الحالة<br>Status' },
+      { key: 'notes', title: 'المدة المتبقية<br>Remaining Time' },
       { key: 'lastActivity', title: 'آخر نشاط<br>Last Activity' },
     ]
 

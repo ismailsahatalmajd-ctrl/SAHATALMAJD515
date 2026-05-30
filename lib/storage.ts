@@ -24,7 +24,7 @@ import type {
   PlannedLeave,
   WarehouseLocation,
   WarehouseDesignElement,
-  LabelTemplate
+  ReceiptInspectionVoucher
 } from "./types"
 export type { PurchaseOrder, PurchaseOrderItem }
 import type { BranchInvoice } from './branch-invoice-types'
@@ -58,6 +58,8 @@ import {
   stopRealtimeSync,
   syncReceivingNote,
   deleteAllReceivingNotesApi,
+  syncReceiptInspectionVoucher,
+  deleteAllReceiptInspectionVouchersApi,
   syncEmployee,
   deleteEmployeeApi,
   syncOvertimeReason,
@@ -70,9 +72,7 @@ import {
   deleteWarehouseLocationApi,
   syncWarehouseDesignElement,
   deleteWarehouseDesignElementApi,
-  syncBranchInventoryReport,
-  syncLabelTemplate,
-  deleteLabelTemplateApi
+  syncBranchInventoryReport
 } from './firebase-sync-engine'
 
 // Monthly Closing
@@ -139,6 +139,7 @@ export function clearAppCache() {
       branchRequestDrafts: [],
       purchaseRequests: [],
       receivingNotes: [],
+      receiptInspectionVouchers: [],
       suppliers: [],
       employees: [],
       overtimeReasons: [],
@@ -229,6 +230,9 @@ export async function factoryReset() {
       db.branchRequests.clear(),
       db.branchRequestDrafts.clear(),
       db.purchaseRequests.clear(),
+      db.receivingNotes.clear(),
+      db.suppliers.clear(),
+      db.receiptInspectionVouchers.clear(),
       // db.settings.clear(),
       db.auditLogs.clear(),
       db.notifications.clear(),
@@ -241,8 +245,7 @@ export async function factoryReset() {
       db.overtimeReasons.clear(),
       db.overtimeEntries.clear(),
       db.absenceRecords.clear(),
-      db.warehouseLocations.clear(),
-      db.labelTemplates.clear()
+      db.warehouseLocations.clear()
     ])
 
     // 2. Clear Local Cache in Memory
@@ -257,22 +260,24 @@ export async function factoryReset() {
       locations: [],
       issueDrafts: [],
       purchaseOrders: [],
+      adjustments: [],
       verificationLogs: [],
-      inventoryAdjustments: [],
       branchInvoices: [],
       branchRequests: [],
       branchRequestDrafts: [],
       purchaseRequests: [],
-      notifications: [],
-      productImages: [],
-      changeLogs: [],
+      receivingNotes: [],
+      receiptInspectionVouchers: [],
       suppliers: [],
       employees: [],
       overtimeReasons: [],
       overtimeEntries: [],
       absenceRecords: [],
+      plannedLeaves: [],
       warehouseLocations: [],
-    } as any
+      warehouseDesignElements: [],
+      labelTemplates: [],
+    }
 
     notify('products_change')
     notify('categories_change')
@@ -535,14 +540,6 @@ export async function updateProduct(id: string, updates: Partial<Product>): Prom
 
       if (ledgerFieldChanged) {
         updated.currentStock = (Number(updated.openingStock) || 0) + (Number(updated.purchases) || 0) + (Number(updated.returns) || 0) + (Number(updated.adjustments) || 0) - (Number(updated.issues) || 0)
-      }
-
-      // Recalculate currentStockValue when price or any ledger field changes
-      const priceChanged = updates.price !== undefined && Number(updates.price) !== Number(originalProduct.price || 0)
-      if (ledgerFieldChanged || priceChanged) {
-        const stock = Number(updated.currentStock) || 0
-        const price = Number(updated.averagePrice) || Number(updated.price) || 0
-        updated.currentStockValue = stock * price
       }
 
       products[index] = updated;
@@ -1882,71 +1879,6 @@ export function deleteIssueDraft(id: string) {
   db.issueDrafts.delete(id)
 }
 
-export function getLabelTemplates(): LabelTemplate[] {
-  return [...(store.cache.labelTemplates || [])].sort((a, b) =>
-    String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")),
-  )
-}
-
-export async function addLabelTemplate(
-  template: Omit<LabelTemplate, "id" | "createdAt" | "updatedAt">,
-): Promise<LabelTemplate> {
-  const now = new Date().toISOString()
-  const newTemplate: LabelTemplate = {
-    ...template,
-    id: generateId(),
-    createdAt: now,
-    updatedAt: now,
-  }
-
-  store.cache.labelTemplates = [...(store.cache.labelTemplates || []), newTemplate]
-  await db.labelTemplates.put(newTemplate)
-
-  if (typeof window !== 'undefined') {
-    syncLabelTemplate(newTemplate).catch(console.error)
-  }
-
-  notify('label_templates_change')
-  return newTemplate
-}
-
-export async function updateLabelTemplate(
-  id: string,
-  updates: Partial<Omit<LabelTemplate, "id" | "createdAt">>,
-): Promise<LabelTemplate | null> {
-  const existing = (store.cache.labelTemplates || []).find((t) => t.id === id)
-  if (!existing) return null
-
-  const next: LabelTemplate = {
-    ...existing,
-    ...updates,
-    id: existing.id,
-    createdAt: existing.createdAt,
-    updatedAt: new Date().toISOString(),
-  }
-
-  store.cache.labelTemplates = (store.cache.labelTemplates || []).map((t) => (t.id === id ? next : t))
-  await db.labelTemplates.put(next)
-
-  if (typeof window !== 'undefined') {
-    syncLabelTemplate(next).catch(console.error)
-  }
-
-  notify('label_templates_change')
-  return next
-}
-
-export async function deleteLabelTemplate(id: string): Promise<void> {
-  store.cache.labelTemplates = (store.cache.labelTemplates || []).filter((t) => t.id !== id)
-  await db.labelTemplates.delete(id)
-
-  if (typeof window !== 'undefined') {
-    deleteLabelTemplateApi(id).catch(console.error)
-  }
-
-  notify('label_templates_change')
-}
-
 const ACTIVE_DRAFT_KEY = 'active_issue_draft_id'
 export function getActiveIssueDraftId(): string | null {
   if (typeof window === 'undefined') return null
@@ -2454,4 +2386,50 @@ export async function saveWarehouseLayout(warehouseId: string, elements: any[]) 
     })
   }
   notify('warehouse_design_change' as any)
+}
+
+// Receipt Inspection Vouchers (RIV)
+export function getReceiptInspectionVouchers(): ReceiptInspectionVoucher[] {
+  return store.cache.receiptInspectionVouchers || []
+}
+
+export async function saveReceiptInspectionVoucher(voucher: ReceiptInspectionVoucher): Promise<void> {
+  const vouchers = getReceiptInspectionVouchers()
+  const idx = vouchers.findIndex(v => v.id === voucher.id)
+  if (idx >= 0) {
+    vouchers[idx] = voucher
+  } else {
+    vouchers.push(voucher)
+  }
+  store.cache.receiptInspectionVouchers = vouchers
+
+  // Local Save
+  await db.receiptInspectionVouchers.put(voucher)
+
+  // Cloud Sync (Best effort)
+  await syncReceiptInspectionVoucher(voucher).catch(console.error)
+
+  notify("receipt_inspection_vouchers_change" as any)
+}
+
+export async function deleteReceiptInspectionVoucher(id: string): Promise<void> {
+  const vouchers = getReceiptInspectionVouchers()
+  store.cache.receiptInspectionVouchers = vouchers.filter(v => v.id !== id)
+
+  // Local delete
+  await db.receiptInspectionVouchers.delete(id)
+
+  // Cloud delete (Best effort)
+  await deleteAllReceiptInspectionVouchersApi([id]).catch(console.error)
+
+  notify("receipt_inspection_vouchers_change" as any)
+}
+
+export function generateReceiptInspectionVoucherNumber(): string {
+  const vouchers = getReceiptInspectionVouchers()
+  const now = new Date()
+  const year = now.getFullYear()
+  const yearStr = year.toString()
+  const count = vouchers.filter(v => v.createdAt && v.createdAt.startsWith(yearStr)).length + 1
+  return `RIV-${year}-${count.toString().padStart(4, '0')}`
 }

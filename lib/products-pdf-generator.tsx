@@ -45,6 +45,7 @@ const BILINGUAL_HEADERS: Record<string, string> = {
   adjustmentsValue: "Adj Value / قيمة التسويات",
   turnoverRate: "Turnover / معدل الدوران",
   status: "Status / الحالة",
+  remainingTime: "Remaining Time / المدة المتبقية", // Added missing
   stockStatus: "Stock Status / حالة المخزون", // Added missing
   lastActivity: "Last Activity / آخر نشاط",
 }
@@ -71,7 +72,7 @@ export async function generateProductsPDF({ products, visibleColumns, columnLabe
   const order = [
     'image', 'productCode', 'itemNumber', 'productName', 'location', 'category', 'unit', 'cartonDimensions',
     'openingStock', 'purchases', 'issues', 'returns', 'adjustments', 'inventoryCount', 'currentStock', 'difference',
-    'price', 'averagePrice', 'currentStockValue', 'purchasesValue', 'issuesValue', 'returnsValue', 'adjustmentsValue', 'turnoverRate', 'status', 'stockStatus', 'lastActivity'
+    'price', 'averagePrice', 'currentStockValue', 'purchasesValue', 'issuesValue', 'returnsValue', 'adjustmentsValue', 'turnoverRate', 'status', 'stockStatus', 'remainingTime', 'lastActivity'
   ]
 
   // Get columns for current view

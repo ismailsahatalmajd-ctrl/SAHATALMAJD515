@@ -33,6 +33,7 @@ export function Header() {
 
   const allLinks = [
     { href: "/", key: "nav.products", label: t("nav.products"), icon: Package },
+    { href: "/purchases-issues-analysis", key: "nav.analysis", label: "تحليل المشتريات والمصروفات", icon: BarChart3 },
     { href: "/purchases", key: "nav.purchases", label: t("nav.purchases"), icon: ShoppingCart },
     { href: "/issues", key: "nav.issues", label: t("nav.issues"), icon: Receipt },
     { href: "/returns", key: "nav.returns", label: t("nav.returns"), icon: Receipt },

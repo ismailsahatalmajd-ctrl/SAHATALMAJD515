@@ -24,7 +24,8 @@ import type {
   PlannedLeave,
   WarehouseLocation,
   WarehouseDesignElement,
-  ReceiptInspectionVoucher
+  ReceiptInspectionVoucher,
+  LabelTemplate
 } from "./types"
 export type { PurchaseOrder, PurchaseOrderItem }
 import type { BranchInvoice } from './branch-invoice-types'
@@ -72,7 +73,9 @@ import {
   deleteWarehouseLocationApi,
   syncWarehouseDesignElement,
   deleteWarehouseDesignElementApi,
-  syncBranchInventoryReport
+  syncBranchInventoryReport,
+  syncLabelTemplate,
+  deleteLabelTemplateApi
 } from './firebase-sync-engine'
 
 // Monthly Closing
@@ -245,7 +248,8 @@ export async function factoryReset() {
       db.overtimeReasons.clear(),
       db.overtimeEntries.clear(),
       db.absenceRecords.clear(),
-      db.warehouseLocations.clear()
+      db.warehouseLocations.clear(),
+      db.labelTemplates.clear()
     ])
 
     // 2. Clear Local Cache in Memory
@@ -1877,6 +1881,71 @@ export function upsertIssueDraft(draft: IssueDraft): IssueDraft {
 export function deleteIssueDraft(id: string) {
   store.cache.issueDrafts = store.cache.issueDrafts.filter(d => d.id !== id)
   db.issueDrafts.delete(id)
+}
+
+export function getLabelTemplates(): LabelTemplate[] {
+  return [...(store.cache.labelTemplates || [])].sort((a, b) =>
+    String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")),
+  )
+}
+
+export async function addLabelTemplate(
+  template: Omit<LabelTemplate, "id" | "createdAt" | "updatedAt">,
+): Promise<LabelTemplate> {
+  const now = new Date().toISOString()
+  const newTemplate: LabelTemplate = {
+    ...template,
+    id: generateId(),
+    createdAt: now,
+    updatedAt: now,
+  }
+
+  store.cache.labelTemplates = [...(store.cache.labelTemplates || []), newTemplate]
+  await db.labelTemplates.put(newTemplate)
+
+  if (typeof window !== 'undefined') {
+    syncLabelTemplate(newTemplate).catch(console.error)
+  }
+
+  notify('label_templates_change')
+  return newTemplate
+}
+
+export async function updateLabelTemplate(
+  id: string,
+  updates: Partial<Omit<LabelTemplate, "id" | "createdAt">>,
+): Promise<LabelTemplate | null> {
+  const existing = (store.cache.labelTemplates || []).find((t) => t.id === id)
+  if (!existing) return null
+
+  const next: LabelTemplate = {
+    ...existing,
+    ...updates,
+    id: existing.id,
+    createdAt: existing.createdAt,
+    updatedAt: new Date().toISOString(),
+  }
+
+  store.cache.labelTemplates = (store.cache.labelTemplates || []).map((t) => (t.id === id ? next : t))
+  await db.labelTemplates.put(next)
+
+  if (typeof window !== 'undefined') {
+    syncLabelTemplate(next).catch(console.error)
+  }
+
+  notify('label_templates_change')
+  return next
+}
+
+export async function deleteLabelTemplate(id: string): Promise<void> {
+  store.cache.labelTemplates = (store.cache.labelTemplates || []).filter((t) => t.id !== id)
+  await db.labelTemplates.delete(id)
+
+  if (typeof window !== 'undefined') {
+    deleteLabelTemplateApi(id).catch(console.error)
+  }
+
+  notify('label_templates_change')
 }
 
 const ACTIVE_DRAFT_KEY = 'active_issue_draft_id'

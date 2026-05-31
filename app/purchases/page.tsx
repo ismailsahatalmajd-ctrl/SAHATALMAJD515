@@ -853,7 +853,7 @@ export default function PurchasesPage() {
                         ) : (
                           products
                             .filter(p => {
-                              const matchesSearch = p.productName.toLowerCase().includes(dialogSearch.toLowerCase()) || p.productCode.toLowerCase().includes(dialogSearch.toLowerCase())
+                              const matchesSearch = (p.productName || '').toLowerCase().includes((dialogSearch || '').toLowerCase()) || (p.productCode || '').toLowerCase().includes((dialogSearch || '').toLowerCase())
                               const matchesLoc = selectedLocations.length === 0 || (p.location && selectedLocations.includes(p.location))
                               const stock = Number(p.currentStock ?? 0)
                               const isOutOfStock = stock <= 0

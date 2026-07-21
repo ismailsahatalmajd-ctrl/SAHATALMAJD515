@@ -77,7 +77,8 @@ async function performFirebaseOp(collectionName: string, op: 'upsert' | 'delete'
       'branch_requests': 'branchRequests',
       'branch_invoices': 'branchInvoices',
       'inventory_adjustments': 'inventoryAdjustments',
-      'adjustments': 'inventoryAdjustments'
+      'adjustments': 'inventoryAdjustments',
+      'assetInvoices': 'assetRequestInvoices'
     }
     const targetCollection = map[collectionName] || collectionName
 
@@ -214,6 +215,44 @@ export async function syncBranchInvoice(inv: BranchInvoice) {
   return performFirebaseOp('branchInvoices', 'upsert', inv)
 }
 
+// --- Assets & Materials ---
+export async function syncAssetItem(item: any) {
+  return performFirebaseOp('assetItems', 'upsert', item)
+}
+export async function deleteAssetItemApi(id: string) {
+  return performFirebaseOp('assetItems', 'delete', { id })
+}
+export async function syncAssetSerialNumber(serial: any) {
+  return performFirebaseOp('assetSerialNumbers', 'upsert', serial)
+}
+export async function deleteAssetSerialNumberApi(id: string) {
+  return performFirebaseOp('assetSerialNumbers', 'delete', { id })
+}
+export async function syncAssetInvoice(invoice: any) {
+  return performFirebaseOp('assetRequestInvoices', 'upsert', invoice)
+}
+export async function deleteAssetInvoiceApi(id: string) {
+  return performFirebaseOp('assetRequestInvoices', 'delete', { id })
+}
+export async function syncAssetPurchaseOrder(order: any) {
+  return performFirebaseOp('assetPurchaseOrders', 'upsert', order)
+}
+export async function syncAssetPriceHistory(record: any) {
+  return performFirebaseOp('assetPriceHistory', 'upsert', record)
+}
+export async function syncAssetSupplier(supplier: any) {
+  return performFirebaseOp('assetSuppliers', 'upsert', supplier)
+}
+export async function deleteAssetSupplierApi(id: string) {
+  return performFirebaseOp('assetSuppliers', 'delete', { id })
+}
+export async function syncAssetSupplierReturn(ret: any) {
+  return performFirebaseOp('assetSupplierReturns', 'upsert', ret)
+}
+export async function syncAssetBranchReturn(ret: any) {
+  return performFirebaseOp('assetBranchReturns', 'upsert', ret)
+}
+
 // --- Bulk Operations ---
 
 export async function pushAllData() {
@@ -244,7 +283,10 @@ export async function pullAllData() {
       save('branchRequests', db.branchRequests),
       save('branchInvoices', db.branchInvoices),
       save('issues', db.issues),
-      save('product_images', db.productImages)
+      save('product_images', db.productImages),
+      save('assetItems', db.assetItems),
+      save('assetSerialNumbers', db.assetSerialNumbers),
+      save('assetInvoices', db.assetInvoices)
     ])
     return 1
   } catch (e) {

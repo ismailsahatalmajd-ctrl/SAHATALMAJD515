@@ -14,6 +14,7 @@ import type {
   PurchaseOrderItem,
   VerificationLog,
   ReceivingNote,
+  DeliveryNote,
   Supplier,
   ReceivingNoteItem,
   AuditLogEntry,
@@ -59,6 +60,8 @@ import {
   stopRealtimeSync,
   syncReceivingNote,
   deleteAllReceivingNotesApi,
+  syncDeliveryNote,
+  deleteAllDeliveryNotesApi,
   syncReceiptInspectionVoucher,
   deleteAllReceiptInspectionVouchersApi,
   syncEmployee,
@@ -234,6 +237,7 @@ export async function factoryReset() {
       db.branchRequestDrafts.clear(),
       db.purchaseRequests.clear(),
       db.receivingNotes.clear(),
+      db.deliveryNotes.clear(),
       db.suppliers.clear(),
       db.receiptInspectionVouchers.clear(),
       // db.settings.clear(),
@@ -271,6 +275,7 @@ export async function factoryReset() {
       branchRequestDrafts: [],
       purchaseRequests: [],
       receivingNotes: [],
+      deliveryNotes: [],
       receiptInspectionVouchers: [],
       suppliers: [],
       employees: [],
@@ -2155,6 +2160,53 @@ export function generateReceivingNoteNumber(): string {
   const count = notes.filter(n => n.createdAt && n.createdAt.startsWith(yearStr)).length + 1
   return `GRN-${year}-${count.toString().padStart(4, '0')}`
 }
+
+// Goods Delivery Notes (GDN)
+export function getDeliveryNotes(): DeliveryNote[] {
+  return store.cache.deliveryNotes || []
+}
+
+export async function saveDeliveryNote(note: DeliveryNote): Promise<void> {
+  const notes = getDeliveryNotes()
+  const idx = notes.findIndex(n => n.id === note.id)
+  if (idx >= 0) {
+    notes[idx] = note
+  } else {
+    notes.push(note)
+  }
+  store.cache.deliveryNotes = notes
+
+  // Local Save
+  await db.deliveryNotes.put(note)
+
+  // Cloud Sync (Best effort)
+  await syncDeliveryNote(note).catch(console.error)
+
+  notify("delivery_notes_change" as any)
+}
+
+export async function deleteDeliveryNote(id: string): Promise<void> {
+  const notes = getDeliveryNotes()
+  store.cache.deliveryNotes = notes.filter(n => n.id !== id)
+
+  // Local delete
+  await db.deliveryNotes.delete(id)
+
+  // Cloud delete (Best effort)
+  await deleteAllDeliveryNotesApi([id]).catch(console.error)
+
+  notify("delivery_notes_change" as any)
+}
+
+export function generateDeliveryNoteNumber(): string {
+  const notes = getDeliveryNotes()
+  const now = new Date()
+  const year = now.getFullYear()
+  const yearStr = year.toString()
+  const count = notes.filter(n => n.createdAt && n.createdAt.startsWith(yearStr)).length + 1
+  return `GDN-${year}-${count.toString().padStart(4, '0')}`
+}
+
 
 // Suppliers
 export function getSuppliers(): Supplier[] {

@@ -69,6 +69,7 @@ function updateStoreCache(table: string, record: any) {
         'inventoryAdjustments': 'adjustments',
         'purchaseRequests': 'purchaseRequests',
         'receivingNotes': 'receivingNotes',
+        'deliveryNotes': 'deliveryNotes',
         'employees': 'employees',
         'overtimeReasons': 'overtimeReasons',
         'overtimeEntries': 'overtimeEntries',
@@ -99,6 +100,7 @@ function updateStoreCache(table: string, record: any) {
         'branchRequests': 'branch_requests_change',
         'branchInvoices': 'branch_invoices_change',
         'receivingNotes': 'receiving_notes_change' as any,
+        'deliveryNotes': 'delivery_notes_change' as any,
         'employees': 'employees_change' as any,
         'overtimeReasons': 'overtime_reasons_change' as any,
         'overtimeEntries': 'overtime_entries_change' as any,
@@ -128,7 +130,8 @@ function removeFromStoreCache(table: string, id: string) {
         'overtimeReasons': 'overtimeReasons',
         'overtimeEntries': 'overtimeEntries',
         'absenceRecords': 'absenceRecords',
-        'labelTemplates': 'labelTemplates'
+        'labelTemplates': 'labelTemplates',
+        'deliveryNotes': 'deliveryNotes'
     }
 
     const key = map[table]
@@ -162,6 +165,9 @@ export const COLLECTIONS = {
     CONSUMPTION_RECORDS: 'consumptionRecords',
     BRANCH_ASSETS: 'branchAssets',
     MAINTENANCE_REPORTS: 'maintenanceReports',
+    ASSET_ITEMS: 'assetItems',
+    ASSET_SERIAL_NUMBERS: 'assetSerialNumbers',
+    ASSET_INVOICES: 'assetRequestInvoices',
     ASSET_REQUESTS: 'assetRequests',
     ASSET_STATUS_REPORTS: 'assetStatusReports',
     AUDIT_LOGS: 'auditLogs',
@@ -175,7 +181,9 @@ export const COLLECTIONS = {
     WAREHOUSE_DESIGN: 'warehouseDesignElements',
     GRANULAR_PERMISSIONS: 'granularPermissions',
     BRANCH_NOTES: 'branchNotes',
-    BRANCH_INVENTORY_REPORTS: 'branch_inventory_reports'
+    BRANCH_INVENTORY_REPORTS: 'branch_inventory_reports',
+    STOCK_LEDGER: 'stockLedger',
+    DELIVERY_NOTES: 'delivery_notes'
 };
 
 const notifyGranularUpdate = (userId: string) => {
@@ -319,6 +327,7 @@ export const startRealtimeSync = () => {
         unsubscribers.push(syncCollection(COLLECTIONS.GRANULAR_PERMISSIONS, localDb.userPreferences as any, "granular_permissions_updated"));
         unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_NOTES, localDb.branchNotes, "branch_notes_change" as any));
         unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_INVENTORY_REPORTS, localDb.branchInventoryReports, "branch_inventory_reports_change" as any));
+        unsubscribers.push(syncCollection(COLLECTIONS.BRANCHES, localDb.branches, "branches_change"));
 
         // --- 2. Fetch-once Collections (Optimization: only on startup) ---
         // These don't change often enough to warrant a constant background CPU connection
@@ -337,7 +346,6 @@ export const startRealtimeSync = () => {
                 };
                 await Promise.all([
                     fetchTable(COLLECTIONS.CATEGORIES, localDb.categories, "categories_change"),
-                    fetchTable(COLLECTIONS.BRANCHES, localDb.branches, "branches_change"),
                     fetchTable(COLLECTIONS.UNITS, localDb.units, "change"),
                     fetchTable(COLLECTIONS.LOCATIONS, localDb.locations, "change"),
                     fetchTable(COLLECTIONS.ADJUSTMENTS, localDb.inventoryAdjustments, "change"),
@@ -355,7 +363,12 @@ export const startRealtimeSync = () => {
         // Branch Inventory System Sync - Keep critical ones real-time
         unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_INVENTORY, localDb.branchInventory, "change"));
         unsubscribers.push(syncCollection(COLLECTIONS.CONSUMPTION_RECORDS, localDb.consumptionRecords, "change"));
-        unsubscribers.push(syncCollection(COLLECTIONS.ASSET_REQUESTS, localDb.assetRequests, "change"));
+        unsubscribers.push(syncCollection(COLLECTIONS.ASSET_ITEMS, localDb.assetItems, 'asset_items_change'));
+        unsubscribers.push(syncCollection(COLLECTIONS.ASSET_ITEMS, localDb.assetItems, 'asset_items_change'));
+        unsubscribers.push(syncCollection(COLLECTIONS.ASSET_SERIAL_NUMBERS, localDb.assetSerialNumbers, 'asset_serial_numbers_change'));
+        unsubscribers.push(syncCollection(COLLECTIONS.ASSET_INVOICES, localDb.assetRequestInvoices, 'asset_invoices_change'));
+        unsubscribers.push(syncCollection(COLLECTIONS.ASSET_REQUESTS, localDb.assetRequests, 'change'));
+        unsubscribers.push(syncCollection(COLLECTIONS.STOCK_LEDGER, localDb.stockLedger, "change"));
 
     } catch (e) {
         console.error("Error starting sync:", e);
@@ -710,6 +723,32 @@ export const syncAllCloudToLocal = async (onProgress: (msg: string) => void) => 
             notify("issues_change");
         }
 
+        // 6. Asset Items
+        onProgress("جاري تحميل الأصول والمواد...");
+        const qAssets = query(collection(firestore, COLLECTIONS.ASSET_ITEMS));
+        const snapAssets = await getDocs(qAssets);
+        if (snapAssets.size > 0) {
+            const assets = snapAssets.docs.map(d => ({ ...d.data(), id: d.id }));
+            await localDb.assetItems.bulkPut(assets);
+            notify("asset_items_change");
+        }
+
+        // 7. Asset Invoices
+        const qAssetInvoices = query(collection(firestore, COLLECTIONS.ASSET_INVOICES));
+        const snapAssetInvoices = await getDocs(qAssetInvoices);
+        if (snapAssetInvoices.size > 0) {
+            const assetInvoices = snapAssetInvoices.docs.map(d => ({ ...d.data(), id: d.id }));
+            await localDb.assetInvoices.bulkPut(assetInvoices);
+        }
+
+        // 8. Asset Serial Numbers
+        const qAssetSerials = query(collection(firestore, COLLECTIONS.ASSET_SERIAL_NUMBERS));
+        const snapAssetSerials = await getDocs(qAssetSerials);
+        if (snapAssetSerials.size > 0) {
+            const assetSerials = snapAssetSerials.docs.map(d => ({ ...d.data(), id: d.id }));
+            await localDb.assetSerialNumbers.bulkPut(assetSerials);
+        }
+
         onProgress(`✅ تم التحميل بنجاح`);
         notify("products_change");
         notify("change");
@@ -766,6 +805,7 @@ export const deleteAssetRequest = (id: string) => deleteRecord(COLLECTIONS.ASSET
 export const syncBranchInventoryReport = (r: any) => syncRecord(COLLECTIONS.BRANCH_INVENTORY_REPORTS, r);
 export const syncLabelTemplate = (r: any) => syncRecord(COLLECTIONS.LABEL_TEMPLATES, r);
 export const deleteLabelTemplateApi = (id: string) => deleteRecord(COLLECTIONS.LABEL_TEMPLATES, id);
+export const syncStockLedger = (r: any) => syncRecord(COLLECTIONS.STOCK_LEDGER, r);
 
 export const pullAllDataFromFirebase = async () => {
     await syncAllCloudToLocal(() => { });
@@ -928,6 +968,19 @@ export async function syncReceivingNote(note: any) {
     }
 }
 
+export async function syncDeliveryNote(note: any) {
+    if (!firestore) return;
+    try {
+        await setDoc(doc(firestore, "delivery_notes", note.id), {
+            ...note,
+            updatedAt: new Date().toISOString()
+        }, { merge: true });
+    } catch (e) {
+        console.error("DeliveryNote Sync Error:", e);
+        throw e;
+    }
+}
+
 export async function syncReceiptInspectionVoucher(voucher: any) {
     if (!firestore) return;
     try {
@@ -955,6 +1008,20 @@ export async function deleteAllReceivingNotesApi(ids: string[]) {
         await batch.commit();
     } catch (e) {
         console.error("ReceivingNotes Batch Delete Error:", e);
+        throw e;
+    }
+}
+
+export async function deleteAllDeliveryNotesApi(ids: string[]) {
+    if (!firestore) return;
+    try {
+        const batch = writeBatch(firestore);
+        ids.forEach(id => {
+            batch.delete(doc(firestore, "delivery_notes", id));
+        });
+        await batch.commit();
+    } catch (e) {
+        console.error("DeliveryNotes Batch Delete Error:", e);
         throw e;
     }
 }

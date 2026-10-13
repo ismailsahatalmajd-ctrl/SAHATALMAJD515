@@ -1,7 +1,7 @@
-import { db as firestore, storage } from "./firebase";
+import { auth, db as firestore } from "./firebase";
 import { db as localDb } from "./db";
 import { collection, onSnapshot, doc, writeBatch, getDoc, setDoc, deleteDoc, query, where, getDocs, Timestamp, updateDoc } from "firebase/firestore";
-import { ref, uploadString, getDownloadURL } from "firebase/storage";
+
 import { Product, Transaction, WarehouseDesignElement } from "./types";
 import { notify } from "./events";
 import { store } from "./data-store";
@@ -293,6 +293,10 @@ const syncCollection = (
 // 1. Listen for Cloud Changes (Cloud -> Local)
 export const startRealtimeSync = () => {
     if (isSyncing) return;
+    if (!auth.currentUser) {
+        console.debug("[Sync] Waiting for Firebase authentication before starting sync.");
+        return;
+    }
     isSyncing = true;
     console.log("🔥 Starting Firebase Realtime Sync...");
 
@@ -435,22 +439,56 @@ export const syncProductToCloud = async (product: Product) => {
     }
 };
 
+const MAX_FIRESTORE_IMAGE_CHARS = 700_000;
+
+async function compactImageForFirestore(data: string): Promise<string> {
+    if (!data.startsWith('data:image/')) throw new Error('Product image must be a Base64 data URL');
+    if (data.length <= MAX_FIRESTORE_IMAGE_CHARS) return data;
+
+    const blob = await (await fetch(data)).blob();
+    const bitmap = await createImageBitmap(blob);
+    try {
+        let scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
+        for (let attempt = 0; attempt < 8; attempt++) {
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+            canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+            const context = canvas.getContext('2d');
+            if (!context) throw new Error('Could not prepare image for cloud storage');
+            context.fillStyle = '#fff';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            for (const quality of [0.82, 0.68, 0.54]) {
+                const compressed = canvas.toDataURL('image/jpeg', quality);
+                if (compressed.length <= MAX_FIRESTORE_IMAGE_CHARS) return compressed;
+            }
+            scale *= 0.75;
+        }
+    } finally {
+        bitmap.close();
+    }
+    throw new Error('Product image is too large to save in Firestore, even after compression');
+}
+
 export const syncProductImageToCloud = async (productId: string, data: string) => {
     if (!productId || !data) return false;
+    let queuedImageData = data;
     try {
         checkQuota();
 
-        // 1. Upload to Firebase Storage
-        const storageRef = ref(storage, `product-images/${productId}`);
-        await uploadString(storageRef, data, 'data_url');
-
-        // 2. Get Download URL
-        const downloadURL = await getDownloadURL(storageRef);
-        console.log("☁️ Uploaded image to Storage:", downloadURL);
-
-        // 3. Update Product Document with URL
-        const productRef = doc(firestore, COLLECTIONS.PRODUCTS, productId);
-        await setDoc(productRef, { image: downloadURL, lastSyncedAt: Timestamp.now() }, { merge: true });
+        const imageData = await compactImageForFirestore(data);
+        queuedImageData = imageData;
+        const batch = writeBatch(firestore);
+        batch.set(doc(firestore, COLLECTIONS.PRODUCT_IMAGES, productId), {
+            productId,
+            data: imageData,
+            updatedAt: Timestamp.now(),
+        });
+        batch.set(doc(firestore, COLLECTIONS.PRODUCTS, productId), {
+            image: 'DB_IMAGE',
+            lastSyncedAt: Timestamp.now(),
+        }, { merge: true });
+        await batch.commit();
 
         return true;
     } catch (e: any) {
@@ -462,9 +500,31 @@ export const syncProductImageToCloud = async (productId: string, data: string) =
             console.warn(`[Sync] Push failed for image ${productId}, queueing.`, e);
         }
         // Fallback: Queue for retry (might need better handling for persistent failures)
-        await enqueue(COLLECTIONS.PRODUCT_IMAGES, 'upsert', { productId, data });
+        await enqueue(COLLECTIONS.PRODUCT_IMAGES, 'upsert', { productId, data: queuedImageData });
         return false;
     }
+};
+
+export const getProductImageFromCloud = async (productId: string): Promise<string | null> => {
+    if (!productId) return null;
+    try {
+        const imageSnapshot = await getDoc(doc(firestore, COLLECTIONS.PRODUCT_IMAGES, productId));
+        const imageData = imageSnapshot.data()?.data;
+        if (typeof imageData === 'string' && imageData.startsWith('data:image/')) {
+            return imageData;
+        }
+    } catch (error) {
+        console.warn(`[Sync] Could not read Base64 image for ${productId}`, error);
+    }
+
+    try {
+        const productSnapshot = await getDoc(doc(firestore, COLLECTIONS.PRODUCTS, productId));
+        const legacyImage = productSnapshot.data()?.image;
+        if (typeof legacyImage === 'string' && /^https?:\/\//i.test(legacyImage)) return legacyImage;
+    } catch (error) {
+        console.warn(`[Sync] Could not read legacy image for ${productId}`, error);
+    }
+    return null;
 };
 
 export const deleteProductImageFromCloud = async (productId: string) => {
@@ -883,7 +943,7 @@ export const syncProductsBatch = async (products: Product[]) => {
 export const syncProductImagesBatch = async (images: { productId: string, data: string }[]) => {
     if (!images.length) return
     checkQuota()
-    console.log(`☁️ Batch Syncing ${images.length} images to STORAGE...`)
+    console.log(`☁️ Batch Syncing ${images.length} Base64 images to Firestore...`)
 
     const BATCH_SIZE = 5 // Keep small for parallel uploads
     for (let i = 0; i < images.length; i += BATCH_SIZE) {
@@ -895,38 +955,25 @@ export const syncProductImagesBatch = async (images: { productId: string, data: 
 
         while (attempts < 3 && !committed) {
             try {
-                // 1. Upload images to Storage in parallel
-                const uploadPromises = chunk.map(async (img) => {
-                    if (!img.productId || !img.data) return null;
-                    try {
-                        const storageRef = ref(storage, `product-images/${img.productId}`);
-                        await uploadString(storageRef, img.data, 'data_url');
-                        const url = await getDownloadURL(storageRef);
-                        return { productId: img.productId, url };
-                    } catch (err) {
-                        console.error(`Failed to upload image for ${img.productId}`, err);
-                        return null;
-                    }
-                });
-
-                const uploadedImages = await Promise.all(uploadPromises);
-
-                // 2. Update Products in Firestore with the new URLs
+                const compactedImages = await Promise.all(chunk.map(async image => ({
+                    ...image,
+                    data: await compactImageForFirestore(image.data),
+                })));
                 const batch = writeBatch(firestore);
-                let updatesCount = 0;
-
-                uploadedImages.forEach(item => {
-                    if (item && item.url) {
-                        const productRef = doc(firestore, COLLECTIONS.PRODUCTS, item.productId);
-                        batch.set(productRef, { image: item.url, lastSyncedAt: Timestamp.now() }, { merge: true });
-                        updatesCount++;
-                    }
+                compactedImages.forEach(image => {
+                    batch.set(doc(firestore, COLLECTIONS.PRODUCT_IMAGES, image.productId), {
+                        productId: image.productId,
+                        data: image.data,
+                        updatedAt: Timestamp.now(),
+                    });
+                    batch.set(doc(firestore, COLLECTIONS.PRODUCTS, image.productId), {
+                        image: 'DB_IMAGE',
+                        lastSyncedAt: Timestamp.now(),
+                    }, { merge: true });
                 });
 
-                if (updatesCount > 0) {
-                    await batch.commit();
-                    console.log(`☁️ Synced ${updatesCount} image URLs to Firestore products (Batch ${i})`);
-                }
+                await batch.commit();
+                console.log(`☁️ Synced ${compactedImages.length} Base64 images (Batch ${i})`);
 
                 committed = true
                 await new Promise(r => setTimeout(r, 2000))

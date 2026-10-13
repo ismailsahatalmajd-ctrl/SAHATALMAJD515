@@ -392,10 +392,8 @@ export default function OdooTransfersPage() {
     }
 
     useEffect(() => {
-        if (!authLoading && user) {
-            fetchTransfers()
-        }
-    }, [pageSize, user, authLoading])
+        fetchTransfers()
+    }, [pageSize])
 
     const handleViewDetails = async (transfer: OdooTransfer) => {
         setSelectedTransfer(transfer)
@@ -623,34 +621,6 @@ export default function OdooTransfersPage() {
             (t.pickings && t.pickings.some(p => p.name && p.name.toLowerCase().includes(q)))
         )
     });
-
-    if (authLoading) {
-        return (
-            <div className="flex justify-center items-center min-h-[60vh]" dir="rtl">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
-    }
-
-    if (!user) {
-        return (
-            <div className="container mx-auto py-16 max-w-lg text-center" dir="rtl">
-                <Card className="border-slate-200 bg-white shadow-sm p-6 space-y-4">
-                    <CardHeader className="p-0">
-                        <CardTitle className="text-xl font-bold">تسجيل الدخول مطلوب</CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-0 text-sm text-muted-foreground">
-                        يرجى تسجيل الدخول بحسابك المصرح له للوصول إلى نظام التحويلات الداخلية من أودو.
-                    </CardContent>
-                    <div className="pt-2 flex justify-center">
-                        <Button asChild className="bg-primary">
-                            <Link href="/login?redirect=/odoo-transfers">تسجيل الدخول الآن</Link>
-                        </Button>
-                    </div>
-                </Card>
-            </div>
-        )
-    }
 
     return (
         <div className="container mx-auto py-10 space-y-6" dir="rtl">

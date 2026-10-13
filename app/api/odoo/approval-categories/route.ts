@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
-import { getOdooServerConfig } from "@/lib/odoo-server-config";
+import { getOdooServerConfig, validateOdooServerConfig } from "@/lib/odoo-server-config";
 import { authorizeOdooApi } from "@/lib/odoo-api-auth";
 
-const ODOO_CONFIG = getOdooServerConfig();
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
     const denied = await authorizeOdooApi(request);
     if (denied) return denied;
     try {
+        const ODOO_CONFIG = getOdooServerConfig();
+        validateOdooServerConfig(ODOO_CONFIG);
+
         const odooCall = async (service: string, method: string, args: any[], kwargs?: any) => {
             const callArgs = (kwargs && Object.keys(kwargs).length > 0) ? [...args, kwargs] : args;
             const response = await fetch(`${ODOO_CONFIG.url}/jsonrpc`, {

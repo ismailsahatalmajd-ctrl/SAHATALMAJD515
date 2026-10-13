@@ -1,11 +1,18 @@
 import { NextResponse } from "next/server";
-import { getOdooServerConfig } from "@/lib/odoo-server-config";
+import { getOdooServerConfig, validateOdooServerConfig } from "@/lib/odoo-server-config";
 import { authorizeOdooApi } from "@/lib/odoo-api-auth";
 
-const ODOO_CONFIG = getOdooServerConfig();
+export const dynamic = 'force-dynamic';
+
+function getOdooConfig() {
+    const config = getOdooServerConfig();
+    validateOdooServerConfig(config);
+    return config;
+}
 
 // Helper to authenticate
 async function getOdooUid() {
+    const ODOO_CONFIG = getOdooConfig();
     const odooCall = async (service: string, method: string, args: any[], kwargs?: any) => {
         const callArgs = (kwargs && Object.keys(kwargs).length > 0) ? [...args, kwargs] : args;
         const response = await fetch(`${ODOO_CONFIG.url}/jsonrpc`, {
@@ -19,7 +26,7 @@ async function getOdooUid() {
         return data.result;
     };
     const uid = await odooCall("common", "authenticate", [ODOO_CONFIG.db, ODOO_CONFIG.username, ODOO_CONFIG.apiKey, {}]);
-    return { uid, activeDb: ODOO_CONFIG.db, odooCall };
+    return { uid, activeDb: ODOO_CONFIG.db, odooCall, apiKey: ODOO_CONFIG.apiKey };
 }
 
 export async function GET(request: Request, context: any) {
@@ -30,12 +37,12 @@ export async function GET(request: Request, context: any) {
         const id = parseInt(params?.id || new URL(request.url).pathname.split('/').pop() || "");
         if (isNaN(id)) return NextResponse.json({ success: false, error: "Invalid ID" }, { status: 400 });
 
-        const { uid, activeDb, odooCall } = await getOdooUid();
+        const { uid, activeDb, odooCall, apiKey } = await getOdooUid();
         if (!uid) return NextResponse.json({ success: false, error: "Authentication failed." }, { status: 401 });
 
         // Fetch Approval Request to get stock_ids
         const requests = await odooCall("object", "execute_kw", [
-            activeDb, uid, ODOO_CONFIG.apiKey,
+            activeDb, uid, apiKey,
             "approval.request", "search_read",
             [[["id", "=", id]]],
             { fields: ["stock_ids"] }
@@ -44,7 +51,7 @@ export async function GET(request: Request, context: any) {
 
         // Fetch Approval Product Lines
         const approvalLines = await odooCall("object", "execute_kw", [
-            activeDb, uid, ODOO_CONFIG.apiKey,
+            activeDb, uid, apiKey,
             "approval.product.line", "search_read",
             [[["approval_request_id", "=", id]]],
             { 
@@ -61,7 +68,7 @@ export async function GET(request: Request, context: any) {
 
         if (stock_ids.length > 0) {
             const moves = await odooCall("object", "execute_kw", [
-                activeDb, uid, ODOO_CONFIG.apiKey,
+                activeDb, uid, apiKey,
                 "stock.move", "search_read",
                 [[["picking_id", "in", stock_ids]]],
                 { fields: ["product_id", "product_uom_qty", "forecast_availability", "state"] }
@@ -109,13 +116,13 @@ export async function PUT(request: Request, context: any) {
         const body = await request.json();
         const { categoryId, replenishmentTypeId, lines } = body;
         
-        const { uid, activeDb, odooCall } = await getOdooUid();
+        const { uid, activeDb, odooCall, apiKey } = await getOdooUid();
         if (!uid) return NextResponse.json({ success: false, error: "Authentication failed" }, { status: 401 });
 
         // 1. Update the approval request
         try {
             await odooCall("object", "execute_kw", [
-                activeDb, uid, ODOO_CONFIG.apiKey,
+                activeDb, uid, apiKey,
                 "approval.request", "write",
                 [[id], {
                     category_id: parseInt(categoryId),
@@ -128,13 +135,13 @@ export async function PUT(request: Request, context: any) {
 
         // 2. Unlink existing lines
         const existingLines = await odooCall("object", "execute_kw", [
-            activeDb, uid, ODOO_CONFIG.apiKey,
+            activeDb, uid, apiKey,
             "approval.product.line", "search",
             [[["approval_request_id", "=", id]]]
         ]);
         if (existingLines && existingLines.length > 0) {
             await odooCall("object", "execute_kw", [
-                activeDb, uid, ODOO_CONFIG.apiKey,
+                activeDb, uid, apiKey,
                 "approval.product.line", "unlink",
                 [existingLines]
             ]);
@@ -143,7 +150,7 @@ export async function PUT(request: Request, context: any) {
         // 3. Create new lines
         for (const line of lines) {
             await odooCall("object", "execute_kw", [
-                activeDb, uid, ODOO_CONFIG.apiKey,
+                activeDb, uid, apiKey,
                 "approval.product.line", "create",
                 [[{
                     approval_request_id: id,
@@ -167,11 +174,11 @@ export async function DELETE(request: Request, context: any) {
         const id = parseInt(params?.id || new URL(request.url).pathname.split('/').pop() || "");
         if (isNaN(id)) return NextResponse.json({ success: false, error: "Invalid ID" }, { status: 400 });
         
-        const { uid, activeDb, odooCall } = await getOdooUid();
+        const { uid, activeDb, odooCall, apiKey } = await getOdooUid();
         if (!uid) return NextResponse.json({ success: false, error: "Authentication failed" }, { status: 401 });
 
         await odooCall("object", "execute_kw", [
-            activeDb, uid, ODOO_CONFIG.apiKey,
+            activeDb, uid, apiKey,
             "approval.request", "unlink",
             [[id]]
         ]);
@@ -192,12 +199,12 @@ export async function PATCH(request: Request, context: any) {
         const body = await request.json();
         const { action } = body; // 'confirm' or 'reject'
         
-        const { uid, activeDb, odooCall } = await getOdooUid();
+        const { uid, activeDb, odooCall, apiKey } = await getOdooUid();
         if (!uid) return NextResponse.json({ success: false, error: "Authentication failed" }, { status: 401 });
 
         const methodName = action === 'confirm' ? 'action_confirm' : 'action_cancel';
         await odooCall("object", "execute_kw", [
-            activeDb, uid, ODOO_CONFIG.apiKey,
+            activeDb, uid, apiKey,
             "approval.request", methodName,
             [[id]]
         ]);

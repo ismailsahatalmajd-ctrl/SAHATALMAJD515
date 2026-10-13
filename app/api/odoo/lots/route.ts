@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { getOdooServerConfig } from "@/lib/odoo-server-config";
+import { getOdooServerConfig, validateOdooServerConfig } from "@/lib/odoo-server-config";
 import { authorizeOdooApi } from "@/lib/odoo-api-auth";
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
     const denied = await authorizeOdooApi(request);

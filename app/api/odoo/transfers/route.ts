@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import { getOdooServerConfig } from "@/lib/odoo-server-config";
+import { getOdooServerConfig, validateOdooServerConfig } from "@/lib/odoo-server-config";
 import { authorizeOdooApi } from "@/lib/odoo-api-auth";
-
-const ODOO_CONFIG = getOdooServerConfig();
 
 export const dynamic = 'force-dynamic';
 
@@ -10,6 +8,8 @@ export async function GET(request: Request) {
     const denied = await authorizeOdooApi(request);
     if (denied) return denied;
     try {
+        const ODOO_CONFIG = getOdooServerConfig();
+        validateOdooServerConfig(ODOO_CONFIG);
         const url = new URL(request.url);
         const limitParam = url.searchParams.get("limit");
         const limit = limitParam === "all" ? 0 : (limitParam ? parseInt(limitParam) : 100);
@@ -114,6 +114,8 @@ export async function POST(request: Request) {
     const denied = await authorizeOdooApi(request, true);
     if (denied) return denied;
     try {
+        const ODOO_CONFIG = getOdooServerConfig();
+        validateOdooServerConfig(ODOO_CONFIG);
         const body = await request.json();
         const { categoryId, replenishmentTypeId, lines } = body;
 

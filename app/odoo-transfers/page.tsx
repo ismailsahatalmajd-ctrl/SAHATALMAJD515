@@ -16,6 +16,8 @@ import { getWarehouseName } from "@/lib/warehouse-mapping"
 import { ProductImage } from "@/components/product-image"
 import { OdooExcelDeductionModal } from "@/components/odoo-excel-deduction-modal"
 import { fetchOdooApi } from "@/lib/odoo-client"
+import { useAuth } from "@/components/auth-provider"
+import Link from "next/link"
 
 interface OdooTransfer {
     id: number;
@@ -243,6 +245,7 @@ const ProductCombobox = ({ products, value, onChange }: { products: Product[], v
 };
 
 export default function OdooTransfersPage() {
+    const { user, loading: authLoading } = useAuth()
     const { toast } = useToast()
     const [transfers, setTransfers] = useState<OdooTransfer[]>([])
     const [loading, setLoading] = useState(true)
@@ -389,8 +392,10 @@ export default function OdooTransfersPage() {
     }
 
     useEffect(() => {
-        fetchTransfers()
-    }, [pageSize])
+        if (!authLoading && user) {
+            fetchTransfers()
+        }
+    }, [pageSize, user, authLoading])
 
     const handleViewDetails = async (transfer: OdooTransfer) => {
         setSelectedTransfer(transfer)
@@ -619,6 +624,34 @@ export default function OdooTransfersPage() {
         )
     });
 
+    if (authLoading) {
+        return (
+            <div className="flex justify-center items-center min-h-[60vh]" dir="rtl">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+        )
+    }
+
+    if (!user) {
+        return (
+            <div className="container mx-auto py-16 max-w-lg text-center" dir="rtl">
+                <Card className="border-slate-200 bg-white shadow-sm p-6 space-y-4">
+                    <CardHeader className="p-0">
+                        <CardTitle className="text-xl font-bold">تسجيل الدخول مطلوب</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0 text-sm text-muted-foreground">
+                        يرجى تسجيل الدخول بحسابك المصرح له للوصول إلى نظام التحويلات الداخلية من أودو.
+                    </CardContent>
+                    <div className="pt-2 flex justify-center">
+                        <Button asChild className="bg-primary">
+                            <Link href="/login?redirect=/odoo-transfers">تسجيل الدخول الآن</Link>
+                        </Button>
+                    </div>
+                </Card>
+            </div>
+        )
+    }
+
     return (
         <div className="container mx-auto py-10 space-y-6" dir="rtl">
             <div className="flex justify-between items-center">
@@ -678,7 +711,14 @@ export default function OdooTransfersPage() {
                             <h3 className="text-lg font-bold text-red-800 mb-1">تعذر الاتصال بـ Odoo</h3>
                             <p className="text-red-600">{error}</p>
                         </div>
-                        <Button variant="destructive" onClick={fetchTransfers}>إعادة المحاولة</Button>
+                        <div className="flex gap-2">
+                            {(!user || error.includes("Sign in")) && (
+                                <Button asChild className="bg-primary">
+                                    <Link href="/login?redirect=/odoo-transfers">تسجيل الدخول</Link>
+                                </Button>
+                            )}
+                            <Button variant="destructive" onClick={fetchTransfers}>إعادة المحاولة</Button>
+                        </div>
                     </CardContent>
                 </Card>
             ) : (

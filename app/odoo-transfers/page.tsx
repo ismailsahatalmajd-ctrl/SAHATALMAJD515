@@ -1,16 +1,19 @@
 "use client"
 
 import { useEffect, useState, useRef, useMemo } from "react"
-import { Loader2, RefreshCw, ArrowRightLeft, ServerCrash, Eye, Printer, Plus, Trash2, Edit, CheckCircle, XCircle, ChevronDown, Search, Download } from "lucide-react"
+import { Loader2, RefreshCw, ArrowRightLeft, ServerCrash, Eye, Printer, Plus, Trash2, Edit, CheckCircle, XCircle, ChevronDown, Search, Download, Settings2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { generateOdooTransferPDF } from "@/lib/odoo-transfer-pdf-generator"
-import { generateOdooPickingListPDF } from "@/lib/odoo-picking-list-pdf-generator"
+import { generateOdooPickingListPDF, DEFAULT_ODOO_PICKING_COLUMNS, type OdooPickingListColumnSettings } from "@/lib/odoo-picking-list-pdf-generator"
 import { generateOdooPickingListExcel } from "@/lib/odoo-picking-list-excel-generator"
 import { getWarehouseName } from "@/lib/warehouse-mapping"
 import { ProductImage } from "@/components/product-image"
@@ -286,6 +289,26 @@ export default function OdooTransfersPage() {
     const [isProcessingExcel, setIsProcessingExcel] = useState(false)
     const [excelFile, setExcelFile] = useState<File | null>(null)
 
+    // Picking List Columns Filter Dialog State
+    const [isPickingDialogOpen, setIsPickingDialogOpen] = useState(false)
+    const [pickingColumns, setPickingColumns] = useState<OdooPickingListColumnSettings>(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                const saved = localStorage.getItem('odooPickingListColumns')
+                if (saved) return { ...DEFAULT_ODOO_PICKING_COLUMNS, ...JSON.parse(saved) }
+            } catch {}
+        }
+        return DEFAULT_ODOO_PICKING_COLUMNS
+    })
+
+    const updatePickingColumn = (key: keyof OdooPickingListColumnSettings, val: boolean) => {
+        setPickingColumns(prev => {
+            const next = { ...prev, [key]: val }
+            try { localStorage.setItem('odooPickingListColumns', JSON.stringify(next)) } catch {}
+            return next
+        })
+    }
+
     const fetchTransfers = async () => {
         setLoading(true)
         setError(null)
@@ -301,8 +324,23 @@ export default function OdooTransfersPage() {
         }
     }
 
+    const getTransferBranchName = (t?: OdooTransfer) => {
+        if (!t) return "فرع غير محدد";
+        const owner = Array.isArray(t.request_owner_id) ? t.request_owner_id[1] : "";
+        if (owner && !owner.includes("@")) return owner;
+        const op = Array.isArray(t.replenishment_operation_type_id) ? t.replenishment_operation_type_id[1] : "";
+        const matchTo = op.match(/To\s+([A-Za-z0-9_]+)/i);
+        if (matchTo) {
+            const code = matchTo[1];
+            const mapped = getWarehouseName(`${code}/Stock`);
+            return mapped !== `${code}/Stock` ? mapped.replace(/^\d+\s*-\s*/, '').replace(/\s*W\.H$/i, '') : code;
+        }
+        return owner || (t.name !== '/' ? t.name : `طلب #${t.id}`);
+    }
+
     const fetchAggregatedLines = async () => {
         const allLinesMap = new Map<string, any>();
+        const branchProductCounts: Record<string, number> = {};
         
         const res = await fetchOdooApi(`/api/odoo/transfers/batch-lines`, {
             method: 'POST',
@@ -319,6 +357,11 @@ export default function OdooTransfersPage() {
                 const code = matchCode ? matchCode[1].trim() : '';
                 const name = lineName.replace(/^\[.*?\]\s*/, '').trim();
                 const uom = line.product_uom_id ? line.product_uom_id[1] : '';
+                const reqId = Array.isArray(line.approval_request_id) ? line.approval_request_id[0] : line.approval_request_id;
+                const transfer = transfers.find(t => t.id === reqId || (t.product_line_ids && t.product_line_ids.includes(line.id)));
+                const branchName = getTransferBranchName(transfer);
+
+                branchProductCounts[branchName] = (branchProductCounts[branchName] || 0) + 1;
                 
                 const key = code || name;
                 
@@ -326,30 +369,39 @@ export default function OdooTransfersPage() {
                     const existing = allLinesMap.get(key);
                     existing.quantity += line.quantity;
                     existing.orderCount += 1;
+                    existing.branchQuantities[branchName] = (existing.branchQuantities[branchName] || 0) + line.quantity;
                 } else {
-                    allLinesMap.set(key, { code, name, quantity: line.quantity, uom, orderCount: 1 });
+                    allLinesMap.set(key, {
+                        code,
+                        name,
+                        quantity: line.quantity,
+                        uom,
+                        orderCount: 1,
+                        branchQuantities: { [branchName]: line.quantity }
+                    });
                 }
             });
         }
         
-        return Array.from(allLinesMap.values());
+        return { lines: Array.from(allLinesMap.values()), branchProductCounts };
     }
 
     const handleGeneratePickingListPDF = async () => {
         if (selectedIds.length === 0) return;
         toast({ title: "جاري تجهيز قائمة التجميع (PDF)...", description: "يرجى الانتظار...", duration: 5000 });
         try {
-            const aggregatedLines = await fetchAggregatedLines();
+            const { lines: aggregatedLines, branchProductCounts } = await fetchAggregatedLines();
             const owners = Array.from(new Set(
                 selectedIds.map(id => {
-                    const owner = transfers.find(t => t.id === id)?.request_owner_id
-                    return Array.isArray(owner) ? owner[1] : undefined
+                    const t = transfers.find(tr => tr.id === id)
+                    return t ? getTransferBranchName(t) : undefined
                 }).filter(Boolean)
             ));
             const orderIds = Array.from(new Set(
                 selectedIds.map(id => transfers.find(t => t.id === id)?.name).filter(n => n && n !== '/')
             ));
-            await generateOdooPickingListPDF(aggregatedLines, "قائمة تجميع (مفصلة) - Picking List", owners as string[], orderIds as string[]);
+            await generateOdooPickingListPDF(aggregatedLines, "قائمة تجميع (مفصلة) - Picking List", owners as string[], orderIds as string[], branchProductCounts, pickingColumns);
+            setIsPickingDialogOpen(false);
             toast({ title: "تم إنشاء قائمة التجميع!", description: "ستفتح نافذة الطباعة الآن." });
         } catch (error: any) {
             toast({ title: "خطأ", description: "فشل إنشاء القائمة.", variant: "destructive" });
@@ -360,7 +412,7 @@ export default function OdooTransfersPage() {
         if (selectedIds.length === 0) return;
         toast({ title: "جاري تجهيز قائمة التجميع (Excel)...", description: "يرجى الانتظار...", duration: 5000 });
         try {
-            const aggregatedLines = await fetchAggregatedLines();
+            const { lines: aggregatedLines } = await fetchAggregatedLines();
             await generateOdooPickingListExcel(aggregatedLines, "قائمة تجميع - Picking List");
             toast({ title: "تم التصدير!", description: "تم تنزيل ملف الإكسل بنجاح." });
         } catch (error: any) {
@@ -647,7 +699,7 @@ export default function OdooTransfersPage() {
                                 إكسل
                             </Button>
                             <Button 
-                                onClick={handleGeneratePickingListPDF} 
+                                onClick={() => setIsPickingDialogOpen(true)} 
                                 className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
                             >
                                 <Printer className="h-4 w-4" />
@@ -1096,6 +1148,85 @@ export default function OdooTransfersPage() {
                     )}
                 </DialogContent>
             </Dialog>
+            {/* Picking List Columns Filter Dialog */}
+            <Dialog open={isPickingDialogOpen} onOpenChange={setIsPickingDialogOpen}>
+                <DialogContent className="sm:max-w-[540px]" dir="rtl">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-lg">
+                            <Settings2 className="h-5 w-5 text-blue-600" />
+                            <span>إعدادات وأعمدة فاتورة التجميع</span>
+                        </DialogTitle>
+                        <DialogDescription className="text-right">
+                            اختر الأعمدة التي ترغب في إظهارها أو إخفائها في فاتورة التجميع قبل الطباعة.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4 py-3">
+                        <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 flex items-center justify-between text-sm">
+                            <span className="font-medium text-blue-800">عدد التحويلات المحددة:</span>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 text-xs bg-white"
+                                    onClick={() => {
+                                        setPickingColumns(DEFAULT_ODOO_PICKING_COLUMNS)
+                                        try { localStorage.setItem('odooPickingListColumns', JSON.stringify(DEFAULT_ODOO_PICKING_COLUMNS)) } catch {}
+                                    }}
+                                >
+                                    إظهار الكل
+                                </Button>
+                                <Badge variant="secondary" className="bg-blue-600 text-white border-none">
+                                    {selectedIds.length} عملية
+                                </Badge>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border rounded-lg p-3 bg-slate-50/50">
+                            {[
+                                { key: 'showImage', label: 'صورة المنتج (Image)' },
+                                { key: 'showCode', label: 'كود المنتج (Code)' },
+                                { key: 'showOdooUnit', label: 'وحدة أودو (Odoo Unit)' },
+                                { key: 'showBranchesMatrix', label: 'أعمدة الفروع (Matrix)' },
+                                { key: 'showBranchWhSubQty', label: 'كمية الموقع داخل خلايا الفروع' },
+                                { key: 'showTotalOdooQty', label: 'إجمالي الكمية / كمية أودو' },
+                                { key: 'showWhQty', label: 'كمية الموقع (WH Qty)' },
+                                { key: 'showWhUnit', label: 'وحدة الموقع (WH Unit)' },
+                                { key: 'showDateLot', label: 'التاريخ / اللوت (DATE / LOT)' },
+                                { key: 'showActual', label: 'عمود فعلي (Actual)' },
+                                { key: 'showPick', label: 'عمود التحضير (✔ Pick)' },
+                                { key: 'showCheck', label: 'عمود الفحص (🔍 Check)' },
+                            ].map((col) => (
+                                <label
+                                    key={col.key}
+                                    className="flex items-center justify-between gap-2 p-2.5 rounded-md border bg-white hover:bg-blue-50/40 cursor-pointer transition-colors"
+                                >
+                                    <span className="text-xs font-semibold text-slate-700">{col.label}</span>
+                                    <Switch
+                                        checked={!!pickingColumns[col.key as keyof OdooPickingListColumnSettings]}
+                                        onCheckedChange={(checked) => updatePickingColumn(col.key as keyof OdooPickingListColumnSettings, checked)}
+                                    />
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+
+                    <DialogFooter className="flex-row-reverse gap-2 sm:justify-start">
+                        <Button
+                            className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+                            onClick={handleGeneratePickingListPDF}
+                        >
+                            <Printer className="h-4 w-4" />
+                            طباعة فاتورة التجميع
+                        </Button>
+                        <Button variant="outline" onClick={() => setIsPickingDialogOpen(false)}>
+                            إلغاء
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <OdooExcelDeductionModal 
                 isOpen={isExcelModalOpen} 
                 onClose={() => setIsExcelModalOpen(false)}

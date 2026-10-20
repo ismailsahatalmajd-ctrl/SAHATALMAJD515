@@ -47,7 +47,7 @@ export async function POST(request: Request) {
             activeDb, uid, apiKey,
             "approval.product.line", "search_read",
             [[["approval_request_id", "in", ids]]],
-            { fields: ["id", "product_id", "description", "quantity", "product_uom_id"] }
+            { fields: ["id", "approval_request_id", "product_id", "description", "quantity", "product_uom_id"] }
         ]);
 
         return NextResponse.json({ success: true, lines: approvalLines });

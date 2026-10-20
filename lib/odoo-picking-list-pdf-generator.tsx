@@ -39,15 +39,17 @@ export async function generateOdooPickingListPDF(
   owners: string[] = [],
   orderIds: string[] = [],
   branchProductCounts: Record<string, number> = {},
-  columnSettings?: Partial<OdooPickingListColumnSettings>
+  columnSettings?: Partial<OdooPickingListColumnSettings>,
+  existingWindow?: Window | null
 ) {
   const cols: OdooPickingListColumnSettings = {
     ...DEFAULT_ODOO_PICKING_COLUMNS,
     ...(columnSettings || {}),
   }
 
-  const w = window.open("", "_blank")
+  const w = existingWindow || window.open("", "_blank")
   if (!w) return
+  w.document.open()
   w.document.write(`
     <div style="font-family:sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; gap:20px;">
       <div style="width:40px; height:40px; border:4px solid #f3f3f3; border-top:4px solid #2563eb; border-radius:50%; animation: spin 1s linear infinite;"></div>
@@ -55,6 +57,7 @@ export async function generateOdooPickingListPDF(
       <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
     </div>
   `)
+  w.document.close()
 
   let settings: any = { template: "modern", showBarcode: true, showCompanyInfo: true, signatureText: "المستلم" }
   try {
@@ -81,7 +84,7 @@ export async function generateOdooPickingListPDF(
   const sortedBranches = Object.keys(branchCountsMap).sort(
     (a, b) => (branchCountsMap[a] || 0) - (branchCountsMap[b] || 0)
   )
-  const isMatrix = sortedBranches.length > 1 && cols.showBranchesMatrix
+  const isMatrix = cols.showBranchesMatrix && sortedBranches.length >= 1
 
   // Fetch Lots from Odoo (only if Date/Lot column is enabled)
   const uniqueProductCodes = Array.from(new Set(aggregatedLines.map((p) => p.code).filter(Boolean)))

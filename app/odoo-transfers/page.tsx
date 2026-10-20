@@ -388,6 +388,10 @@ export default function OdooTransfersPage() {
 
     const handleGeneratePickingListPDF = async () => {
         if (selectedIds.length === 0) return;
+        const printWindow = window.open("", "_blank");
+        if (printWindow) {
+            printWindow.document.write('<html dir="rtl"><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f8fafc;color:#1e293b;"><h2>جاري تجهيز فاتورة التجميع (Matrix)... يرجى الانتظار</h2></body></html>');
+        }
         toast({ title: "جاري تجهيز قائمة التجميع (PDF)...", description: "يرجى الانتظار...", duration: 5000 });
         try {
             const { lines: aggregatedLines, branchProductCounts } = await fetchAggregatedLines();
@@ -400,10 +404,11 @@ export default function OdooTransfersPage() {
             const orderIds = Array.from(new Set(
                 selectedIds.map(id => transfers.find(t => t.id === id)?.name).filter(n => n && n !== '/')
             ));
-            await generateOdooPickingListPDF(aggregatedLines, "قائمة تجميع (مفصلة) - Picking List", owners as string[], orderIds as string[], branchProductCounts, pickingColumns);
+            await generateOdooPickingListPDF(aggregatedLines, "قائمة تجميع (مفصلة) - Picking List", owners as string[], orderIds as string[], branchProductCounts, pickingColumns, printWindow);
             setIsPickingDialogOpen(false);
             toast({ title: "تم إنشاء قائمة التجميع!", description: "ستفتح نافذة الطباعة الآن." });
         } catch (error: any) {
+            if (printWindow && !printWindow.closed) printWindow.close();
             toast({ title: "خطأ", description: "فشل إنشاء القائمة.", variant: "destructive" });
         }
     }

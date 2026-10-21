@@ -93,20 +93,14 @@ export function SmartAlerts({ onMonthClosingClick }: { onMonthClosingClick?: () 
             }
 
             setAlerts(newAlerts)
-
-            const dismissed = sessionStorage.getItem('smart_alerts_dismissed')
-            if (newAlerts.length > 0 && !dismissed) {
-                setOpen(true)
-            }
         }
 
         const timer = setTimeout(() => checkAlerts(), 1000)
         return () => clearTimeout(timer)
-    }, [t, onMonthClosingClick])
+    }, [])
 
     const handleDismiss = () => {
         setOpen(false)
-        sessionStorage.setItem('smart_alerts_dismissed', 'true')
     }
 
     if (alerts.length === 0) return null

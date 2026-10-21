@@ -10,11 +10,11 @@ export function SyncManager() {
 
   useEffect(() => {
     if (user) {
-      console.log("User logged in, triggering cloud sync...")
       syncAllFromServer()
       processSyncQueue().catch(() => {})
-      const id = setInterval(() => { processSyncQueue().catch(() => {}) }, 8000)
-      return () => clearInterval(id)
+      const handleOnline = () => { processSyncQueue().catch(() => {}) }
+      window.addEventListener("online", handleOnline)
+      return () => window.removeEventListener("online", handleOnline)
     }
   }, [user])
 

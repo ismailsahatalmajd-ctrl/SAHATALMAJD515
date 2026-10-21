@@ -52,96 +52,81 @@ async function enqueue(table: string, op: string, payload: any) {
 }
 
 // Helper functions to avoid circular dependency issues with imports
+const STORE_CACHE_MAP: Record<string, keyof typeof store.cache> = {
+    'products': 'products',
+    'categories': 'categories',
+    'transactions': 'transactions',
+    'branches': 'branches',
+    'issues': 'issues',
+    'returns': 'returns',
+    'locations': 'locations',
+    'units': 'units',
+    'branchRequests': 'branchRequests',
+    'branchInvoices': 'branchInvoices',
+    'inventoryAdjustments': 'adjustments',
+    'purchaseRequests': 'purchaseRequests',
+    'receivingNotes': 'receivingNotes',
+    'deliveryNotes': 'deliveryNotes',
+    'employees': 'employees',
+    'overtimeReasons': 'overtimeReasons',
+    'overtimeEntries': 'overtimeEntries',
+    'absenceRecords': 'absenceRecords',
+    'labelTemplates': 'labelTemplates'
+}
+
+const STORE_EVENT_MAP: Record<string, StoreEvent> = {
+    'products': 'products_change',
+    'categories': 'categories_change',
+    'transactions': 'transactions_change',
+    'branches': 'branches_change',
+    'issues': 'issues_change',
+    'returns': 'returns_change',
+    'branchRequests': 'branch_requests_change',
+    'branchInvoices': 'branch_invoices_change',
+    'receivingNotes': 'receiving_notes_change' as any,
+    'deliveryNotes': 'delivery_notes_change' as any,
+    'employees': 'employees_change' as any,
+    'overtimeReasons': 'overtime_reasons_change' as any,
+    'overtimeEntries': 'overtime_entries_change' as any,
+    'absenceRecords': 'absence_records_change' as any,
+    'labelTemplates': 'label_templates_change',
+}
+
 function updateStoreCache(table: string, record: any) {
-    if (!store.initialized) return
-
-    const map: Record<string, keyof typeof store.cache> = {
-        'products': 'products',
-        'categories': 'categories',
-        'transactions': 'transactions',
-        'branches': 'branches',
-        'issues': 'issues',
-        'returns': 'returns',
-        'locations': 'locations',
-        'units': 'units',
-        'branchRequests': 'branchRequests',
-        'branchInvoices': 'branchInvoices',
-        'inventoryAdjustments': 'adjustments',
-        'purchaseRequests': 'purchaseRequests',
-        'receivingNotes': 'receivingNotes',
-        'deliveryNotes': 'deliveryNotes',
-        'employees': 'employees',
-        'overtimeReasons': 'overtimeReasons',
-        'overtimeEntries': 'overtimeEntries',
-        'absenceRecords': 'absenceRecords',
-        'labelTemplates': 'labelTemplates'
-    }
-
-    const key = map[table]
-    if (!key) return
-
-    const list = store.cache[key] as any[]
-    if (!list) return
-
-    const idx = list.findIndex(r => r.id === record.id)
-    if (idx !== -1) {
-        list[idx] = { ...list[idx], ...record }
-    } else {
-        list.push(record)
-    }
-    notify('change')
-    const eventMap: Record<string, StoreEvent> = {
-        'products': 'products_change',
-        'categories': 'categories_change',
-        'transactions': 'transactions_change',
-        'branches': 'branches_change',
-        'issues': 'issues_change',
-        'returns': 'returns_change',
-        'branchRequests': 'branch_requests_change',
-        'branchInvoices': 'branch_invoices_change',
-        'receivingNotes': 'receiving_notes_change' as any,
-        'deliveryNotes': 'delivery_notes_change' as any,
-        'employees': 'employees_change' as any,
-        'overtimeReasons': 'overtime_reasons_change' as any,
-        'overtimeEntries': 'overtime_entries_change' as any,
-        'absenceRecords': 'absence_records_change' as any,
-        'labelTemplates': 'label_templates_change',
-    }
-    if (eventMap[table]) notify(eventMap[table])
+    updateStoreCacheBatch(table, [record], [])
 }
 
 function removeFromStoreCache(table: string, id: string) {
+    updateStoreCacheBatch(table, [], [id])
+}
+
+function updateStoreCacheBatch(table: string, upserts: any[], removeIds: string[]) {
     if (!store.initialized) return
 
-    const map: Record<string, keyof typeof store.cache> = {
-        'products': 'products',
-        'categories': 'categories',
-        'transactions': 'transactions',
-        'branches': 'branches',
-        'issues': 'issues',
-        'returns': 'returns',
-        'locations': 'locations',
-        'units': 'units',
-        'branchRequests': 'branchRequests',
-        'branchInvoices': 'branchInvoices',
-        'inventoryAdjustments': 'adjustments',
-        'purchaseRequests': 'purchaseRequests',
-        'employees': 'employees',
-        'overtimeReasons': 'overtimeReasons',
-        'overtimeEntries': 'overtimeEntries',
-        'absenceRecords': 'absenceRecords',
-        'labelTemplates': 'labelTemplates',
-        'deliveryNotes': 'deliveryNotes'
-    }
-
-    const key = map[table]
+    const key = STORE_CACHE_MAP[table]
     if (!key) return
 
     const list = store.cache[key] as any[]
     if (!list) return
 
-    store.cache[key] = list.filter(r => r.id !== id) as any
+    const removeSet = removeIds.length > 0 ? new Set(removeIds) : null
+    const byId = new Map<string, any>()
+
+    for (const item of list) {
+        if (!item?.id) continue
+        if (removeSet && removeSet.has(item.id)) continue
+        byId.set(item.id, item)
+    }
+
+    for (const record of upserts) {
+        if (!record?.id) continue
+        const existing = byId.get(record.id)
+        byId.set(record.id, existing ? { ...existing, ...record } : record)
+    }
+
+    store.cache[key] = Array.from(byId.values()) as any
     notify('change')
+    if (STORE_EVENT_MAP[table]) notify(STORE_EVENT_MAP[table])
 }
 
 // Collections to sync
@@ -228,57 +213,99 @@ function shouldSkipStaleRemoteProduct(existing: Product | undefined, remote: Pro
     return localTs > remoteTs
 }
 
-// Helper for syncing collection
+// Helper for syncing collection in a single fast batch (no item-by-item UI flicker)
 const syncCollection = (
     collectionName: string,
     localTable: any,
     eventName: string
 ) => {
     const q = query(collection(firestore, collectionName));
+    let hasPrunedInitialSnapshot = false;
+
     return onSnapshot(q, (snapshot) => {
         void (async () => {
-            let hasChanges = false;
-            for (const change of snapshot.docChanges()) {
-                const data = change.doc.data();
-                const localId = change.doc.id;
+            const changes = snapshot.docChanges();
+            if (changes.length === 0 && hasPrunedInitialSnapshot) return;
 
-                if (isDeleting(localId)) {
-                    continue;
+            try {
+                const recordsToPut: any[] = [];
+                const idsToDelete: string[] = [];
+                const granularUserIds: string[] = [];
+
+                // Build an in-memory map for products once instead of awaiting localTable.get() 1,500+ times
+                let existingProductsMap: Map<string, Product> | null = null;
+                if (collectionName === COLLECTIONS.PRODUCTS) {
+                    const sourceList = store.initialized
+                        ? store.cache.products
+                        : ((await localTable.toArray()) as Product[]);
+                    existingProductsMap = new Map(sourceList.map((p) => [p.id, p]));
                 }
 
-                try {
+                for (const change of changes) {
+                    const data = change.doc.data();
+                    const localId = change.doc.id;
+
+                    if (isDeleting(localId)) {
+                        continue;
+                    }
+
                     if (change.type === "added" || change.type === "modified") {
                         const record = { ...data, id: localId } as Product & { lastSyncedAt?: unknown };
-                        if (collectionName === COLLECTIONS.PRODUCTS) {
-                            const existing = (await localTable.get(localId)) as Product | undefined;
+                        if (collectionName === COLLECTIONS.PRODUCTS && existingProductsMap) {
+                            const existing = existingProductsMap.get(localId);
                             if (shouldSkipStaleRemoteProduct(existing, record)) {
-                                console.debug(
-                                    `[Sync] Skipped stale remote product overwrite: ${localId} (local newer than cloud snapshot)`,
-                                )
                                 continue;
                             }
                         }
-                        hasChanges = true;
-                        await localTable.put(record);
-                        updateStoreCache(collectionName, record);
-
+                        recordsToPut.push(record);
                         if (collectionName === "granularPermissions") {
-                            notifyGranularUpdate(localId);
+                            granularUserIds.push(localId);
+                        }
+                    } else if (change.type === "removed") {
+                        idsToDelete.push(localId);
+                    }
+                }
+
+                // On first live snapshot from server, prune any local products that were deleted while browser was closed
+                if (
+                    collectionName === COLLECTIONS.PRODUCTS &&
+                    !hasPrunedInitialSnapshot &&
+                    !snapshot.metadata.fromCache &&
+                    snapshot.docs.length > 0
+                ) {
+                    hasPrunedInitialSnapshot = true;
+                    const serverIds = new Set(snapshot.docs.map((d) => d.id));
+                    const pendingQueue = await localDb.syncQueue.toArray();
+                    const pendingProductIds = new Set(
+                        pendingQueue
+                            .filter((qItem) => qItem.table === COLLECTIONS.PRODUCTS && qItem.op === "upsert")
+                            .map((qItem) => qItem.payload?.id)
+                    );
+                    const localKeys = (await localTable.toCollection().primaryKeys()) as string[];
+                    for (const key of localKeys) {
+                        if (!serverIds.has(key) && !pendingProductIds.has(key) && !isDeleting(key)) {
+                            idsToDelete.push(key);
                         }
                     }
-                    if (change.type === "removed") {
-                        hasChanges = true;
-                        await localTable.delete(localId);
-                        removeFromStoreCache(collectionName, localId);
-                    }
-                } catch (e) {
-                    console.error(`Sync Error ${collectionName}:`, e);
                 }
-            }
 
-            if (hasChanges) {
-                if (eventName) notify(eventName as any);
-                notify("change");
+                if (recordsToPut.length > 0) {
+                    await localTable.bulkPut(recordsToPut);
+                }
+                if (idsToDelete.length > 0) {
+                    await localTable.bulkDelete(idsToDelete);
+                }
+
+                if (recordsToPut.length > 0 || idsToDelete.length > 0) {
+                    updateStoreCacheBatch(collectionName, recordsToPut, idsToDelete);
+                    for (const uid of granularUserIds) {
+                        notifyGranularUpdate(uid);
+                    }
+                    if (eventName) notify(eventName as any);
+                    notify("change");
+                }
+            } catch (e) {
+                console.error(`Sync Error ${collectionName}:`, e);
             }
         })();
     }, (error) => {
@@ -303,16 +330,6 @@ export const startRealtimeSync = () => {
     // Process queue on startup
     processSyncQueue().catch(console.error);
 
-    // Periodically process queue is wasteful for CPU (App Engine time) if empty
-    // Only process on startup and then on user action
-    /*
-    if (!syncInterval) {
-        syncInterval = setInterval(() => {
-            processSyncQueue().catch(console.error);
-        }, 60000);
-    }
-    */
-
     try {
         // --- 1. Real-time Collections (Absolute necessity) ---
         unsubscribers.push(syncCollection(COLLECTIONS.PRODUCTS, localDb.products, "products_change"));
@@ -334,7 +351,6 @@ export const startRealtimeSync = () => {
         unsubscribers.push(syncCollection(COLLECTIONS.BRANCHES, localDb.branches, "branches_change"));
 
         // --- 2. Fetch-once Collections (Optimization: only on startup) ---
-        // These don't change often enough to warrant a constant background CPU connection
         async function fetchStaticData() {
             try {
                 const fetchTable = async (collName: string, localTable: any, event: string) => {
@@ -343,8 +359,7 @@ export const startRealtimeSync = () => {
                     const items = snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
                     if (items.length > 0) {
                         await localTable.bulkPut(items);
-                        // Update cache for each item (limited to start)
-                        items.forEach(it => updateStoreCache(collName, it));
+                        updateStoreCacheBatch(collName, items, []);
                         if (event) notify(event as any);
                     }
                 };
@@ -694,29 +709,35 @@ export const syncAllCloudToLocal = async (onProgress: (msg: string) => void) => 
         const total = snapshot.size;
 
         let serverProductIds = new Set<string>();
+        let downloadedProducts: Product[] = [];
 
         if (total > 0) {
             onProgress(`تم العثور على ${total} منتج. جاري التحميل...`);
-            const items = snapshot.docs.map(d => {
+            downloadedProducts = snapshot.docs.map(d => {
                 serverProductIds.add(d.id);
                 return { ...d.data(), id: d.id } as Product;
             });
-            await localDb.products.bulkPut(items);
+            await localDb.products.bulkPut(downloadedProducts);
         }
 
         // Pruning Stale Products
+        let deletedProductIds: string[] = [];
         if (total > 0 || pendingProductIds.size === 0) {
             const localKeys = await localDb.products.toCollection().primaryKeys();
-            const toDelete = localKeys.filter(k =>
+            deletedProductIds = (localKeys as string[]).filter(k =>
                 !serverProductIds.has(k as string) &&
                 !pendingProductIds.has(k as string) &&
                 !isDeleting(k as string)
             );
 
-            if (toDelete.length > 0) {
-                console.log(`[Sync] Pruning ${toDelete.length} stale products...`);
-                await localDb.products.bulkDelete(toDelete);
+            if (deletedProductIds.length > 0) {
+                console.log(`[Sync] Pruning ${deletedProductIds.length} stale products...`);
+                await localDb.products.bulkDelete(deletedProductIds);
             }
+        }
+
+        if (downloadedProducts.length > 0 || deletedProductIds.length > 0) {
+            updateStoreCacheBatch(COLLECTIONS.PRODUCTS, downloadedProducts, deletedProductIds);
         }
 
         // 2. Images
@@ -757,7 +778,7 @@ export const syncAllCloudToLocal = async (onProgress: (msg: string) => void) => 
         if (snapRequests.size > 0) {
             const requests = snapRequests.docs.map(d => ({ ...d.data(), id: d.id }));
             await localDb.branchRequests.bulkPut(requests);
-            requests.forEach(it => updateStoreCache(COLLECTIONS.BRANCH_REQUESTS, it));
+            updateStoreCacheBatch(COLLECTIONS.BRANCH_REQUESTS, requests, []);
             notify("branch_requests_change");
         }
 
@@ -768,7 +789,7 @@ export const syncAllCloudToLocal = async (onProgress: (msg: string) => void) => 
         if (snapInvoices.size > 0) {
             const invoices = snapInvoices.docs.map(d => ({ ...d.data(), id: d.id }));
             await localDb.branchInvoices.bulkPut(invoices);
-            invoices.forEach(it => updateStoreCache(COLLECTIONS.BRANCH_INVOICES, it));
+            updateStoreCacheBatch(COLLECTIONS.BRANCH_INVOICES, invoices, []);
             notify("branch_invoices_change");
         }
 
@@ -779,7 +800,7 @@ export const syncAllCloudToLocal = async (onProgress: (msg: string) => void) => 
         if (snapIssues.size > 0) {
             const issues = snapIssues.docs.map(d => ({ ...d.data(), id: d.id }));
             await localDb.issues.bulkPut(issues);
-            issues.forEach(it => updateStoreCache(COLLECTIONS.ISSUES, it));
+            updateStoreCacheBatch(COLLECTIONS.ISSUES, issues, []);
             notify("issues_change");
         }
 

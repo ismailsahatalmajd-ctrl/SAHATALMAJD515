@@ -76,7 +76,7 @@ export function StatsCards({ products = [], visible }: StatsCardsProps) {
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalItems}</div>
+            <div className="text-2xl font-bold">{Number.isInteger(totalItems) ? totalItems : Number(totalItems.toFixed(2))}</div>
             <p className="text-xs text-muted-foreground"><DualText k="dashboard.totalUnits.subtitle" /></p>
           </CardContent>
         </Card>

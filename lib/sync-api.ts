@@ -42,16 +42,23 @@ export async function processSyncQueue(limit: number = 25) {
     const items = await db.syncQueue.orderBy('ts').limit(limit).toArray();
     if (items.length === 0) return;
 
-    console.log(`[Sync] Processing ${items.length} queued items...`);
+    const cutoff = Date.now() - 5 * 60 * 1000;
+    const staleIds = items
+      .filter(item => !item.ts || new Date(item.ts).getTime() < cutoff)
+      .map(item => item.id);
+    if (staleIds.length > 0) {
+      await db.syncQueue.bulkDelete(staleIds);
+    }
 
-    for (const item of items) {
+    const freshItems = items.filter(item => item.ts && new Date(item.ts).getTime() >= cutoff);
+    if (freshItems.length === 0) return;
+
+    console.log(`[Sync] Processing ${freshItems.length} queued items...`);
+
+    for (const item of freshItems) {
       const success = await performFirebaseOp(item.table, item.op as any, item.payload, true);
       if (success) {
         await db.syncQueue.delete(item.id);
-      } else {
-        // Increment attempts?
-        // For now, leave it. If it fails, it stays in queue.
-        // Maybe add a delay or backoff?
       }
     }
   } catch (e) {

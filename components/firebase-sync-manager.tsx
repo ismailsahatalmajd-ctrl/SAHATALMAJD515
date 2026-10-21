@@ -22,7 +22,17 @@ export function FirebaseSyncManager() {
 
     useEffect(() => {
         const init = async () => {
-            // Enable persistence once (handled in lib/firebase.ts but safer to retry if needed, usually init is called once)
+            try {
+                // Start listening immediately without waiting for anonymous auth roundtrip
+                startRealtimeSync();
+                setStatus('connected');
+                addLog("تم الاتصال بالسحابة");
+            } catch (e: any) {
+                console.error(e);
+                setStatus('disconnected');
+                addLog("خطأ في الاتصال: " + e.message);
+            }
+
             try {
                 await enableOfflinePersistence();
             } catch (err) {
@@ -30,81 +40,53 @@ export function FirebaseSyncManager() {
             }
 
             try {
-                // Ensure we are authenticated
-                await signInAnonymously(auth);
+                if (!auth.currentUser) {
+                    await signInAnonymously(auth);
+                }
                 addLog("تم تسجيل الدخول (مجهول)");
             } catch (e: any) {
                 console.error("Auth Error:", e);
                 if (e.code === 'auth/configuration-not-found' || e.code === 'auth/admin-restricted-operation' || e.code === 'auth/operation-not-allowed') {
                     addLog("⚠️ خطأ: تسجيل الدخول المجهول غير مفعل!");
-                    alert("تنبيه هام للمطور:\nيجب تفعيل 'Anonymous' في Firebase Console -> Authentication -> Sign-in method\nبدون ذلك لن تعمل المزامنة.");
                 } else {
                     addLog("تحذير مصادقة: " + (e.message || e.code));
                 }
             }
 
+            // --- AUTO MIGRATION CHECK ---
             try {
-                // Start listening regardless of auth success (rules might allow public access)
-                startRealtimeSync();
-                setStatus('connected');
-                addLog("تم الاتصال بالسحابة");
+                const productsColl = collection(db, 'products');
+                const hasSynced = localStorage.getItem('firebase_sync_init_done');
+                let cloudCount = -1;
 
-                // --- AUTO MIGRATION CHECK ---
-                // Check if Cloud is empty and Local has data
-                try {
-                    const productsColl = collection(db, 'products');
-                    // Use getCountFromServer if available, or just get 1 doc
-                    // getCountFromServer is safer/cheaper
-                    // Check if we already synced to avoid expensive count query on every reload
-                    const hasSynced = localStorage.getItem('firebase_sync_init_done');
-                    let cloudCount = -1;
-
-                    if (!hasSynced) {
-                        const snapshot = await getCountFromServer(query(productsColl));
-                        cloudCount = snapshot.data().count;
-                    }
-
-                    const localCount = await localDb.products.count();
-
-                    console.log(`[AutoSync] Cloud: ${cloudCount}, Local: ${localCount}`);
-
-                    if (!hasSynced && cloudCount === 0 && localCount > 0) {
-                        addLog(`⚠️ السحابة فارغة (${localCount} عنصر محلي). بدء الرفع التلقائي...`);
-
-                        // Force a small delay to ensure connection is stable
-                        await new Promise(r => setTimeout(r, 1000));
-
-                        setIsUploading(true);
-                        window.dispatchEvent(new CustomEvent('syncstart'));
-                        await syncAllLocalToCloud((current, total) => {
-                            // Optional: show progress toast
-                            console.log(`Auto-upload: ${current}/${total}`);
-                            setUploadProgress(`${Math.round((current / total) * 100)}%`);
-                        });
-                        addLog("✅ تم الرفع التلقائي للبيانات!");
-                        setIsUploading(false);
-                        localStorage.setItem('firebase_sync_init_done', 'true');
-                        window.dispatchEvent(new CustomEvent('syncend'));
-                    }
-                } catch (checkErr) {
-                    // Suppress visual error for count permission issues as long as realtime sync is active
-                    console.warn("Auto-migration check failed (likely permission issue):", checkErr);
-                    // addLog("⚠️ فشل التحقق من الترحيل التلقائي"); 
+                if (!hasSynced) {
+                    const snapshot = await getCountFromServer(query(productsColl));
+                    cloudCount = snapshot.data().count;
                 }
-                // -----------------------------
 
-            } catch (e: any) {
-                console.error(e);
-                setStatus('disconnected');
-                addLog("خطأ في الاتصال: " + e.message);
+                const localCount = await localDb.products.count();
+
+                if (!hasSynced && cloudCount === 0 && localCount > 0) {
+                    addLog(`⚠️ السحابة فارغة (${localCount} عنصر محلي). بدء الرفع التلقائي...`);
+                    await new Promise(r => setTimeout(r, 1000));
+                    setIsUploading(true);
+                    window.dispatchEvent(new CustomEvent('syncstart'));
+                    await syncAllLocalToCloud((current, total) => {
+                        setUploadProgress(`${Math.round((current / total) * 100)}%`);
+                    });
+                    addLog("✅ تم الرفع التلقائي للبيانات!");
+                    setIsUploading(false);
+                    localStorage.setItem('firebase_sync_init_done', 'true');
+                    window.dispatchEvent(new CustomEvent('syncend'));
+                }
+            } catch (checkErr) {
+                console.warn("Auto-migration check failed:", checkErr);
             }
         }
 
-        // Use a slight delay to allow browser environment to settle
-        const timer = setTimeout(init, 1000);
+        init();
 
         return () => {
-            clearTimeout(timer);
             stopRealtimeSync();
         }
     }, [])

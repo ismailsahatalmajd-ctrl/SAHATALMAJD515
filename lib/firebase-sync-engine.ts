@@ -251,10 +251,26 @@ const syncCollection = (
 
                     if (change.type === "added" || change.type === "modified") {
                         const record = { ...data, id: localId } as Product & { lastSyncedAt?: unknown };
-                        if (collectionName === COLLECTIONS.PRODUCTS && existingProductsMap && hasPrunedInitialSnapshot) {
-                            const existing = existingProductsMap.get(localId);
-                            if (shouldSkipStaleRemoteProduct(existing, record)) {
-                                continue;
+                        if (collectionName === COLLECTIONS.PRODUCTS) {
+                            if (existingProductsMap && hasPrunedInitialSnapshot) {
+                                const existing = existingProductsMap.get(localId);
+                                if (shouldSkipStaleRemoteProduct(existing, record)) {
+                                    continue;
+                                }
+                            }
+                            // Normalize quantityPerCarton and currentStock before writing to Dexie
+                            // so app/page.tsx ensureConsistency never triggers a second re-render jump
+                            const op = Number(record.openingStock) || 0;
+                            const pu = Number(record.purchases) || 0;
+                            const ret = Number(record.returns) || 0;
+                            const adj = Number(record.adjustments) || 0;
+                            const iss = Number(record.issues) || 0;
+                            const theoretical = op + pu + ret + adj - iss;
+                            if (!record.quantityPerCarton || record.quantityPerCarton === 0) {
+                                record.quantityPerCarton = 1;
+                            }
+                            if (Math.abs(Number(record.currentStock) - theoretical) > 0.001) {
+                                record.currentStock = theoretical;
                             }
                         }
                         recordsToPut.push(record);

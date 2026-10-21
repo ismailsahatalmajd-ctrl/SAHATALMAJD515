@@ -251,7 +251,7 @@ const syncCollection = (
 
                     if (change.type === "added" || change.type === "modified") {
                         const record = { ...data, id: localId } as Product & { lastSyncedAt?: unknown };
-                        if (collectionName === COLLECTIONS.PRODUCTS && existingProductsMap) {
+                        if (collectionName === COLLECTIONS.PRODUCTS && existingProductsMap && hasPrunedInitialSnapshot) {
                             const existing = existingProductsMap.get(localId);
                             if (shouldSkipStaleRemoteProduct(existing, record)) {
                                 continue;
@@ -275,15 +275,9 @@ const syncCollection = (
                 ) {
                     hasPrunedInitialSnapshot = true;
                     const serverIds = new Set(snapshot.docs.map((d) => d.id));
-                    const pendingQueue = await localDb.syncQueue.toArray();
-                    const pendingProductIds = new Set(
-                        pendingQueue
-                            .filter((qItem) => qItem.table === COLLECTIONS.PRODUCTS && qItem.op === "upsert")
-                            .map((qItem) => qItem.payload?.id)
-                    );
                     const localKeys = (await localTable.toCollection().primaryKeys()) as string[];
                     for (const key of localKeys) {
-                        if (!serverIds.has(key) && !pendingProductIds.has(key) && !isDeleting(key)) {
+                        if (!serverIds.has(key) && !isDeleting(key)) {
                             idsToDelete.push(key);
                         }
                     }
@@ -320,15 +314,19 @@ const syncCollection = (
 // 1. Listen for Cloud Changes (Cloud -> Local)
 export const startRealtimeSync = () => {
     if (isSyncing) return;
-    if (!auth.currentUser) {
-        console.debug("[Sync] Waiting for Firebase authentication before starting sync.");
-        return;
-    }
     isSyncing = true;
     console.log("🔥 Starting Firebase Realtime Sync...");
 
-    // Process queue on startup
-    processSyncQueue().catch(console.error);
+    // Clear stale offline queue items older than 15 minutes so old browsers don't overwrite cloud data
+    localDb.syncQueue.toArray().then((items) => {
+        const cutoff = Date.now() - 15 * 60 * 1000;
+        const staleIds = items
+            .filter((item) => !item.ts || new Date(item.ts).getTime() < cutoff)
+            .map((item) => item.id);
+        if (staleIds.length > 0) {
+            return localDb.syncQueue.bulkDelete(staleIds);
+        }
+    }).then(() => processSyncQueue()).catch(console.error);
 
     try {
         // --- 1. Real-time Collections (Absolute necessity) ---

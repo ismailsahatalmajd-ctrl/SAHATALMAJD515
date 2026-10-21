@@ -178,13 +178,13 @@ export default function Home() {
 
   // Derived State
   const categories = useMemo(() => {
-    if (categoriesDataRaw && categoriesDataRaw.length > 0) return categoriesData.map(c => c.name)
+    if (categoriesDataRaw && categoriesDataRaw.length > 0) return Array.from(new Set(categoriesData.map(c => c.name)))
     const unique = new Set((products || []).map(p => p.category).filter(c => c && typeof c === 'string' && c.trim() !== ''))
     return Array.from(unique).sort()
   }, [categoriesData, products])
 
   const locations = useMemo(() => {
-    if (locationsDataRaw && locationsDataRaw.length > 0) return locationsData.map(l => l.name)
+    if (locationsDataRaw && locationsDataRaw.length > 0) return Array.from(new Set(locationsData.map(l => l.name)))
     const unique = new Set((products || []).map(p => p.location).filter(l => l && typeof l === 'string' && l.trim() !== ''))
     return Array.from(unique).sort()
   }, [locationsData, products])
@@ -206,13 +206,12 @@ export default function Home() {
     return () => clearTimeout(timer)
   }, [searchTerm])
 
-  // Auto-fix quantityPerCarton = 0 for existing products
+  // Auto-fix quantityPerCarton = 0 for existing products in a single instant batch
   useEffect(() => {
     if (!products || products.length === 0) return
 
     const ensureConsistency = async () => {
-      const updates = []
-      // 1. Quick check for consistency needs
+      const updatedProducts: Product[] = []
       for (const p of products) {
         if (!p.id) continue
         const op = Number(p.openingStock) || 0
@@ -227,31 +226,20 @@ export default function Home() {
         const needsStockFix = Math.abs(stored - theoretical) > 0.001
 
         if (needsCartonFix || needsStockFix) {
-          const changes: any = {}
-          if (needsCartonFix) changes.quantityPerCarton = 1
-          if (needsStockFix) changes.currentStock = theoretical
-          updates.push({ id: p.id, changes })
+          updatedProducts.push({
+            ...p,
+            quantityPerCarton: needsCartonFix ? 1 : p.quantityPerCarton,
+            currentStock: needsStockFix ? theoretical : p.currentStock,
+          })
         }
       }
 
-      if (updates.length === 0) return
+      if (updatedProducts.length === 0) return
 
-      console.log(`🧹 Found ${updates.length} products needing consistency fix. Processing in batches...`)
-
-      // Process in smaller batches of 10 to avoid blocking the UI
-      const BATCH_SIZE = 10
-      for (let i = 0; i < updates.length; i += BATCH_SIZE) {
-        const batch = updates.slice(i, i + BATCH_SIZE)
-        await Promise.all(batch.map(u => db.products.update(u.id, u.changes).catch(() => { })))
-        // Small yield to main thread
-        await new Promise(r => setTimeout(r, 100))
-      }
-
-      console.log("✅ Background consistency check complete.")
+      await db.products.bulkPut(updatedProducts).catch(() => {})
     }
 
-    const timer = setTimeout(ensureConsistency, 3000)
-    return () => clearTimeout(timer)
+    ensureConsistency()
   }, [products?.length])
 
   // Load saved view mode from localStorage

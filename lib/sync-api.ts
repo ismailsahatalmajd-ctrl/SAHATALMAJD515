@@ -129,13 +129,13 @@ export async function deleteProductApi(id: string) {
 
 export async function deleteAllProductsApi(ids: string[]) {
   try {
-    const batchSize = 500
+    const batchSize = 200
     for (let i = 0; i < ids.length; i += batchSize) {
       const batch = writeBatch(firestore)
       const chunk = ids.slice(i, i + batchSize)
       chunk.forEach(id => {
-        const ref = doc(firestore, 'products', id)
-        batch.delete(ref)
+        batch.delete(doc(firestore, 'products', id))
+        batch.delete(doc(firestore, 'product_images', id))
       })
       await batch.commit()
     }
@@ -309,7 +309,9 @@ async function batchDeleteApi(collectionName: string, ids: string[]) {
     const map: Record<string, string> = {
       'branch_requests': 'branchRequests',
       'branch_invoices': 'branchInvoices',
-      'inventory_adjustments': 'inventoryAdjustments'
+      'inventory_adjustments': 'inventoryAdjustments',
+      'productImages': 'product_images',
+      'product_images': 'product_images'
     }
     const target = map[collectionName] || collectionName
 
@@ -340,4 +342,4 @@ export async function deleteAllAdjustmentsApi(ids: string[]) { return batchDelet
 export async function deleteAllBranchRequestsApi(ids: string[]) { return batchDeleteApi('branchRequests', ids) }
 export async function deleteAllBranchInvoicesApi(ids: string[]) { return batchDeleteApi('branchInvoices', ids) }
 export async function deleteAllPurchaseRequestsApi(ids: string[]) { return batchDeleteApi('purchaseRequests', ids) }
-export async function deleteAllProductImagesApi(ids: string[]) { return batchDeleteApi('productImages', ids) }
+export async function deleteAllProductImagesApi(ids: string[]) { return batchDeleteApi('product_images', ids) }

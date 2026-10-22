@@ -230,6 +230,7 @@ const syncCollection = (
             try {
                 const recordsToPut: any[] = [];
                 const idsToDelete: string[] = [];
+                const ghostIdsToPurge: string[] = [];
                 const granularUserIds: string[] = [];
 
                 // Build an in-memory map for products once instead of awaiting localTable.get() 1,500+ times
@@ -252,6 +253,14 @@ const syncCollection = (
                     if (change.type === "added" || change.type === "modified") {
                         const record = { ...data, id: localId } as Product & { lastSyncedAt?: unknown };
                         if (collectionName === COLLECTIONS.PRODUCTS) {
+                            // Ignore and purge ghost documents created by orphaned image uploads (no name, code, or itemNumber)
+                            if (!record.productName && !record.productCode && !record.itemNumber) {
+                                idsToDelete.push(localId);
+                                if (!snapshot.metadata.fromCache) {
+                                    ghostIdsToPurge.push(localId);
+                                }
+                                continue;
+                            }
                             if (existingProductsMap && hasPrunedInitialSnapshot) {
                                 const existing = existingProductsMap.get(localId);
                                 if (shouldSkipStaleRemoteProduct(existing, record)) {
@@ -290,12 +299,25 @@ const syncCollection = (
                     snapshot.docs.length > 0
                 ) {
                     hasPrunedInitialSnapshot = true;
-                    const serverIds = new Set(snapshot.docs.map((d) => d.id));
+                    const validServerIds = new Set(
+                        snapshot.docs
+                            .filter((d) => {
+                                const dt = d.data();
+                                return Boolean(dt.productName || dt.productCode || dt.itemNumber);
+                            })
+                            .map((d) => d.id)
+                    );
                     const localKeys = (await localTable.toCollection().primaryKeys()) as string[];
                     for (const key of localKeys) {
-                        if (!serverIds.has(key) && !isDeleting(key)) {
+                        if (!validServerIds.has(key) && !isDeleting(key)) {
                             idsToDelete.push(key);
                         }
+                    }
+                    // Also prune local orphaned images whose product no longer exists
+                    const localImgKeys = (await localDb.productImages.toCollection().primaryKeys()) as string[];
+                    const orphanImgKeys = localImgKeys.filter((k) => !validServerIds.has(k));
+                    if (orphanImgKeys.length > 0) {
+                        await localDb.productImages.bulkDelete(orphanImgKeys).catch(() => {});
                     }
                 }
 
@@ -304,6 +326,12 @@ const syncCollection = (
                 }
                 if (idsToDelete.length > 0) {
                     await localTable.bulkDelete(idsToDelete);
+                    if (collectionName === COLLECTIONS.PRODUCTS) {
+                        await localDb.productImages.bulkDelete(idsToDelete).catch(() => {});
+                    }
+                }
+                if (ghostIdsToPurge.length > 0) {
+                    deleteAllProductsApi(ghostIdsToPurge).catch(console.error);
                 }
 
                 if (recordsToPut.length > 0 || idsToDelete.length > 0) {
@@ -641,8 +669,22 @@ export const syncAllLocalToCloud = async (onProgress: (current: number, total: n
     let lastError: any = null;
 
     try {
-        const products = await localDb.products.toArray();
-        const images = await localDb.productImages.toArray();
+        const allLocalProducts = await localDb.products.toArray();
+        const products = allLocalProducts.filter(p => p.productName || p.productCode || p.itemNumber);
+        const ghostLocalProductIds = allLocalProducts.filter(p => !p.productName && !p.productCode && !p.itemNumber).map(p => p.id);
+        if (ghostLocalProductIds.length > 0) {
+            await localDb.products.bulkDelete(ghostLocalProductIds).catch(() => {});
+        }
+
+        const validProductIds = new Set(products.map(p => p.id));
+        const allLocalImages = await localDb.productImages.toArray();
+        const images = allLocalImages.filter(img => validProductIds.has(img.productId));
+        const orphanLocalImageIds = allLocalImages.filter(img => !validProductIds.has(img.productId)).map(img => img.productId);
+        if (orphanLocalImageIds.length > 0) {
+            console.log(`[Sync] Cleaning ${orphanLocalImageIds.length} orphaned local images before upload...`);
+            await localDb.productImages.bulkDelete(orphanLocalImageIds).catch(() => {});
+        }
+
         const totalProducts = products.length;
         const totalImages = images.length;
         const total = totalProducts + totalImages;
@@ -724,29 +766,43 @@ export const syncAllCloudToLocal = async (onProgress: (msg: string) => void) => 
 
         let serverProductIds = new Set<string>();
         let downloadedProducts: Product[] = [];
+        let ghostServerProductIds: string[] = [];
 
         if (total > 0) {
             onProgress(`تم العثور على ${total} منتج. جاري التحميل...`);
-            downloadedProducts = snapshot.docs.map(d => {
+            for (const d of snapshot.docs) {
+                const data = d.data();
+                if (!data.productName && !data.productCode && !data.itemNumber) {
+                    ghostServerProductIds.push(d.id);
+                    continue;
+                }
                 serverProductIds.add(d.id);
-                return { ...d.data(), id: d.id } as Product;
-            });
-            await localDb.products.bulkPut(downloadedProducts);
+                downloadedProducts.push({ ...data, id: d.id } as Product);
+            }
+            if (downloadedProducts.length > 0) {
+                await localDb.products.bulkPut(downloadedProducts);
+            }
+            if (ghostServerProductIds.length > 0) {
+                console.log(`[Sync] Purging ${ghostServerProductIds.length} ghost products from cloud...`);
+                deleteAllProductsApi(ghostServerProductIds).catch(console.error);
+            }
         }
 
         // Pruning Stale Products
-        let deletedProductIds: string[] = [];
+        let deletedProductIds: string[] = [...ghostServerProductIds];
         if (total > 0 || pendingProductIds.size === 0) {
             const localKeys = await localDb.products.toCollection().primaryKeys();
-            deletedProductIds = (localKeys as string[]).filter(k =>
+            const staleLocal = (localKeys as string[]).filter(k =>
                 !serverProductIds.has(k as string) &&
                 !pendingProductIds.has(k as string) &&
                 !isDeleting(k as string)
             );
+            deletedProductIds = Array.from(new Set([...deletedProductIds, ...staleLocal]));
 
             if (deletedProductIds.length > 0) {
                 console.log(`[Sync] Pruning ${deletedProductIds.length} stale products...`);
                 await localDb.products.bulkDelete(deletedProductIds);
+                await localDb.productImages.bulkDelete(deletedProductIds).catch(() => {});
             }
         }
 
@@ -760,23 +816,35 @@ export const syncAllCloudToLocal = async (onProgress: (msg: string) => void) => 
         const snapImg = await getDocs(qImg);
         const totalImg = snapImg.size;
         let serverImageIds = new Set<string>();
+        let orphanCloudImageIds: string[] = [];
 
         if (totalImg > 0) {
             onProgress(`تم العثور على ${totalImg} صورة. جاري التحميل...`);
-            const images = snapImg.docs.map(d => {
+            const images: { productId: string; data: string }[] = [];
+            for (const d of snapImg.docs) {
+                if (!serverProductIds.has(d.id) && !pendingProductIds.has(d.id)) {
+                    orphanCloudImageIds.push(d.id);
+                    continue;
+                }
                 serverImageIds.add(d.id);
                 const data = d.data();
-                return { productId: d.id, data: data.data };
-            });
-            await localDb.productImages.bulkPut(images);
+                images.push({ productId: d.id, data: data.data });
+            }
+            if (images.length > 0) {
+                await localDb.productImages.bulkPut(images);
+            }
+            if (orphanCloudImageIds.length > 0) {
+                console.log(`[Sync] Purging ${orphanCloudImageIds.length} orphaned images from cloud...`);
+                deleteAllProductsApi(orphanCloudImageIds).catch(console.error);
+            }
         }
 
         // Pruning Stale Images
         if (totalImg > 0 || pendingImageIds.size === 0) {
             const localImageKeys = await localDb.productImages.toCollection().primaryKeys();
             const imagesToDelete = localImageKeys.filter(k =>
-                !serverImageIds.has(k as string) &&
-                !pendingImageIds.has(k as string)
+                (!serverImageIds.has(k as string) && !pendingImageIds.has(k as string)) ||
+                (!serverProductIds.has(k as string) && !pendingProductIds.has(k as string))
             );
 
             if (imagesToDelete.length > 0) {
@@ -857,11 +925,17 @@ export const syncAllCloudToLocal = async (onProgress: (msg: string) => void) => 
 export const syncProduct = syncProductToCloud;
 export const deleteProductApi = deleteProductFromCloud;
 export const deleteAllProductsApi = async (ids: string[]) => {
-    const batch = writeBatch(firestore);
-    ids.forEach(id => {
-        batch.delete(doc(firestore, COLLECTIONS.PRODUCTS, id));
-    });
-    await batch.commit();
+    if (!ids.length) return;
+    const CHUNK_SIZE = 200; // 200 products + 200 images = 400 ops per batch (< 500 max)
+    for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+        const chunk = ids.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(firestore);
+        chunk.forEach(id => {
+            batch.delete(doc(firestore, COLLECTIONS.PRODUCTS, id));
+            batch.delete(doc(firestore, COLLECTIONS.PRODUCT_IMAGES, id));
+        });
+        await batch.commit();
+    }
 }
 
 export const syncTransaction = (r: any) => syncRecord(COLLECTIONS.TRANSACTIONS, r);

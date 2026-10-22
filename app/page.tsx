@@ -28,7 +28,7 @@ import { useI18n } from "@/components/language-provider"
 import { useToast } from "@/hooks/use-toast"
 import type { Product } from "@/lib/types"
 import { useLiveQuery } from "dexie-react-hooks"
-import { getProducts, addProduct, updateProduct, deleteProduct, getCategories, getLocations, syncAllFromServer, db, initDataStore, reloadFromDb, fixDuplicates } from "@/lib/storage"
+import { getProducts, addProduct, updateProduct, deleteProduct, deleteProductsBulk, getCategories, getLocations, syncAllFromServer, db, initDataStore, reloadFromDb, fixDuplicates } from "@/lib/storage"
 import { convertNumbersToEnglish, getSafeImageSrc, getApiUrl } from "@/lib/utils"
 import { collectPerf, savePerf } from "@/lib/perf"
 import { saveInvoiceSettings as saveSettingsLib, getInvoiceSettings } from "@/lib/invoice-settings-store"
@@ -1086,11 +1086,8 @@ export default function Home() {
   }
 
   const handleDeleteProducts = async (ids: string[]) => {
-    if (!confirm(t("home.bulkDelete.confirm").replace("{count}", String(ids.length)))) return;
     try {
-      for (const id of ids) {
-        await deleteProduct(id);
-      }
+      await deleteProductsBulk(ids);
       toast({
         title: t("toast.success"),
         description: t("home.bulkDelete.success"),

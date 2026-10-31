@@ -38,6 +38,7 @@ import { useBranchesRealtime } from "@/hooks/use-store"
 import { syncBranch, deleteBranchApi } from "@/lib/sync-api"
 import { useRef } from "react"
 import { Upload } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
 
 export function BranchManager() {
   const { t } = useI18n()
@@ -60,6 +61,7 @@ export function BranchManager() {
     phone: "",
     username: "",
     password: "",
+    isActive: true,
   })
 
   // Auto-generate code for existing branches if missing (Migration)
@@ -102,6 +104,7 @@ export function BranchManager() {
           manager: formData.manager || undefined,
           phone: formData.phone || undefined,
           username: formData.username || undefined,
+          isActive: formData.username ? formData.isActive : true,
         }
 
         if (formData.password) {
@@ -169,6 +172,7 @@ export function BranchManager() {
           phone: formData.phone || undefined,
           username: formData.username,
           passwordHash,
+          isActive: formData.username ? formData.isActive : true,
         })
         syncBranch(newBranch).catch(console.error)
         addAuditLog("admin", "Admin User", "create", "branch", newBranch.id, newBranch.name)
@@ -194,6 +198,7 @@ export function BranchManager() {
       phone: branch.phone || "",
       username: branch.username || "",
       password: "", // Always empty for security
+      isActive: branch.isActive !== false,
     })
     // Auto-suggest code if missing
     if (!branch.code) {
@@ -223,7 +228,7 @@ export function BranchManager() {
   }
 
   const resetForm = () => {
-    setFormData({ code: "", name: "", location: "", manager: "", phone: "", username: "", password: "" })
+    setFormData({ code: "", name: "", location: "", manager: "", phone: "", username: "", password: "", isActive: true })
     setEditingBranch(null)
   }
 
@@ -541,6 +546,19 @@ export function BranchManager() {
                         className="text-left"
                       />
                     </div>
+                    {formData.username && (
+                      <div className="flex items-center justify-between border-t pt-4 mt-2">
+                        <div className="space-y-0.5">
+                          <Label htmlFor="isActive">تفعيل حساب الدخول للفرع / Account Active</Label>
+                          <p className="text-xs text-muted-foreground">تجميد أو تنشيط صلاحية الفرع لإرسال الطلبات</p>
+                        </div>
+                        <Switch
+                          id="isActive"
+                          checked={formData.isActive}
+                          onCheckedChange={(checked) => setFormData({ ...formData, isActive: checked })}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -573,9 +591,13 @@ export function BranchManager() {
                     {branch.location}
                   </CardDescription>
                 </div>
-                <Badge variant={branch.username ? "default" : "secondary"}>
-                  {branch.username ? "مفعل/Active" : "بدون/No account created"}
-                </Badge>
+                {branch.isActive === false ? (
+                  <Badge variant="destructive">موقوف/Suspended</Badge>
+                ) : (
+                  <Badge variant={branch.username ? "default" : "secondary"}>
+                    {branch.username ? "مفعل/Active" : "بدون/No account created"}
+                  </Badge>
+                )}
               </div>
             </CardHeader>
             <CardContent className="pt-4">

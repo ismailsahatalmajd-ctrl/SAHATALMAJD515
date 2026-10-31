@@ -42,16 +42,23 @@ export async function processSyncQueue(limit: number = 25) {
     const items = await db.syncQueue.orderBy('ts').limit(limit).toArray();
     if (items.length === 0) return;
 
-    console.log(`[Sync] Processing ${items.length} queued items...`);
+    const cutoff = Date.now() - 5 * 60 * 1000;
+    const staleIds = items
+      .filter(item => !item.ts || new Date(item.ts).getTime() < cutoff)
+      .map(item => item.id);
+    if (staleIds.length > 0) {
+      await db.syncQueue.bulkDelete(staleIds);
+    }
 
-    for (const item of items) {
+    const freshItems = items.filter(item => item.ts && new Date(item.ts).getTime() >= cutoff);
+    if (freshItems.length === 0) return;
+
+    console.log(`[Sync] Processing ${freshItems.length} queued items...`);
+
+    for (const item of freshItems) {
       const success = await performFirebaseOp(item.table, item.op as any, item.payload, true);
       if (success) {
         await db.syncQueue.delete(item.id);
-      } else {
-        // Increment attempts?
-        // For now, leave it. If it fails, it stays in queue.
-        // Maybe add a delay or backoff?
       }
     }
   } catch (e) {
@@ -77,7 +84,8 @@ async function performFirebaseOp(collectionName: string, op: 'upsert' | 'delete'
       'branch_requests': 'branchRequests',
       'branch_invoices': 'branchInvoices',
       'inventory_adjustments': 'inventoryAdjustments',
-      'adjustments': 'inventoryAdjustments'
+      'adjustments': 'inventoryAdjustments',
+      'assetInvoices': 'assetRequestInvoices'
     }
     const targetCollection = map[collectionName] || collectionName
 
@@ -121,13 +129,13 @@ export async function deleteProductApi(id: string) {
 
 export async function deleteAllProductsApi(ids: string[]) {
   try {
-    const batchSize = 500
+    const batchSize = 200
     for (let i = 0; i < ids.length; i += batchSize) {
       const batch = writeBatch(firestore)
       const chunk = ids.slice(i, i + batchSize)
       chunk.forEach(id => {
-        const ref = doc(firestore, 'products', id)
-        batch.delete(ref)
+        batch.delete(doc(firestore, 'products', id))
+        batch.delete(doc(firestore, 'product_images', id))
       })
       await batch.commit()
     }
@@ -214,6 +222,44 @@ export async function syncBranchInvoice(inv: BranchInvoice) {
   return performFirebaseOp('branchInvoices', 'upsert', inv)
 }
 
+// --- Assets & Materials ---
+export async function syncAssetItem(item: any) {
+  return performFirebaseOp('assetItems', 'upsert', item)
+}
+export async function deleteAssetItemApi(id: string) {
+  return performFirebaseOp('assetItems', 'delete', { id })
+}
+export async function syncAssetSerialNumber(serial: any) {
+  return performFirebaseOp('assetSerialNumbers', 'upsert', serial)
+}
+export async function deleteAssetSerialNumberApi(id: string) {
+  return performFirebaseOp('assetSerialNumbers', 'delete', { id })
+}
+export async function syncAssetInvoice(invoice: any) {
+  return performFirebaseOp('assetRequestInvoices', 'upsert', invoice)
+}
+export async function deleteAssetInvoiceApi(id: string) {
+  return performFirebaseOp('assetRequestInvoices', 'delete', { id })
+}
+export async function syncAssetPurchaseOrder(order: any) {
+  return performFirebaseOp('assetPurchaseOrders', 'upsert', order)
+}
+export async function syncAssetPriceHistory(record: any) {
+  return performFirebaseOp('assetPriceHistory', 'upsert', record)
+}
+export async function syncAssetSupplier(supplier: any) {
+  return performFirebaseOp('assetSuppliers', 'upsert', supplier)
+}
+export async function deleteAssetSupplierApi(id: string) {
+  return performFirebaseOp('assetSuppliers', 'delete', { id })
+}
+export async function syncAssetSupplierReturn(ret: any) {
+  return performFirebaseOp('assetSupplierReturns', 'upsert', ret)
+}
+export async function syncAssetBranchReturn(ret: any) {
+  return performFirebaseOp('assetBranchReturns', 'upsert', ret)
+}
+
 // --- Bulk Operations ---
 
 export async function pushAllData() {
@@ -244,7 +290,10 @@ export async function pullAllData() {
       save('branchRequests', db.branchRequests),
       save('branchInvoices', db.branchInvoices),
       save('issues', db.issues),
-      save('product_images', db.productImages)
+      save('product_images', db.productImages),
+      save('assetItems', db.assetItems),
+      save('assetSerialNumbers', db.assetSerialNumbers),
+      save('assetInvoices', db.assetInvoices)
     ])
     return 1
   } catch (e) {
@@ -260,7 +309,9 @@ async function batchDeleteApi(collectionName: string, ids: string[]) {
     const map: Record<string, string> = {
       'branch_requests': 'branchRequests',
       'branch_invoices': 'branchInvoices',
-      'inventory_adjustments': 'inventoryAdjustments'
+      'inventory_adjustments': 'inventoryAdjustments',
+      'productImages': 'product_images',
+      'product_images': 'product_images'
     }
     const target = map[collectionName] || collectionName
 
@@ -291,4 +342,4 @@ export async function deleteAllAdjustmentsApi(ids: string[]) { return batchDelet
 export async function deleteAllBranchRequestsApi(ids: string[]) { return batchDeleteApi('branchRequests', ids) }
 export async function deleteAllBranchInvoicesApi(ids: string[]) { return batchDeleteApi('branchInvoices', ids) }
 export async function deleteAllPurchaseRequestsApi(ids: string[]) { return batchDeleteApi('purchaseRequests', ids) }
-export async function deleteAllProductImagesApi(ids: string[]) { return batchDeleteApi('productImages', ids) }
+export async function deleteAllProductImagesApi(ids: string[]) { return batchDeleteApi('product_images', ids) }

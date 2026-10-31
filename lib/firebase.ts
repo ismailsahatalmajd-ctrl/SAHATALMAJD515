@@ -33,7 +33,7 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 let db: Firestore;
 try {
     db = initializeFirestore(app, {
-        experimentalForceLongPolling: false, // Standard WebSockets are cheaper and more efficient
+        experimentalAutoDetectLongPolling: true,
     });
 
     if (isOfflineMode) {
@@ -51,27 +51,11 @@ const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 const storage = getStorage(app);
 
-let isPersistenceEnabled = false;
-
 export const enableOfflinePersistence = async () => {
-    if (isOfflineMode) return; // Skip in offline mode
-    if (typeof window !== 'undefined' && !isPersistenceEnabled) {
-        try {
-            await enableMultiTabIndexedDbPersistence(db);
-            isPersistenceEnabled = true;
-            console.log("✅ Firebase Multi-Tab Persistence Enabled");
-        } catch (err: any) {
-            if (err.code === 'failed-precondition') {
-                // Multiple tabs open, persistence can only be enabled in one tab at a time.
-                console.warn("⚠️ Persistence failed: Multiple tabs open");
-            } else if (err.code === 'unimplemented') {
-                // The current browser does not support all of the features required to enable persistence
-                console.warn("⚠️ Persistence not supported by browser");
-            } else {
-                console.error("⚠️ Persistence FATAL Error:", err);
-            }
-        }
-    }
+    // Local persistence is already handled by Dexie (lib/db.ts).
+    // Skipping Firestore's internal IndexedDB persistence prevents multi-tab lockups
+    // and prevents stale fromCache snapshots from showing 'Sync Error'.
+    return;
 }
 
 export const resetPersistence = async () => {

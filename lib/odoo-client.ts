@@ -1,3 +1,17 @@
+import { auth } from "@/lib/firebase"
+
+export async function fetchOdooApi(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers)
+  try {
+    const user = auth?.currentUser
+    if (user && !user.isAnonymous) {
+      headers.set("Authorization", `Bearer ${await user.getIdToken()}`)
+    }
+  } catch (e) {
+    // Ignore auth token errors
+  }
+  return fetch(input, { ...init, headers })
+}
 
 export async function syncIssueToOdoo(issueData: { invoiceCode: string, products: { productCode: string, quantity: number }[] }) {
     try {

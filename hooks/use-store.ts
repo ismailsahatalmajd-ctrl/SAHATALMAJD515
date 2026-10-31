@@ -1,7 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks"
 import { db } from "@/lib/db"
 import { useState, useEffect, useMemo } from 'react'
-import type { Branch, Location, Product, Transaction, Category, Unit, Issue, InventoryAdjustment, Return, ReceivingNote, ReceiptInspectionVoucher } from "@/lib/types"
+import type { Branch, Location, Product, Transaction, Category, Unit, Issue, InventoryAdjustment, Return, ReceivingNote, DeliveryNote, ReceiptInspectionVoucher } from "@/lib/types"
 import type { PurchaseRequest } from "@/lib/purchase-request-types"
 import type { BranchRequest } from "@/lib/branch-request-types"
 import type { BranchInvoice } from "@/lib/branch-invoice-types"
@@ -107,6 +107,11 @@ export function useAdjustmentsRealtime() {
 export function useReceivingNotesRealtime() {
     const table = useMemo(() => db.receivingNotes.toCollection().reverse(), [])
     return useDexieTableProgressive<ReceivingNote>(table, 20)
+}
+
+export function useDeliveryNotesRealtime() {
+    const table = useMemo(() => db.deliveryNotes.toCollection().reverse(), [])
+    return useDexieTableProgressive<DeliveryNote>(table, 20)
 }
 
 export function useReceiptInspectionVouchersRealtime() {

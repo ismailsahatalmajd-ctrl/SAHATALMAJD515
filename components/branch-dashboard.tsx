@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ShoppingCart, LogOut, Loader2, CheckCircle, Printer, X, RotateCcw, Package, Wrench, ClipboardList, TrendingDown, FileText, AlertTriangle } from "lucide-react"
+import { ShoppingCart, LogOut, Loader2, CheckCircle, Printer, X, RotateCcw, Package, Wrench, ClipboardList, TrendingDown, FileText, AlertTriangle, Ban } from "lucide-react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { db } from "@/lib/db"
 import { useLiveQuery } from "dexie-react-hooks"
@@ -53,6 +53,7 @@ import { BranchMaintenanceReports } from "@/components/branch-maintenance-report
 import { BranchInventoryInvoices } from "@/components/branch-inventory-invoices"
 import { BranchNotesDisplay } from "@/components/branch-notes-display"
 import { BranchInventoryReportComponent } from "@/components/branch-inventory-report"
+import { BranchAssetsCatalog } from "@/components/branch-assets-catalog"
 
 export function BranchDashboard() {
   const router = useRouter()
@@ -584,6 +585,14 @@ export function BranchDashboard() {
 
   async function submitInvoice() {
     if (!branch || isSubmitting) return
+    if (branch.isActive === false) {
+      toast({
+        title: "حساب موقوف / Account Suspended",
+        description: "حساب هذا الفرع موقوف حالياً ولا يمكنه تقديم الطلبات. يرجى التواصل مع الإدارة.",
+        variant: "destructive",
+      })
+      return
+    }
     if (!cart.length) {
       toast({ title: "Add Items / أضف عناصر", description: "Please add products to invoice / يرجى إضافة منتجات إلى الفاتورة" })
       return
@@ -677,6 +686,14 @@ export function BranchDashboard() {
 
   async function submitRequest() {
     if (!branch || isSubmitting) return
+    if (branch.isActive === false) {
+      toast({
+        title: "حساب موقوف / Account Suspended",
+        description: "حساب هذا الفرع موقوف حالياً ولا يمكنه تقديم الطلبات. يرجى التواصل مع الإدارة.",
+        variant: "destructive",
+      })
+      return
+    }
     if (!cart.length) {
       toast({ title: "أضف عناصر", description: "يرجى إضافة منتجات إلى الطلب" })
       return
@@ -792,6 +809,16 @@ export function BranchDashboard() {
         </div>
       </div>
 
+      {branch.isActive === false && (
+        <div className="bg-destructive/15 p-4 rounded-lg flex items-center gap-3 text-destructive border border-destructive/20">
+          <Ban className="h-5 w-5 flex-shrink-0" />
+          <div>
+            <div className="font-bold text-sm md:text-base">حساب الفرع موقوف مؤقتاً / Branch Account Suspended</div>
+            <div className="text-xs md:text-sm mt-0.5">تم إيقاف صلاحية الطلب و المرتجع/The order and return requests have been suspended.</div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardHeader><CardTitle>Branch Info / معلومات الفرع</CardTitle></CardHeader>
@@ -823,15 +850,18 @@ export function BranchDashboard() {
         <CardHeader><CardTitle>Operations / العمليات</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="invoice">Order System / نظام الطلبات</TabsTrigger>
               <TabsTrigger value="request">Return System / نظام المرتجعات</TabsTrigger>
               <TabsTrigger value="inventory">Inventory System / نظام الجرد</TabsTrigger>
+              <TabsTrigger value="assets">Assets / الأصول والمواد</TabsTrigger>
             </TabsList>
 
             <div className="mt-4 space-y-4">
               {activeTab === 'inventory' ? (
                 <BranchInventoryReportComponent branchId={branchId} branchName={branch.name || ""} />
+              ) : activeTab === 'assets' ? (
+                <BranchAssetsCatalog branchId={branchId} branchName={branch.name || ""} />
               ) : (
                 <>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
@@ -1030,7 +1060,7 @@ export function BranchDashboard() {
                     <div className="mt-4 pt-4 border-t">
                       <TabsContent value="invoice">
                         <div className="flex justify-between items-center">
-                          <Button onClick={submitInvoice} disabled={isSubmitting}>
+                          <Button onClick={submitInvoice} disabled={isSubmitting || branch?.isActive === false}>
                             {isSubmitting && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
                             Create Invoice / إنشاء فاتورة
                           </Button>
@@ -1053,7 +1083,7 @@ export function BranchDashboard() {
                               <Textarea value={requestNotes} onChange={e => setRequestNotes(e.target.value)} placeholder="Additional Notes... / ملاحظات إضافية..." />
                             </div>
                           </div>
-                          <Button onClick={submitRequest} className="w-full" disabled={isSubmitting}>
+                          <Button onClick={submitRequest} className="w-full" disabled={isSubmitting || branch?.isActive === false}>
                             {isSubmitting && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
                             Submit Request / إرسال الطلب
                           </Button>

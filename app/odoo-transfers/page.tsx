@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useRef, useMemo } from "react"
-import { Loader2, RefreshCw, ArrowRightLeft, ServerCrash, Eye, Printer, Plus, Trash2, Edit, CheckCircle, XCircle, ChevronDown, Search, Download, Settings2, Calculator, ShoppingCart, Flame } from "lucide-react"
+import { Loader2, RefreshCw, ArrowRightLeft, ServerCrash, Eye, Printer, Plus, Trash2, Edit, CheckCircle, XCircle, ChevronDown, Search, Download, Settings2, Calculator, ShoppingCart, Flame, PackageCheck } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -21,6 +21,7 @@ import { ProductImage } from "@/components/product-image"
 import { OdooExcelDeductionModal } from "@/components/odoo-excel-deduction-modal"
 import { OdooUnitFixerModal } from "@/components/odoo-unit-fixer-modal"
 import { OdooRequestCreatorModal, type OdooRequestCreateMode } from "@/components/odoo-request-creator-modal"
+import { OdooPOReceiptsModal } from "@/components/odoo-po-receipts-modal"
 import { fetchOdooApi } from "@/lib/odoo-client"
 import { useAuth } from "@/components/auth-provider"
 import Link from "next/link"
@@ -308,10 +309,15 @@ export default function OdooTransfersPage() {
     const [actionLoading, setActionLoading] = useState<number | null>(null)
     const [selectedIds, setSelectedIds] = useState<number[]>([])
 
-    // Excel Deduction State
+    // Excel Deduction / Receive State
     const [isExcelModalOpen, setIsExcelModalOpen] = useState(false)
+    const [excelModalMode, setExcelModalMode] = useState<'deduct' | 'receive'>('deduct')
+    const [receiveSelectedIds, setReceiveSelectedIds] = useState<number[]>([])
     const [isProcessingExcel, setIsProcessingExcel] = useState(false)
     const [excelFile, setExcelFile] = useState<File | null>(null)
+
+    // PO Receipts Modal State
+    const [isPoReceiptsOpen, setIsPoReceiptsOpen] = useState(false)
 
     // Unit Fixer Modal State (Single Branch or Multi-Transfer)
     const [isUnitFixerOpen, setIsUnitFixerOpen] = useState(false)
@@ -390,14 +396,34 @@ export default function OdooTransfersPage() {
         return owner || (t.name !== '/' ? t.name : `طلب #${t.id}`);
     }
 
-    const fetchAggregatedLines = async () => {
+    const isPurchaseRequestTransfer = (t?: OdooTransfer) => {
+        if (!t) return false;
+        const catName = (t.category_id && t.category_id[1] ? t.category_id[1] : '').toLowerCase();
+        const reqName = (t.name || '').toUpperCase();
+        return catName.includes('purchase request') || reqName.startsWith('PR');
+    }
+
+    const prSelectedIds = useMemo(
+        () => selectedIds.filter(id => isPurchaseRequestTransfer(transfers.find(t => t.id === id))),
+        [selectedIds, transfers]
+    )
+
+    const internalSelectedIds = useMemo(
+        () => selectedIds.filter(id => {
+            const tr = transfers.find(t => t.id === id)
+            return tr && !isPurchaseRequestTransfer(tr)
+        }),
+        [selectedIds, transfers]
+    )
+
+    const fetchAggregatedLines = async (idsToAggregate: number[] = internalSelectedIds) => {
         const allLinesMap = new Map<string, any>();
         const branchProductCounts: Record<string, number> = {};
         
         const res = await fetchOdooApi(`/api/odoo/transfers/batch-lines`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: selectedIds })
+            body: JSON.stringify({ ids: idsToAggregate })
         });
         
         const data = await res.json();
@@ -439,22 +465,22 @@ export default function OdooTransfersPage() {
     }
 
     const handleGeneratePickingListPDF = async () => {
-        if (selectedIds.length === 0) return;
+        if (internalSelectedIds.length === 0) return;
         const printWindow = window.open("", "_blank");
         if (printWindow) {
             printWindow.document.write('<html dir="rtl"><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f8fafc;color:#1e293b;"><h2>جاري تجهيز فاتورة التجميع (Matrix)... يرجى الانتظار</h2></body></html>');
         }
         toast({ title: "جاري تجهيز قائمة التجميع (PDF)...", description: "يرجى الانتظار...", duration: 5000 });
         try {
-            const { lines: aggregatedLines, branchProductCounts } = await fetchAggregatedLines();
+            const { lines: aggregatedLines, branchProductCounts } = await fetchAggregatedLines(internalSelectedIds);
             const owners = Array.from(new Set(
-                selectedIds.map(id => {
+                internalSelectedIds.map(id => {
                     const t = transfers.find(tr => tr.id === id)
                     return t ? getTransferBranchName(t) : undefined
                 }).filter(Boolean)
             ));
             const orderIds = Array.from(new Set(
-                selectedIds.map(id => transfers.find(t => t.id === id)?.name).filter(n => n && n !== '/')
+                internalSelectedIds.map(id => transfers.find(t => t.id === id)?.name).filter(n => n && n !== '/')
             ));
             await generateOdooPickingListPDF(aggregatedLines, "قائمة تجميع (مفصلة) - Picking List", owners as string[], orderIds as string[], branchProductCounts, pickingColumns, printWindow);
             setIsPickingDialogOpen(false);
@@ -466,10 +492,10 @@ export default function OdooTransfersPage() {
     }
 
     const handleGeneratePickingListExcel = async () => {
-        if (selectedIds.length === 0) return;
+        if (internalSelectedIds.length === 0) return;
         toast({ title: "جاري تجهيز قائمة التجميع (Excel)...", description: "يرجى الانتظار...", duration: 5000 });
         try {
-            const { lines: aggregatedLines } = await fetchAggregatedLines();
+            const { lines: aggregatedLines } = await fetchAggregatedLines(internalSelectedIds);
             await generateOdooPickingListExcel(aggregatedLines, "قائمة تجميع - Picking List");
             toast({ title: "تم التصدير!", description: "تم تنزيل ملف الإكسل بنجاح." });
         } catch (error: any) {
@@ -804,66 +830,104 @@ export default function OdooTransfersPage() {
                     </div>
                     <div className="flex gap-1.5 flex-wrap items-center">
                         {selectedIds.length > 0 && (() => {
-                            const editableSelectedIds = selectedIds.filter(id => {
+                            const editableInternalSelectedIds = internalSelectedIds.filter(id => {
+                                const tr = transfers.find(t => t.id === id)
+                                return tr && (tr.request_status === 'new' || tr.request_status === 'pending')
+                            })
+                            const editablePrSelectedIds = prSelectedIds.filter(id => {
                                 const tr = transfers.find(t => t.id === id)
                                 return tr && (tr.request_status === 'new' || tr.request_status === 'pending')
                             })
                             return (
                             <>
-                                {editableSelectedIds.length > 0 && (
+                                {editableInternalSelectedIds.length > 0 && (
                                     <Button 
                                         size="sm"
                                         variant="outline"
-                                        onClick={() => openUnitFixer(editableSelectedIds)} 
+                                        onClick={() => openUnitFixer(editableInternalSelectedIds)} 
                                         className="gap-1.5 bg-white border-2 border-amber-600 text-black hover:bg-amber-50 font-bold shadow-sm"
+                                        title="Fix Units for Selected Internal Transfers"
                                     >
                                         <Calculator className="h-4 w-4 text-amber-600" />
                                         Fix Units
-                                        <Badge variant="outline" className="ml-1 px-1.5 py-0.5 text-[10px] border-amber-500 text-black bg-white">{editableSelectedIds.length}</Badge>
+                                        <Badge variant="outline" className="ml-1 px-1.5 py-0.5 text-[10px] border-amber-500 text-black bg-white">{editableInternalSelectedIds.length}</Badge>
                                     </Button>
                                 )}
-                                <Button 
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => handlePrintSelectedPRsPDF(selectedIds)} 
-                                    disabled={printingPrPdf}
-                                    className="gap-1.5 bg-white border-2 border-violet-600 text-black hover:bg-violet-50 font-bold shadow-sm"
-                                    title="Print Selected Purchase Requests (PDF)"
-                                >
-                                    {printingPrPdf ? <Loader2 className="h-4 w-4 animate-spin text-violet-600" /> : <Printer className="h-4 w-4 text-violet-600" />}
-                                    Print PR (PDF)
-                                    <Badge variant="outline" className="ml-1 px-1.5 py-0.5 text-[10px] border-violet-500 text-black bg-white">{selectedIds.length}</Badge>
-                                </Button>
-                                <Button 
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={handleGeneratePickingListExcel} 
-                                    className="gap-1.5 bg-white border-2 border-indigo-600 text-black hover:bg-indigo-50 font-bold shadow-sm"
-                                >
-                                    <Download className="h-4 w-4 text-indigo-600" />
-                                    Excel
-                                </Button>
-                                <Button 
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => setIsPickingDialogOpen(true)} 
-                                    className="gap-1.5 bg-white border-2 border-blue-600 text-black hover:bg-blue-50 font-bold shadow-sm"
-                                >
-                                    <Printer className="h-4 w-4 text-blue-600" />
-                                    Picking List
-                                    <Badge variant="outline" className="ml-1 px-1.5 py-0.5 text-[10px] border-blue-500 text-black bg-white">{selectedIds.length}</Badge>
-                                </Button>
-                                <Button 
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => setIsExcelModalOpen(true)} 
-                                    className="gap-1.5 bg-white border-2 border-emerald-600 text-black hover:bg-emerald-50 font-bold shadow-sm"
-                                >
-                                    Stock Deduction
-                                </Button>
+                                {editablePrSelectedIds.length > 0 && (
+                                    <Button 
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => openUnitFixer(editablePrSelectedIds)} 
+                                        className="gap-1.5 bg-white border-2 border-violet-600 text-black hover:bg-violet-50 font-bold shadow-sm"
+                                        title="Fix Units for Selected Purchase Requests (PR)"
+                                    >
+                                        <Calculator className="h-4 w-4 text-violet-600" />
+                                        Fix PR Units
+                                        <Badge variant="outline" className="ml-1 px-1.5 py-0.5 text-[10px] border-violet-500 text-black bg-white">{editablePrSelectedIds.length}</Badge>
+                                    </Button>
+                                )}
+                                {prSelectedIds.length > 0 && (
+                                    <Button 
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handlePrintSelectedPRsPDF(prSelectedIds)} 
+                                        disabled={printingPrPdf}
+                                        className="gap-1.5 bg-white border-2 border-violet-600 text-black hover:bg-violet-50 font-bold shadow-sm"
+                                        title="Print Selected PRs (PDF)"
+                                    >
+                                        {printingPrPdf ? <Loader2 className="h-4 w-4 animate-spin text-violet-600" /> : <Printer className="h-4 w-4 text-violet-600" />}
+                                        Print PR (PDF)
+                                        <Badge variant="outline" className="ml-1 px-1.5 py-0.5 text-[10px] border-violet-500 text-black bg-white">{prSelectedIds.length}</Badge>
+                                    </Button>
+                                )}
+                                {internalSelectedIds.length > 0 && (
+                                    <>
+                                        <Button 
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={handleGeneratePickingListExcel} 
+                                            className="gap-1.5 bg-white border-2 border-indigo-600 text-black hover:bg-indigo-50 font-bold shadow-sm"
+                                        >
+                                            <Download className="h-4 w-4 text-indigo-600" />
+                                            Excel
+                                        </Button>
+                                        <Button 
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => setIsPickingDialogOpen(true)} 
+                                            className="gap-1.5 bg-white border-2 border-blue-600 text-black hover:bg-blue-50 font-bold shadow-sm"
+                                        >
+                                            <Printer className="h-4 w-4 text-blue-600" />
+                                            Picking List
+                                            <Badge variant="outline" className="ml-1 px-1.5 py-0.5 text-[10px] border-blue-500 text-black bg-white">{internalSelectedIds.length}</Badge>
+                                        </Button>
+                                        <Button 
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => {
+                                                setExcelModalMode("deduct")
+                                                setIsExcelModalOpen(true)
+                                            }} 
+                                            className="gap-1.5 bg-white border-2 border-emerald-600 text-black hover:bg-emerald-50 font-bold shadow-sm"
+                                        >
+                                            Auto Deduct Stock
+                                        </Button>
+                                    </>
+                                )}
                             </>
                             )
                         })()}
+
+                        {/* 0. PO Receipts (01000 Shafa) */}
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setIsPoReceiptsOpen(true)}
+                            className="gap-1.5 bg-white border-2 border-emerald-600 text-black hover:bg-emerald-50 font-bold shadow-sm"
+                        >
+                            <PackageCheck className="h-4 w-4 text-emerald-600" />
+                            PO Receipts (01000)
+                        </Button>
 
                         {/* 1. Internal Transfer (Shafa) */}
                         <Button
@@ -898,9 +962,9 @@ export default function OdooTransfersPage() {
                             Purchase Request (PR)
                         </Button>
 
-                        <Button size="sm" onClick={fetchTransfers} disabled={loading} variant="outline" className="gap-1.5">
+                        <Button size="sm" onClick={fetchTransfers} disabled={loading} variant="outline" className="gap-1.5 bg-white text-black font-bold">
                             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                            تحديث
+                            Refresh
                         </Button>
                     </div>
                 </div>
@@ -929,10 +993,10 @@ export default function OdooTransfersPage() {
                             {/* Category Filter Pills */}
                             <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border text-xs">
                                 {[
-                                    { id: 'all', label: 'كل الأنواع' },
-                                    { id: 'shafa', label: 'الشفا (01000)' },
-                                    { id: 'roastery', label: 'المحمصة (34000)' },
-                                    { id: 'purchase', label: 'المشتريات (PR)' },
+                                    { id: 'all', label: 'All Types' },
+                                    { id: 'shafa', label: 'Shafa (01000)' },
+                                    { id: 'roastery', label: 'Roastery (34000)' },
+                                    { id: 'purchase', label: 'Purchase (PR)' },
                                 ].map((cf) => (
                                     <button
                                         key={cf.id}
@@ -1403,7 +1467,7 @@ export default function OdooTransfersPage() {
                                     إظهار الكل
                                 </Button>
                                 <Badge variant="secondary" className="bg-blue-600 text-white border-none">
-                                    {selectedIds.length} عملية
+                                    {internalSelectedIds.length} عملية
                                 </Badge>
                             </div>
                         </div>
@@ -1455,8 +1519,36 @@ export default function OdooTransfersPage() {
             <OdooExcelDeductionModal 
                 isOpen={isExcelModalOpen} 
                 onClose={() => setIsExcelModalOpen(false)}
-                selectedIds={selectedIds}
+                mode={excelModalMode}
+                selectedIds={excelModalMode === "receive" ? receiveSelectedIds : internalSelectedIds}
                 fetchLinesForIds={async (ids) => {
+                    if (!ids || ids.length === 0) return [];
+                    if (excelModalMode === "receive") {
+                        try {
+                            const res = await fetchOdooApi(`/api/odoo/po-receipts`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ ids })
+                            });
+                            const data = await res.json();
+                            if (data.success && Array.isArray(data.lines)) {
+                                return data.lines;
+                            }
+                        } catch(e) {}
+                        return [];
+                    }
+
+                    try {
+                        const res = await fetchOdooApi(`/api/odoo/transfers/batch-lines`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ids })
+                        });
+                        const data = await res.json();
+                        if (data.success && Array.isArray(data.lines)) {
+                            return data.lines;
+                        }
+                    } catch(e) {}
                     const allLines: any[] = [];
                     for (const id of ids) {
                         try {
@@ -1468,6 +1560,16 @@ export default function OdooTransfersPage() {
                         } catch(e) {}
                     }
                     return allLines;
+                }}
+            />
+
+            <OdooPOReceiptsModal
+                isOpen={isPoReceiptsOpen}
+                onClose={() => setIsPoReceiptsOpen(false)}
+                onOpenExcelReceiveModal={(receiptIds) => {
+                    setExcelModalMode("receive")
+                    setReceiveSelectedIds(receiptIds)
+                    setIsExcelModalOpen(true)
                 }}
             />
 

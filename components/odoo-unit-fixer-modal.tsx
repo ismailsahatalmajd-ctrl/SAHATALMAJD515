@@ -1273,7 +1273,7 @@ export function OdooUnitFixerModal({
               <DialogTitle className="text-sm font-bold flex items-center gap-2 text-slate-900 whitespace-nowrap">
                 <Calculator className="h-4 w-4 text-amber-600 flex-shrink-0" />
                 <span className="whitespace-nowrap">Order Units Fixer (Carton ⇄ Piece)</span>
-                <Badge variant="outline" className="text-[11px] px-2 py-0.5 bg-white text-black border border-black whitespace-nowrap">
+                <Badge variant="outline" className="text-[11px] px-2 py-0.5 bg-white text-black border-blue-600 whitespace-nowrap">
                   {transferIds.length === 1
                     ? `فرع واحد / 1 Branch: ${distinctInvoices[0]?.branchName || ""}`
                     : `${transferIds.length} فروع (فواتير) / Branches`}
@@ -1283,17 +1283,21 @@ export function OdooUnitFixerModal({
 
             {/* Quick Summary Badges */}
             <div className="flex items-center gap-2 flex-wrap">
-              <Badge variant="outline" className="bg-white border border-black text-black px-3 py-1 text-xs">
+              <Badge variant="outline" className="bg-white border-slate-300 text-black px-3 py-1 text-xs">
                 إجمالي السطور / Total Lines: <strong className="mr-1">{stats.totalLines}</strong>
               </Badge>
               <Badge
                 variant="outline"
-                className="px-3 py-1 text-xs bg-white text-black border border-black"
+                className={`px-3 py-1 text-xs bg-white text-black ${
+                  stats.brokenCount > 0
+                    ? "border-red-500"
+                    : "border-emerald-500"
+                }`}
               >
                 كسر كرتون / Broken Cartons: <strong className="mr-1">{stats.brokenCount}</strong>
               </Badge>
               {stats.pendingChangesCount > 0 && (
-                <Badge variant="outline" className="bg-white border border-black text-black px-3 py-1 text-xs">
+                <Badge variant="outline" className="bg-white border-amber-600 text-black px-3 py-1 text-xs">
                   جاهز للتحديث / Ready to Update: <strong className="mr-1">{stats.pendingChangesCount}</strong>
                 </Badge>
               )}
@@ -1307,7 +1311,7 @@ export function OdooUnitFixerModal({
             {/* 1. Sort / Grouping Mode Filter */}
             <div className="md:col-span-4 flex flex-col gap-1">
               <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
-                <ArrowUpDown className="h-3.5 w-3.5 text-black" />
+                <ArrowUpDown className="h-3.5 w-3.5 text-blue-600" />
                 طريقة الترتيب والعرض / Sort & View Mode:
               </span>
               <div className="grid grid-cols-2 gap-1.5 bg-white p-1 rounded-md border">
@@ -1316,11 +1320,11 @@ export function OdooUnitFixerModal({
                   onClick={() => setSortMode("by_product")}
                   className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded text-[11px] whitespace-nowrap font-bold transition-all ${
                     sortMode === "by_product"
-                      ? "bg-white text-black border border-black shadow-sm"
+                      ? "bg-white text-black border-2 border-blue-600 shadow-sm"
                       : "text-slate-600 border border-transparent hover:bg-slate-50"
                   }`}
                 >
-                  <Package className="h-3.5 w-3.5 flex-shrink-0 text-black" />
+                  <Package className="h-3.5 w-3.5 flex-shrink-0 text-blue-600" />
                   <span>حسب المنتجات / By Product</span>
                 </button>
                 <button
@@ -1328,11 +1332,11 @@ export function OdooUnitFixerModal({
                   onClick={() => setSortMode("by_invoice")}
                   className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded text-[11px] whitespace-nowrap font-bold transition-all ${
                     sortMode === "by_invoice"
-                      ? "bg-white text-black border border-black shadow-sm"
+                      ? "bg-white text-black border-2 border-blue-600 shadow-sm"
                       : "text-slate-600 border border-transparent hover:bg-slate-50"
                   }`}
                 >
-                  <FileText className="h-3.5 w-3.5 flex-shrink-0 text-black" />
+                  <FileText className="h-3.5 w-3.5 flex-shrink-0 text-blue-600" />
                   <span>حسب الفاتورة / By Invoice</span>
                 </button>
               </div>
@@ -1346,7 +1350,7 @@ export function OdooUnitFixerModal({
                   onClick={() => handleApplyRuleToAll("ceil")}
                   className={`flex-1 py-1.5 px-2 rounded text-[10px] whitespace-nowrap font-bold transition-all ${
                     roundingRule === "ceil"
-                      ? "bg-white text-black border border-black shadow-sm"
+                      ? "bg-white text-black border-2 border-amber-600 shadow-sm"
                       : "text-slate-600 border border-transparent hover:bg-slate-50"
                   }`}
                   title="مثال: إذا طلب 20 والشد 30 تصبح 30 (1 كرتون) / Round up to next full carton"
@@ -1358,7 +1362,7 @@ export function OdooUnitFixerModal({
                   onClick={() => handleApplyRuleToAll("nearest")}
                   className={`flex-1 py-1.5 px-2 rounded text-[10px] whitespace-nowrap font-bold transition-all ${
                     roundingRule === "nearest"
-                      ? "bg-white text-black border border-black shadow-sm"
+                      ? "bg-white text-black border-2 border-amber-600 shadow-sm"
                       : "text-slate-600 border border-transparent hover:bg-slate-50"
                   }`}
                   title="لأقرب كرتون (أعلى أو أدنى) / Round to nearest carton"
@@ -1370,7 +1374,7 @@ export function OdooUnitFixerModal({
                   onClick={() => handleApplyRuleToAll("multiply")}
                   className={`flex-1 py-1.5 px-2 rounded text-[10px] whitespace-nowrap font-bold transition-all ${
                     roundingRule === "multiply"
-                      ? "bg-white text-black border border-black shadow-sm"
+                      ? "bg-white text-black border-2 border-amber-600 shadow-sm"
                       : "text-slate-600 border border-transparent hover:bg-slate-50"
                   }`}
                   title="ضرب الكمية × شد الكرتون / Multiply Qty × Carton Size"
@@ -1800,14 +1804,14 @@ export function OdooUnitFixerModal({
                             {origBroken ? (
                               <Badge
                                 variant="outline"
-                                className="text-[10px] px-1.5 py-0 font-bold bg-white text-black border border-black"
+                                className="text-[10px] px-1.5 py-0 font-bold bg-white text-red-700 border-red-500"
                               >
                                 ❌ {origCartons} {item.warehouseUnit} (كسر / Broken)
                               </Badge>
                             ) : (
                               <Badge
                                 variant="outline"
-                                className="text-[10px] px-1.5 py-0 bg-white text-black border border-black"
+                                className="text-[10px] px-1.5 py-0 bg-white text-emerald-700 border-emerald-500"
                               >
                                 ✅ {origCartons} {item.warehouseUnit} (OK)
                               </Badge>

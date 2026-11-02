@@ -457,7 +457,7 @@ export async function PATCH(request: Request) {
     }
 
     const res = await validatePicking(odooCall, activeDb, uid, apiKey, id, body.createBackorder);
-    return NextResponse.json({ success: true, ...res });
+    return NextResponse.json(res);
   } catch (error: any) {
     console.error("Odoo PO Receipts PATCH Error:", error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

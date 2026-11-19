@@ -38,6 +38,10 @@ import {
   FileVideo,
   Eye,
   CheckCircle2,
+  Menu,
+  X,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
 import CloudVideoPlayer from "@/components/cameras/cloud-video-player";
 import SmartAlertsCenter from "@/components/cameras/smart-alerts-center";
@@ -107,6 +111,22 @@ export default function CamerasPage() {
 
   // Active View Tab: 'live' | 'thumbnail' | 'alerts' | 'playback'
   const [activeTab, setActiveTab] = useState<"live" | "thumbnail" | "alerts" | "events" | "playback" | "smart" | "settings">("live");
+
+  // Sidebar visibility: collapsed by default on mobile screens, open on desktop
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth >= 768) {
+      setIsSidebarOpen(true);
+    }
+  }, []);
+
+  const handleTabSelect = (tab: "live" | "thumbnail" | "alerts" | "events" | "playback" | "smart" | "settings") => {
+    setActiveTab(tab);
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setIsSidebarOpen(false);
+    }
+  };
 
   // Playback search state
   const [playbackChannel, setPlaybackChannel] = useState<number>(1);
@@ -311,22 +331,46 @@ export default function CamerasPage() {
 
   return (
     <div className="min-h-screen bg-[#f4f6f9] text-slate-800 flex" dir="rtl">
-      {/* 1. RIGHT SIDEBAR NAVIGATION (طراز الصورة المرفقة) */}
-      <aside className="w-48 bg-white border-l border-slate-200/80 flex flex-col justify-between py-5 px-3 select-none flex-shrink-0 z-20 shadow-sm">
+      {/* Mobile Drawer Backdrop */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-xs z-40 md:hidden transition-opacity"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* 1. RIGHT SIDEBAR NAVIGATION (مع إمكانية الإخفاء والتوسيع) */}
+      <aside
+        className={`
+          bg-white border-l border-slate-200/80 flex flex-col justify-between py-5 px-3 select-none flex-shrink-0 z-50 transition-all duration-300
+          fixed md:static inset-y-0 right-0 w-64 md:w-48 shadow-2xl md:shadow-sm
+          ${isSidebarOpen ? "translate-x-0" : "translate-x-full md:hidden"}
+        `}
+      >
         <div className="space-y-6">
-          {/* Logo */}
-          <div className="flex items-center justify-center pb-2">
+          {/* Logo & Close Button */}
+          <div className="flex items-center justify-between pb-2">
             <Link href="/" className="flex items-center gap-2">
               <div className="h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 font-black text-lg">
                 <Cctv className="h-6 w-6" />
               </div>
             </Link>
+            <button
+              onClick={() => setIsSidebarOpen(false)}
+              className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"
+              title="إخفاء الشريط الجانبي"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
 
           {/* Navigation Items */}
           <nav className="space-y-1 text-sm font-semibold">
             <Link
               href="/"
+              onClick={() => {
+                if (typeof window !== "undefined" && window.innerWidth < 768) setIsSidebarOpen(false);
+              }}
               className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors"
             >
               <Home className="h-4 w-4 text-slate-400" />
@@ -334,7 +378,7 @@ export default function CamerasPage() {
             </Link>
 
             <button
-              onClick={() => setActiveTab("live")}
+              onClick={() => handleTabSelect("live")}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
                 activeTab === "live" || activeTab === "thumbnail"
                   ? "bg-blue-50 text-blue-600 font-bold border border-blue-200/60 shadow-sm"
@@ -346,7 +390,7 @@ export default function CamerasPage() {
             </button>
 
             <button
-              onClick={() => setActiveTab("alerts")}
+              onClick={() => handleTabSelect("alerts")}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all ${
                 activeTab === "alerts"
                   ? "bg-blue-50 text-blue-600 font-bold border border-blue-200/60 shadow-sm"
@@ -363,7 +407,7 @@ export default function CamerasPage() {
             </button>
 
             <button
-              onClick={() => setActiveTab("events")}
+              onClick={() => handleTabSelect("events")}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
                 activeTab === "events"
                   ? "bg-blue-50 text-blue-600 font-bold border border-blue-200/60 shadow-sm"
@@ -375,7 +419,7 @@ export default function CamerasPage() {
             </button>
 
             <button
-              onClick={() => setActiveTab("playback")}
+              onClick={() => handleTabSelect("playback")}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
                 activeTab === "playback"
                   ? "bg-blue-50 text-blue-600 font-bold border border-blue-200/60 shadow-sm"
@@ -387,7 +431,7 @@ export default function CamerasPage() {
             </button>
 
             <button
-              onClick={() => setActiveTab("smart")}
+              onClick={() => handleTabSelect("smart")}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
                 activeTab === "smart"
                   ? "bg-blue-50 text-blue-600 font-bold border border-blue-200/60 shadow-sm"
@@ -399,7 +443,7 @@ export default function CamerasPage() {
             </button>
 
             <button
-              onClick={() => setActiveTab("settings")}
+              onClick={() => handleTabSelect("settings")}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
                 activeTab === "settings"
                   ? "bg-blue-50 text-blue-600 font-bold border border-blue-200/60 shadow-sm"
@@ -425,19 +469,34 @@ export default function CamerasPage() {
       </aside>
 
       {/* 2. MAIN CONTENT AREA */}
-      <div ref={containerRef} className="flex-1 flex flex-col p-4 md:p-6 overflow-x-hidden min-w-0">
+      <div ref={containerRef} className="flex-1 flex flex-col p-3 md:p-6 overflow-x-hidden min-w-0">
         {/* TOP STATUS BAR (المراقبة المباشرة + بطاقات العدادات) */}
         <div className="bg-white rounded-2xl p-4 md:p-5 border border-slate-200/80 shadow-sm mb-4 flex flex-wrap items-center justify-between gap-4">
-          {/* Right Section: Page Title & Icon */}
-          <div className="flex items-center gap-3.5">
-            <div className="h-12 w-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-600/30">
+          {/* Right Section: Page Title & Icon & Sidebar Toggle Button */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all flex items-center gap-2 border border-slate-200/80 shadow-sm active:scale-95"
+              title={isSidebarOpen ? "إخفاء الشريط الجانبي" : "إظهار الشريط الجانبي"}
+            >
+              {isSidebarOpen ? (
+                <PanelRightClose className="h-5 w-5 text-blue-600" />
+              ) : (
+                <Menu className="h-5 w-5 text-blue-600" />
+              )}
+              <span className="text-xs font-bold hidden sm:inline">
+                {isSidebarOpen ? "إخفاء القائمة" : "القائمة"}
+              </span>
+            </button>
+
+            <div className="h-11 w-11 md:h-12 md:w-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-600/30 flex-shrink-0">
               <Cctv className="h-6 w-6" />
             </div>
             <div>
-              <h1 className="text-xl font-black text-slate-900 tracking-tight">
+              <h1 className="text-lg md:text-xl font-black text-slate-900 tracking-tight">
                 المراقبه المباشره
               </h1>
-              <p className="text-xs text-slate-400 font-medium mt-0.5">
+              <p className="text-[11px] md:text-xs text-slate-400 font-medium mt-0.5">
                 كاميرات الفروع والمستودعات
               </p>
             </div>

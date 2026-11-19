@@ -17,7 +17,7 @@ import {
 } from "@/lib/storage"
 import { deleteAllProductsApi } from "@/lib/sync-api"
 import { performFactoryReset } from "@/lib/system-reset"
-import { syncProduct, syncProductImageToCloud, stopRealtimeSync, startRealtimeSync, syncProductsBatch, syncProductImagesBatch } from "@/lib/firebase-sync-engine"
+import { syncProduct, syncProductImageToCloud, getProductImageFromCloud, stopRealtimeSync, startRealtimeSync, syncProductsBatch, syncProductImagesBatch } from "@/lib/firebase-sync-engine"
 import { db } from "@/lib/db"
 import { useToast } from "@/hooks/use-toast"
 import { getApiUrl } from "@/lib/api"
@@ -353,12 +353,19 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       if (cached) return cached
 
       // في نسخة التصدير الثابت، لا يوجد بروكسي؛ نحاول الجلب مباشرة إن سمحت CORS
-      const sourceUrl = process.env.NEXT_PUBLIC_STATIC_EXPORT === 'true'
-        ? url
-        : getApiUrl(`/api/image-proxy?url=${encodeURIComponent(url)}`)
-      const response = await fetch(sourceUrl, { headers: { Accept: 'image/*' } })
-      if (!response.ok) throw new Error(`Proxy failed: ${response.status}`)
+      const proxyUrl = getApiUrl(`/api/image-proxy?url=${encodeURIComponent(url)}`)
+      let response: Response
+      if (process.env.NEXT_PUBLIC_STATIC_EXPORT === 'true') {
+        response = await fetch(url, { headers: { Accept: 'image/*' } })
+      } else {
+        response = await fetch(proxyUrl, { headers: { Accept: 'image/*' } })
+        if (!response.ok) {
+          response = await fetch(url, { headers: { Accept: 'image/*' } })
+        }
+      }
+      if (!response.ok) throw new Error(`Image download failed: ${response.status}`)
       const blob = await response.blob()
+      if (!blob.type.startsWith('image/')) throw new Error('URL did not return an image')
 
       if (blob.size > 2 * 1024 * 1024) {
         console.log('[perf] Image too large, skipping:', blob.size)
@@ -394,7 +401,10 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       // If it's an external URL, use existing converter to Base64 Data URL
       if (/^https?:\/\//i.test(img)) {
         const base64 = await convertImageToBase64(img)
-        return base64 || ""
+        if (!base64) {
+          throw new Error("تعذر تحويل صورة المنتج إلى Base64. تحقق من الاتصال بالصورة ثم أعد التصدير.")
+        }
+        return base64
       }
 
       // If it's already a Data URL, optionally re-encode to a web-friendly format
@@ -413,9 +423,9 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       if (looksLikeBase64) {
         return `data:image/png;base64,${img}`
       }
-      return img
-    } catch {
-      return ""
+      throw new Error("صيغة صورة المنتج غير مدعومة للتصدير بصيغة Base64.")
+    } catch (error) {
+      throw error
     }
   }
 
@@ -506,6 +516,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
 
   const handleExport = async () => {
     setIsExporting(true)
+    const missingImageProducts: string[] = []
     try {
       const dataset = exportScope === 'filtered' && filteredProducts && filteredProducts.length > 0 ? filteredProducts : products
       // تحذير مبكر إذا كان الحجم المقدر كبيراً
@@ -578,8 +589,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       if (imageExportMode === 'url') {
         // نصي فقط: نصدّر Data URL/URL داخل الخلية بدون تضمين مرئي
         const imagesRows: any[][] = [["id", "seq", "chunk"]]
-        const data = await Promise.all(
-          dataset.map(async (p, idx) => {
+        const data = await asyncPool(8, dataset, async (p, idx) => {
             // [Fix] Resolve DB_IMAGE for URL export mode too
             let rawImage = p.image || ''
             if (rawImage === 'DB_IMAGE') {
@@ -591,7 +601,20 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
               }
             }
 
-            const imageValue = await normalizeImageForExport(rawImage)
+            if (rawImage === 'DB_IMAGE') {
+              rawImage = await getProductImageFromCloud(p.id) || ''
+            }
+
+            let imageValue = ''
+            try {
+              imageValue = await normalizeImageForExport(rawImage)
+              if (p.image && !imageValue) {
+                missingImageProducts.push(p.productName || p.productCode || p.id)
+              }
+            } catch (error) {
+              missingImageProducts.push(p.productName || p.productCode || p.id)
+              console.warn(`Failed to export image for ${p.productName || p.productCode}:`, error)
+            }
             let imageCellText = imageValue
             const pid = p.id || String(idx + 1)
             const MAX_CHUNK = 32000
@@ -622,7 +645,6 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
               imageCellText,
             ]
           })
-        )
 
         const ws = XLSX.utils.aoa_to_sheet([headers, ...data])
         ws["!cols"] = [
@@ -818,9 +840,11 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
       }
 
       toast({
-        title: t("bulk.toast.exportSuccess"),
-        description: t("bulk.toast.exportSuccessDesc")
-          .replace("{count}", String(exportScope === 'filtered' && filteredProducts ? filteredProducts.length : products.length)),
+        title: missingImageProducts.length ? "تم التصدير مع صور غير متاحة" : t("bulk.toast.exportSuccess"),
+        description: missingImageProducts.length
+          ? `تم تصدير الملف، لكن تعذر تحويل الصور لهذه المنتجات: ${missingImageProducts.slice(0, 5).join("، ")}${missingImageProducts.length > 5 ? `، و${missingImageProducts.length - 5} منتجات أخرى` : ""}`
+          : t("bulk.toast.exportSuccessDesc")
+            .replace("{count}", String(exportScope === 'filtered' && filteredProducts ? filteredProducts.length : products.length)),
       })
     } catch (error) {
       console.error("[v0] Export error:", error)
@@ -1822,11 +1846,11 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                           saveProducts(finalOptimized)
 
                           const existingLocations = getLocations()
-                          const existingLocationNames = new Set(existingLocations.map((l: any) => l.name.toLowerCase().trim()))
+                          const existingLocationNames = new Set(existingLocations.map((l: any) => String(l?.name || "").toLowerCase().trim()))
                           const newLocations = new Set<string>()
                           finalOptimized.forEach((product) => {
-                            if (product.location && !existingLocationNames.has(product.location.toLowerCase().trim())) {
-                              newLocations.add(product.location.trim())
+                            if (product.location && !existingLocationNames.has(String(product.location).toLowerCase().trim())) {
+                              newLocations.add(String(product.location).trim())
                             }
                           })
                           for (const locationName of Array.from(newLocations)) {
@@ -1839,11 +1863,11 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                           }
 
                           const existingUnits = getUnits()
-                          const existingUnitNames = new Set(existingUnits.map((u) => u.name.toLowerCase().trim()))
+                          const existingUnitNames = new Set(existingUnits.map((u: any) => String(u?.name || "").toLowerCase().trim()))
                           const newUnits = new Set<string>()
                           finalOptimized.forEach((product) => {
-                            if (product.unit && !existingUnitNames.has(product.unit.toLowerCase().trim())) {
-                              newUnits.add(product.unit.trim())
+                            if (product.unit && !existingUnitNames.has(String(product.unit).toLowerCase().trim())) {
+                              newUnits.add(String(product.unit).trim())
                             }
                           })
                           for (const unitName of Array.from(newUnits)) {
@@ -1860,11 +1884,11 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                           }
 
                           const existingCategories = getCategories()
-                          const existingCategoryNames = new Set(existingCategories.map((c: any) => c.name.toLowerCase().trim()))
+                          const existingCategoryNames = new Set(existingCategories.map((c: any) => String(c?.name || "").toLowerCase().trim()))
                           const newCategories = new Set<string>()
                           finalOptimized.forEach((product) => {
-                            if (product.category && !existingCategoryNames.has(product.category.toLowerCase().trim())) {
-                              newCategories.add(product.category.trim())
+                            if (product.category && !existingCategoryNames.has(String(product.category).toLowerCase().trim())) {
+                              newCategories.add(String(product.category).trim())
                             }
                           })
                           for (const catName of Array.from(newCategories)) {
@@ -2118,7 +2142,7 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                         {getProducts()
                           .filter(p =>
                             !searchTerm ||
-                            p.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            (p.productName || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
                             (p.productCode || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
                             (p.itemNumber || "").toLowerCase().includes(searchTerm.toLowerCase())
                           )
@@ -2138,11 +2162,15 @@ export function BulkOperations({ products = [], filteredProducts, onProductsUpda
                               <div className="text-xs text-muted-foreground bg-gray-100 px-2 py-1 rounded">
                                 {p.productCode || p.itemNumber || 'بلا كود'}
                               </div>
-                              <div className="font-medium text-right flex-1">{p.productName}</div>
+                              <div className="font-medium text-right flex-1">{p.productName || p.productCode || 'بدون اسم'}</div>
                             </div>
                           ))
                         }
-                        {searchTerm && getProducts().filter(p => p.productName.includes(searchTerm)).length === 0 && (
+                        {searchTerm && getProducts().filter(p =>
+                          (p.productName || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          (p.productCode || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          (p.itemNumber || "").toLowerCase().includes(searchTerm.toLowerCase())
+                        ).length === 0 && (
                           <div className="p-8 text-center text-muted-foreground">لا توجد نتائج</div>
                         )}
                       </div>

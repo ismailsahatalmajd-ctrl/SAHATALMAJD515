@@ -5,14 +5,17 @@ import { db } from "@/lib/db"
 import { ImageIcon, Loader2, AlertCircle } from "lucide-react"
 import { getSafeImageSrc, cn } from "@/lib/utils"
 import { useLiveQuery } from "dexie-react-hooks"
+import { getProductImageFromCloud, syncProductImageToCloud } from "@/lib/firebase-sync-engine"
 
 interface ProductImageProps {
-  product: { id: string; image?: string; productName?: string }
+  product: { id: string; image?: string; productName?: string; productCode?: string }
   className?: string
   onClick?: () => void
+  odooCode?: string // Link to website product by Odoo default_code
+  hideOnMissing?: boolean // Return null if no image is found
 }
 
-export function ProductImage({ product, className, onClick }: ProductImageProps) {
+export function ProductImage({ product, className, onClick, odooCode, hideOnMissing }: ProductImageProps) {
   const [isVisible, setIsVisible] = useState(false)
   const [cloudLoading, setCloudLoading] = useState(false)
   const [cloudError, setCloudError] = useState(false)
@@ -47,12 +50,34 @@ export function ProductImage({ product, className, onClick }: ProductImageProps)
     return () => observer.disconnect()
   }, [])
 
-  // Local IndexedDB check
+  // Local IndexedDB check & Odoo Website Link mapping
   const dbImage = useLiveQuery(async () => {
     if (!isVisible) return undefined
-    if (product.image === 'DB_IMAGE') {
+    
+    let targetId = product.id;
+    let isDbImage = product.image === 'DB_IMAGE';
+
+    // If this is an Odoo product, we look up the website product by odooCode
+    if (odooCode) {
       try {
-        const rec = await db.productImages.get(product.id)
+        const websiteProduct = await db.products.where('productCode').equals(odooCode).first();
+        if (websiteProduct) {
+          targetId = websiteProduct.id;
+          if (websiteProduct.image === 'DB_IMAGE') {
+            isDbImage = true;
+          } else if (websiteProduct.image) {
+             // Return the normal URL immediately if it's not DB_IMAGE
+             return websiteProduct.image;
+          }
+        }
+      } catch(e) {
+        console.warn("[ProductImage] Error finding website product by odooCode", e);
+      }
+    }
+
+    if (isDbImage) {
+      try {
+        const rec = await db.productImages.get(targetId)
         if (rec?.data) {
           setLocalImageFound(true)
           return rec.data
@@ -62,24 +87,52 @@ export function ProductImage({ product, className, onClick }: ProductImageProps)
       }
     }
     return undefined
-  }, [product.id, product.image, isVisible])
+  }, [product.id, product.image, isVisible, odooCode])
 
-  // Remote Firebase Storage check
+  // In Odoo mode, product.image won't be DB_IMAGE initially, so we check if dbImage resolved it.
+  const isDbImageExpected = product.image === 'DB_IMAGE' || !!odooCode;
+  
+  // Remote Base64 image check, with a legacy URL fallback.
   useEffect(() => {
-    if (!isVisible || product.image !== 'DB_IMAGE' || localImageFound || cloudLoading || cloudError) return
+    if (!isVisible || !isDbImageExpected || localImageFound || cloudLoading || cloudError || dbImage) return
 
     const fetchFromCloud = async () => {
       setCloudLoading(true)
       try {
-        const { storage } = await import("@/lib/firebase")
-        const { ref, getDownloadURL } = await import("firebase/storage")
+        let targetId = product.id;
         
-        const storageRef = ref(storage, `product-images/${product.id}`)
-        const downloadURL = await getDownloadURL(storageRef)
+        // Find mapped ID if using Odoo code
+        if (odooCode) {
+           const p = await db.products.where('productCode').equals(odooCode).first();
+           if (p && p.image === 'DB_IMAGE') {
+               targetId = p.id;
+           } else {
+               // Fast fail if product not found or has no cloud image
+               setCloudError(true);
+               setCloudLoading(false);
+               return;
+           }
+        }
+
+        const downloadURL = await getProductImageFromCloud(targetId)
         
         if (downloadURL) {
-          // Cache it locally
-          await db.productImages.put({ productId: product.id, data: downloadURL }).catch(() => {})
+          let imageData = downloadURL
+          if (/^https?:\/\//i.test(downloadURL)) {
+            const response = await fetch(`/api/image-proxy?url=${encodeURIComponent(downloadURL)}`)
+            if (!response.ok) throw new Error(`Legacy image download failed: ${response.status}`)
+            const blob = await response.blob()
+            imageData = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader()
+              reader.onload = () => resolve(String(reader.result || ''))
+              reader.onerror = () => reject(new Error('Could not convert legacy image'))
+              reader.readAsDataURL(blob)
+            })
+            await syncProductImageToCloud(targetId, imageData)
+          }
+          if (imageData.startsWith('data:image/')) {
+            await db.productImages.put({ productId: targetId, data: imageData }).catch(() => {})
+          }
           setLocalImageFound(true)
         } else {
           setCloudError(true)
@@ -100,11 +153,13 @@ export function ProductImage({ product, className, onClick }: ProductImageProps)
     }
 
     fetchFromCloud()
-  }, [isVisible, product.image, product.id, localImageFound, cloudLoading, cloudError])
+  }, [isVisible, isDbImageExpected, product.id, localImageFound, cloudLoading, cloudError, odooCode, dbImage])
 
   let src = ""
-  if (product.image === 'DB_IMAGE') {
-    if (dbImage) src = getSafeImageSrc(dbImage)
+  if (dbImage && dbImage !== 'DB_IMAGE') {
+    src = getSafeImageSrc(dbImage)
+  } else if (product.image === 'DB_IMAGE') {
+    // If it's still loading from dbImage
   } else if (product.image) {
     src = getSafeImageSrc(product.image)
   }
@@ -112,7 +167,7 @@ export function ProductImage({ product, className, onClick }: ProductImageProps)
   // Pre-loading state
   if (!isVisible) {
     return <div ref={imgRef} className={cn("bg-muted rounded flex items-center justify-center", className)}>
-      <ImageIcon className="h-4 w-4 text-muted-foreground/20" />
+      <img src="/sahat-almajd-logo.svg" alt="logo" className="h-5 w-5 opacity-20 grayscale" />
     </div>
   }
 
@@ -137,7 +192,7 @@ export function ProductImage({ product, className, onClick }: ProductImageProps)
   }
 
   // Loading state fallback
-  if (product.image === 'DB_IMAGE' && !src && cloudLoading) {
+  if (isDbImageExpected && !src && cloudLoading) {
     return (
       <div ref={imgRef} className={cn("bg-muted rounded flex items-center justify-center animate-pulse", className)}>
         <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
@@ -146,22 +201,15 @@ export function ProductImage({ product, className, onClick }: ProductImageProps)
   }
 
   // Error/Missing state fallback
+  if (hideOnMissing) return null;
+
   return (
     <div 
       ref={imgRef} 
-      className={cn("bg-muted rounded flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-muted/80 transition-colors", className)} 
+      className={cn("bg-slate-50 border rounded flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-slate-100 transition-colors text-center p-1", className)} 
       onClick={onClick}
     >
-      {imageLoadFailed || cloudError ? (
-        <AlertCircle className="h-5 w-5 text-amber-500" />
-      ) : (
-        <ImageIcon className="h-5 w-5 text-muted-foreground/40" />
-      )}
-      {(className?.includes('h-24') || className?.includes('h-20')) && product.productName && (
-        <span className="text-[10px] text-muted-foreground px-1 text-center line-clamp-1">
-          {product.productName}
-        </span>
-      )}
+      <span className="text-[0.55rem] leading-tight text-slate-400 font-medium">الصورة<br/>غير متوفرة</span>
     </div>
   )
 }

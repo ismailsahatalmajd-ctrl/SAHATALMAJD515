@@ -1,7 +1,7 @@
-import { db as firestore, storage } from "./firebase";
+import { auth, db as firestore } from "./firebase";
 import { db as localDb } from "./db";
 import { collection, onSnapshot, doc, writeBatch, getDoc, setDoc, deleteDoc, query, where, getDocs, Timestamp, updateDoc } from "firebase/firestore";
-import { ref, uploadString, getDownloadURL } from "firebase/storage";
+
 import { Product, Transaction, WarehouseDesignElement } from "./types";
 import { notify } from "./events";
 import { store } from "./data-store";
@@ -52,93 +52,81 @@ async function enqueue(table: string, op: string, payload: any) {
 }
 
 // Helper functions to avoid circular dependency issues with imports
+const STORE_CACHE_MAP: Record<string, keyof typeof store.cache> = {
+    'products': 'products',
+    'categories': 'categories',
+    'transactions': 'transactions',
+    'branches': 'branches',
+    'issues': 'issues',
+    'returns': 'returns',
+    'locations': 'locations',
+    'units': 'units',
+    'branchRequests': 'branchRequests',
+    'branchInvoices': 'branchInvoices',
+    'inventoryAdjustments': 'adjustments',
+    'purchaseRequests': 'purchaseRequests',
+    'receivingNotes': 'receivingNotes',
+    'deliveryNotes': 'deliveryNotes',
+    'employees': 'employees',
+    'overtimeReasons': 'overtimeReasons',
+    'overtimeEntries': 'overtimeEntries',
+    'absenceRecords': 'absenceRecords',
+    'labelTemplates': 'labelTemplates'
+}
+
+const STORE_EVENT_MAP: Record<string, StoreEvent> = {
+    'products': 'products_change',
+    'categories': 'categories_change',
+    'transactions': 'transactions_change',
+    'branches': 'branches_change',
+    'issues': 'issues_change',
+    'returns': 'returns_change',
+    'branchRequests': 'branch_requests_change',
+    'branchInvoices': 'branch_invoices_change',
+    'receivingNotes': 'receiving_notes_change' as any,
+    'deliveryNotes': 'delivery_notes_change' as any,
+    'employees': 'employees_change' as any,
+    'overtimeReasons': 'overtime_reasons_change' as any,
+    'overtimeEntries': 'overtime_entries_change' as any,
+    'absenceRecords': 'absence_records_change' as any,
+    'labelTemplates': 'label_templates_change',
+}
+
 function updateStoreCache(table: string, record: any) {
-    if (!store.initialized) return
-
-    const map: Record<string, keyof typeof store.cache> = {
-        'products': 'products',
-        'categories': 'categories',
-        'transactions': 'transactions',
-        'branches': 'branches',
-        'issues': 'issues',
-        'returns': 'returns',
-        'locations': 'locations',
-        'units': 'units',
-        'branchRequests': 'branchRequests',
-        'branchInvoices': 'branchInvoices',
-        'inventoryAdjustments': 'adjustments',
-        'purchaseRequests': 'purchaseRequests',
-        'receivingNotes': 'receivingNotes',
-        'employees': 'employees',
-        'overtimeReasons': 'overtimeReasons',
-        'overtimeEntries': 'overtimeEntries',
-        'absenceRecords': 'absenceRecords',
-        'labelTemplates': 'labelTemplates'
-    }
-
-    const key = map[table]
-    if (!key) return
-
-    const list = store.cache[key] as any[]
-    if (!list) return
-
-    const idx = list.findIndex(r => r.id === record.id)
-    if (idx !== -1) {
-        list[idx] = { ...list[idx], ...record }
-    } else {
-        list.push(record)
-    }
-    notify('change')
-    const eventMap: Record<string, StoreEvent> = {
-        'products': 'products_change',
-        'categories': 'categories_change',
-        'transactions': 'transactions_change',
-        'branches': 'branches_change',
-        'issues': 'issues_change',
-        'returns': 'returns_change',
-        'branchRequests': 'branch_requests_change',
-        'branchInvoices': 'branch_invoices_change',
-        'receivingNotes': 'receiving_notes_change' as any,
-        'employees': 'employees_change' as any,
-        'overtimeReasons': 'overtime_reasons_change' as any,
-        'overtimeEntries': 'overtime_entries_change' as any,
-        'absenceRecords': 'absence_records_change' as any,
-        'labelTemplates': 'label_templates_change',
-    }
-    if (eventMap[table]) notify(eventMap[table])
+    updateStoreCacheBatch(table, [record], [])
 }
 
 function removeFromStoreCache(table: string, id: string) {
+    updateStoreCacheBatch(table, [], [id])
+}
+
+function updateStoreCacheBatch(table: string, upserts: any[], removeIds: string[]) {
     if (!store.initialized) return
 
-    const map: Record<string, keyof typeof store.cache> = {
-        'products': 'products',
-        'categories': 'categories',
-        'transactions': 'transactions',
-        'branches': 'branches',
-        'issues': 'issues',
-        'returns': 'returns',
-        'locations': 'locations',
-        'units': 'units',
-        'branchRequests': 'branchRequests',
-        'branchInvoices': 'branchInvoices',
-        'inventoryAdjustments': 'adjustments',
-        'purchaseRequests': 'purchaseRequests',
-        'employees': 'employees',
-        'overtimeReasons': 'overtimeReasons',
-        'overtimeEntries': 'overtimeEntries',
-        'absenceRecords': 'absenceRecords',
-        'labelTemplates': 'labelTemplates'
-    }
-
-    const key = map[table]
+    const key = STORE_CACHE_MAP[table]
     if (!key) return
 
     const list = store.cache[key] as any[]
     if (!list) return
 
-    store.cache[key] = list.filter(r => r.id !== id) as any
+    const removeSet = removeIds.length > 0 ? new Set(removeIds) : null
+    const byId = new Map<string, any>()
+
+    for (const item of list) {
+        if (!item?.id) continue
+        if (removeSet && removeSet.has(item.id)) continue
+        byId.set(item.id, item)
+    }
+
+    for (const record of upserts) {
+        if (!record?.id) continue
+        const existing = byId.get(record.id)
+        byId.set(record.id, existing ? { ...existing, ...record } : record)
+    }
+
+    store.cache[key] = Array.from(byId.values()) as any
     notify('change')
+    if (STORE_EVENT_MAP[table]) notify(STORE_EVENT_MAP[table])
 }
 
 // Collections to sync
@@ -162,6 +150,9 @@ export const COLLECTIONS = {
     CONSUMPTION_RECORDS: 'consumptionRecords',
     BRANCH_ASSETS: 'branchAssets',
     MAINTENANCE_REPORTS: 'maintenanceReports',
+    ASSET_ITEMS: 'assetItems',
+    ASSET_SERIAL_NUMBERS: 'assetSerialNumbers',
+    ASSET_INVOICES: 'assetRequestInvoices',
     ASSET_REQUESTS: 'assetRequests',
     ASSET_STATUS_REPORTS: 'assetStatusReports',
     AUDIT_LOGS: 'auditLogs',
@@ -175,7 +166,9 @@ export const COLLECTIONS = {
     WAREHOUSE_DESIGN: 'warehouseDesignElements',
     GRANULAR_PERMISSIONS: 'granularPermissions',
     BRANCH_NOTES: 'branchNotes',
-    BRANCH_INVENTORY_REPORTS: 'branch_inventory_reports'
+    BRANCH_INVENTORY_REPORTS: 'branch_inventory_reports',
+    STOCK_LEDGER: 'stockLedger',
+    DELIVERY_NOTES: 'delivery_notes'
 };
 
 const notifyGranularUpdate = (userId: string) => {
@@ -220,57 +213,137 @@ function shouldSkipStaleRemoteProduct(existing: Product | undefined, remote: Pro
     return localTs > remoteTs
 }
 
-// Helper for syncing collection
+// Helper for syncing collection in a single fast batch (no item-by-item UI flicker)
 const syncCollection = (
     collectionName: string,
     localTable: any,
     eventName: string
 ) => {
     const q = query(collection(firestore, collectionName));
+    let hasPrunedInitialSnapshot = false;
+
     return onSnapshot(q, (snapshot) => {
         void (async () => {
-            let hasChanges = false;
-            for (const change of snapshot.docChanges()) {
-                const data = change.doc.data();
-                const localId = change.doc.id;
+            const changes = snapshot.docChanges();
+            if (changes.length === 0 && hasPrunedInitialSnapshot) return;
 
-                if (isDeleting(localId)) {
-                    continue;
+            try {
+                const recordsToPut: any[] = [];
+                const idsToDelete: string[] = [];
+                const ghostIdsToPurge: string[] = [];
+                const granularUserIds: string[] = [];
+
+                // Build an in-memory map for products once instead of awaiting localTable.get() 1,500+ times
+                let existingProductsMap: Map<string, Product> | null = null;
+                if (collectionName === COLLECTIONS.PRODUCTS) {
+                    const sourceList = store.initialized
+                        ? store.cache.products
+                        : ((await localTable.toArray()) as Product[]);
+                    existingProductsMap = new Map(sourceList.map((p) => [p.id, p]));
                 }
 
-                try {
+                for (const change of changes) {
+                    const data = change.doc.data();
+                    const localId = change.doc.id;
+
+                    if (isDeleting(localId)) {
+                        continue;
+                    }
+
                     if (change.type === "added" || change.type === "modified") {
                         const record = { ...data, id: localId } as Product & { lastSyncedAt?: unknown };
                         if (collectionName === COLLECTIONS.PRODUCTS) {
-                            const existing = (await localTable.get(localId)) as Product | undefined;
-                            if (shouldSkipStaleRemoteProduct(existing, record)) {
-                                console.debug(
-                                    `[Sync] Skipped stale remote product overwrite: ${localId} (local newer than cloud snapshot)`,
-                                )
+                            // Ignore and purge ghost documents created by orphaned image uploads (no name, code, or itemNumber)
+                            if (!record.productName && !record.productCode && !record.itemNumber) {
+                                idsToDelete.push(localId);
+                                if (!snapshot.metadata.fromCache) {
+                                    ghostIdsToPurge.push(localId);
+                                }
                                 continue;
                             }
+                            if (existingProductsMap && hasPrunedInitialSnapshot) {
+                                const existing = existingProductsMap.get(localId);
+                                if (shouldSkipStaleRemoteProduct(existing, record)) {
+                                    continue;
+                                }
+                            }
+                            // Normalize quantityPerCarton and currentStock before writing to Dexie
+                            // so app/page.tsx ensureConsistency never triggers a second re-render jump
+                            const op = Number(record.openingStock) || 0;
+                            const pu = Number(record.purchases) || 0;
+                            const ret = Number(record.returns) || 0;
+                            const adj = Number(record.adjustments) || 0;
+                            const iss = Number(record.issues) || 0;
+                            const theoretical = op + pu + ret + adj - iss;
+                            if (!record.quantityPerCarton || record.quantityPerCarton === 0) {
+                                record.quantityPerCarton = 1;
+                            }
+                            if (Math.abs(Number(record.currentStock) - theoretical) > 0.001) {
+                                record.currentStock = theoretical;
+                            }
                         }
-                        hasChanges = true;
-                        await localTable.put(record);
-                        updateStoreCache(collectionName, record);
-
+                        recordsToPut.push(record);
                         if (collectionName === "granularPermissions") {
-                            notifyGranularUpdate(localId);
+                            granularUserIds.push(localId);
+                        }
+                    } else if (change.type === "removed") {
+                        idsToDelete.push(localId);
+                    }
+                }
+
+                // On first live snapshot from server, prune any local products that were deleted while browser was closed
+                if (
+                    collectionName === COLLECTIONS.PRODUCTS &&
+                    !hasPrunedInitialSnapshot &&
+                    !snapshot.metadata.fromCache &&
+                    snapshot.docs.length > 0
+                ) {
+                    hasPrunedInitialSnapshot = true;
+                    const validServerIds = new Set(
+                        snapshot.docs
+                            .filter((d) => {
+                                const dt = d.data();
+                                return Boolean(dt.productName || dt.productCode || dt.itemNumber);
+                            })
+                            .map((d) => d.id)
+                    );
+                    const localKeys = (await localTable.toCollection().primaryKeys()) as string[];
+                    for (const key of localKeys) {
+                        if (!validServerIds.has(key) && !isDeleting(key)) {
+                            idsToDelete.push(key);
                         }
                     }
-                    if (change.type === "removed") {
-                        hasChanges = true;
-                        await localTable.delete(localId);
-                        removeFromStoreCache(collectionName, localId);
+                    // Also prune local orphaned images whose product no longer exists
+                    const localImgKeys = (await localDb.productImages.toCollection().primaryKeys()) as string[];
+                    const orphanImgKeys = localImgKeys.filter((k) => !validServerIds.has(k));
+                    if (orphanImgKeys.length > 0) {
+                        await localDb.productImages.bulkDelete(orphanImgKeys).catch(() => {});
                     }
-                } catch (e) {
-                    console.error(`Sync Error ${collectionName}:`, e);
                 }
-            }
 
-            if (hasChanges) {
-                if (eventName) notify(eventName as any);
-                notify("change");
+                if (recordsToPut.length > 0) {
+                    await localTable.bulkPut(recordsToPut);
+                }
+                if (idsToDelete.length > 0) {
+                    await localTable.bulkDelete(idsToDelete);
+                    if (collectionName === COLLECTIONS.PRODUCTS) {
+                        await localDb.productImages.bulkDelete(idsToDelete).catch(() => {});
+                    }
+                }
+                if (ghostIdsToPurge.length > 0) {
+                    deleteAllProductsApi(ghostIdsToPurge).catch(console.error);
+                }
+
+                if (recordsToPut.length > 0 || idsToDelete.length > 0) {
+                    updateStoreCacheBatch(collectionName, recordsToPut, idsToDelete);
+                    for (const uid of granularUserIds) {
+                        notifyGranularUpdate(uid);
+                    }
+                    if (eventName) notify(eventName as any);
+                    notify("change");
+                }
+            } catch (e) {
+                console.error(`Sync Error ${collectionName}:`, e);
             }
         })();
     }, (error) => {
@@ -288,18 +361,16 @@ export const startRealtimeSync = () => {
     isSyncing = true;
     console.log("🔥 Starting Firebase Realtime Sync...");
 
-    // Process queue on startup
-    processSyncQueue().catch(console.error);
-
-    // Periodically process queue is wasteful for CPU (App Engine time) if empty
-    // Only process on startup and then on user action
-    /*
-    if (!syncInterval) {
-        syncInterval = setInterval(() => {
-            processSyncQueue().catch(console.error);
-        }, 60000);
-    }
-    */
+    // Clear stale offline queue items older than 15 minutes so old browsers don't overwrite cloud data
+    localDb.syncQueue.toArray().then((items) => {
+        const cutoff = Date.now() - 15 * 60 * 1000;
+        const staleIds = items
+            .filter((item) => !item.ts || new Date(item.ts).getTime() < cutoff)
+            .map((item) => item.id);
+        if (staleIds.length > 0) {
+            return localDb.syncQueue.bulkDelete(staleIds);
+        }
+    }).then(() => processSyncQueue()).catch(console.error);
 
     try {
         // --- 1. Real-time Collections (Absolute necessity) ---
@@ -319,9 +390,9 @@ export const startRealtimeSync = () => {
         unsubscribers.push(syncCollection(COLLECTIONS.GRANULAR_PERMISSIONS, localDb.userPreferences as any, "granular_permissions_updated"));
         unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_NOTES, localDb.branchNotes, "branch_notes_change" as any));
         unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_INVENTORY_REPORTS, localDb.branchInventoryReports, "branch_inventory_reports_change" as any));
+        unsubscribers.push(syncCollection(COLLECTIONS.BRANCHES, localDb.branches, "branches_change"));
 
         // --- 2. Fetch-once Collections (Optimization: only on startup) ---
-        // These don't change often enough to warrant a constant background CPU connection
         async function fetchStaticData() {
             try {
                 const fetchTable = async (collName: string, localTable: any, event: string) => {
@@ -330,14 +401,12 @@ export const startRealtimeSync = () => {
                     const items = snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
                     if (items.length > 0) {
                         await localTable.bulkPut(items);
-                        // Update cache for each item (limited to start)
-                        items.forEach(it => updateStoreCache(collName, it));
+                        updateStoreCacheBatch(collName, items, []);
                         if (event) notify(event as any);
                     }
                 };
                 await Promise.all([
                     fetchTable(COLLECTIONS.CATEGORIES, localDb.categories, "categories_change"),
-                    fetchTable(COLLECTIONS.BRANCHES, localDb.branches, "branches_change"),
                     fetchTable(COLLECTIONS.UNITS, localDb.units, "change"),
                     fetchTable(COLLECTIONS.LOCATIONS, localDb.locations, "change"),
                     fetchTable(COLLECTIONS.ADJUSTMENTS, localDb.inventoryAdjustments, "change"),
@@ -355,7 +424,12 @@ export const startRealtimeSync = () => {
         // Branch Inventory System Sync - Keep critical ones real-time
         unsubscribers.push(syncCollection(COLLECTIONS.BRANCH_INVENTORY, localDb.branchInventory, "change"));
         unsubscribers.push(syncCollection(COLLECTIONS.CONSUMPTION_RECORDS, localDb.consumptionRecords, "change"));
-        unsubscribers.push(syncCollection(COLLECTIONS.ASSET_REQUESTS, localDb.assetRequests, "change"));
+        unsubscribers.push(syncCollection(COLLECTIONS.ASSET_ITEMS, localDb.assetItems, 'asset_items_change'));
+        unsubscribers.push(syncCollection(COLLECTIONS.ASSET_ITEMS, localDb.assetItems, 'asset_items_change'));
+        unsubscribers.push(syncCollection(COLLECTIONS.ASSET_SERIAL_NUMBERS, localDb.assetSerialNumbers, 'asset_serial_numbers_change'));
+        unsubscribers.push(syncCollection(COLLECTIONS.ASSET_INVOICES, localDb.assetRequestInvoices, 'asset_invoices_change'));
+        unsubscribers.push(syncCollection(COLLECTIONS.ASSET_REQUESTS, localDb.assetRequests, 'change'));
+        unsubscribers.push(syncCollection(COLLECTIONS.STOCK_LEDGER, localDb.stockLedger, "change"));
 
     } catch (e) {
         console.error("Error starting sync:", e);
@@ -422,22 +496,56 @@ export const syncProductToCloud = async (product: Product) => {
     }
 };
 
+const MAX_FIRESTORE_IMAGE_CHARS = 700_000;
+
+async function compactImageForFirestore(data: string): Promise<string> {
+    if (!data.startsWith('data:image/')) throw new Error('Product image must be a Base64 data URL');
+    if (data.length <= MAX_FIRESTORE_IMAGE_CHARS) return data;
+
+    const blob = await (await fetch(data)).blob();
+    const bitmap = await createImageBitmap(blob);
+    try {
+        let scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
+        for (let attempt = 0; attempt < 8; attempt++) {
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+            canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+            const context = canvas.getContext('2d');
+            if (!context) throw new Error('Could not prepare image for cloud storage');
+            context.fillStyle = '#fff';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            for (const quality of [0.82, 0.68, 0.54]) {
+                const compressed = canvas.toDataURL('image/jpeg', quality);
+                if (compressed.length <= MAX_FIRESTORE_IMAGE_CHARS) return compressed;
+            }
+            scale *= 0.75;
+        }
+    } finally {
+        bitmap.close();
+    }
+    throw new Error('Product image is too large to save in Firestore, even after compression');
+}
+
 export const syncProductImageToCloud = async (productId: string, data: string) => {
     if (!productId || !data) return false;
+    let queuedImageData = data;
     try {
         checkQuota();
 
-        // 1. Upload to Firebase Storage
-        const storageRef = ref(storage, `product-images/${productId}`);
-        await uploadString(storageRef, data, 'data_url');
-
-        // 2. Get Download URL
-        const downloadURL = await getDownloadURL(storageRef);
-        console.log("☁️ Uploaded image to Storage:", downloadURL);
-
-        // 3. Update Product Document with URL
-        const productRef = doc(firestore, COLLECTIONS.PRODUCTS, productId);
-        await setDoc(productRef, { image: downloadURL, lastSyncedAt: Timestamp.now() }, { merge: true });
+        const imageData = await compactImageForFirestore(data);
+        queuedImageData = imageData;
+        const batch = writeBatch(firestore);
+        batch.set(doc(firestore, COLLECTIONS.PRODUCT_IMAGES, productId), {
+            productId,
+            data: imageData,
+            updatedAt: Timestamp.now(),
+        });
+        batch.set(doc(firestore, COLLECTIONS.PRODUCTS, productId), {
+            image: 'DB_IMAGE',
+            lastSyncedAt: Timestamp.now(),
+        }, { merge: true });
+        await batch.commit();
 
         return true;
     } catch (e: any) {
@@ -449,9 +557,31 @@ export const syncProductImageToCloud = async (productId: string, data: string) =
             console.warn(`[Sync] Push failed for image ${productId}, queueing.`, e);
         }
         // Fallback: Queue for retry (might need better handling for persistent failures)
-        await enqueue(COLLECTIONS.PRODUCT_IMAGES, 'upsert', { productId, data });
+        await enqueue(COLLECTIONS.PRODUCT_IMAGES, 'upsert', { productId, data: queuedImageData });
         return false;
     }
+};
+
+export const getProductImageFromCloud = async (productId: string): Promise<string | null> => {
+    if (!productId) return null;
+    try {
+        const imageSnapshot = await getDoc(doc(firestore, COLLECTIONS.PRODUCT_IMAGES, productId));
+        const imageData = imageSnapshot.data()?.data;
+        if (typeof imageData === 'string' && imageData.startsWith('data:image/')) {
+            return imageData;
+        }
+    } catch (error) {
+        console.warn(`[Sync] Could not read Base64 image for ${productId}`, error);
+    }
+
+    try {
+        const productSnapshot = await getDoc(doc(firestore, COLLECTIONS.PRODUCTS, productId));
+        const legacyImage = productSnapshot.data()?.image;
+        if (typeof legacyImage === 'string' && /^https?:\/\//i.test(legacyImage)) return legacyImage;
+    } catch (error) {
+        console.warn(`[Sync] Could not read legacy image for ${productId}`, error);
+    }
+    return null;
 };
 
 export const deleteProductImageFromCloud = async (productId: string) => {
@@ -539,8 +669,22 @@ export const syncAllLocalToCloud = async (onProgress: (current: number, total: n
     let lastError: any = null;
 
     try {
-        const products = await localDb.products.toArray();
-        const images = await localDb.productImages.toArray();
+        const allLocalProducts = await localDb.products.toArray();
+        const products = allLocalProducts.filter(p => p.productName || p.productCode || p.itemNumber);
+        const ghostLocalProductIds = allLocalProducts.filter(p => !p.productName && !p.productCode && !p.itemNumber).map(p => p.id);
+        if (ghostLocalProductIds.length > 0) {
+            await localDb.products.bulkDelete(ghostLocalProductIds).catch(() => {});
+        }
+
+        const validProductIds = new Set(products.map(p => p.id));
+        const allLocalImages = await localDb.productImages.toArray();
+        const images = allLocalImages.filter(img => validProductIds.has(img.productId));
+        const orphanLocalImageIds = allLocalImages.filter(img => !validProductIds.has(img.productId)).map(img => img.productId);
+        if (orphanLocalImageIds.length > 0) {
+            console.log(`[Sync] Cleaning ${orphanLocalImageIds.length} orphaned local images before upload...`);
+            await localDb.productImages.bulkDelete(orphanLocalImageIds).catch(() => {});
+        }
+
         const totalProducts = products.length;
         const totalImages = images.length;
         const total = totalProducts + totalImages;
@@ -621,29 +765,49 @@ export const syncAllCloudToLocal = async (onProgress: (msg: string) => void) => 
         const total = snapshot.size;
 
         let serverProductIds = new Set<string>();
+        let downloadedProducts: Product[] = [];
+        let ghostServerProductIds: string[] = [];
 
         if (total > 0) {
             onProgress(`تم العثور على ${total} منتج. جاري التحميل...`);
-            const items = snapshot.docs.map(d => {
+            for (const d of snapshot.docs) {
+                const data = d.data();
+                if (!data.productName && !data.productCode && !data.itemNumber) {
+                    ghostServerProductIds.push(d.id);
+                    continue;
+                }
                 serverProductIds.add(d.id);
-                return { ...d.data(), id: d.id } as Product;
-            });
-            await localDb.products.bulkPut(items);
+                downloadedProducts.push({ ...data, id: d.id } as Product);
+            }
+            if (downloadedProducts.length > 0) {
+                await localDb.products.bulkPut(downloadedProducts);
+            }
+            if (ghostServerProductIds.length > 0) {
+                console.log(`[Sync] Purging ${ghostServerProductIds.length} ghost products from cloud...`);
+                deleteAllProductsApi(ghostServerProductIds).catch(console.error);
+            }
         }
 
         // Pruning Stale Products
+        let deletedProductIds: string[] = [...ghostServerProductIds];
         if (total > 0 || pendingProductIds.size === 0) {
             const localKeys = await localDb.products.toCollection().primaryKeys();
-            const toDelete = localKeys.filter(k =>
+            const staleLocal = (localKeys as string[]).filter(k =>
                 !serverProductIds.has(k as string) &&
                 !pendingProductIds.has(k as string) &&
                 !isDeleting(k as string)
             );
+            deletedProductIds = Array.from(new Set([...deletedProductIds, ...staleLocal]));
 
-            if (toDelete.length > 0) {
-                console.log(`[Sync] Pruning ${toDelete.length} stale products...`);
-                await localDb.products.bulkDelete(toDelete);
+            if (deletedProductIds.length > 0) {
+                console.log(`[Sync] Pruning ${deletedProductIds.length} stale products...`);
+                await localDb.products.bulkDelete(deletedProductIds);
+                await localDb.productImages.bulkDelete(deletedProductIds).catch(() => {});
             }
+        }
+
+        if (downloadedProducts.length > 0 || deletedProductIds.length > 0) {
+            updateStoreCacheBatch(COLLECTIONS.PRODUCTS, downloadedProducts, deletedProductIds);
         }
 
         // 2. Images
@@ -652,23 +816,35 @@ export const syncAllCloudToLocal = async (onProgress: (msg: string) => void) => 
         const snapImg = await getDocs(qImg);
         const totalImg = snapImg.size;
         let serverImageIds = new Set<string>();
+        let orphanCloudImageIds: string[] = [];
 
         if (totalImg > 0) {
             onProgress(`تم العثور على ${totalImg} صورة. جاري التحميل...`);
-            const images = snapImg.docs.map(d => {
+            const images: { productId: string; data: string }[] = [];
+            for (const d of snapImg.docs) {
+                if (!serverProductIds.has(d.id) && !pendingProductIds.has(d.id)) {
+                    orphanCloudImageIds.push(d.id);
+                    continue;
+                }
                 serverImageIds.add(d.id);
                 const data = d.data();
-                return { productId: d.id, data: data.data };
-            });
-            await localDb.productImages.bulkPut(images);
+                images.push({ productId: d.id, data: data.data });
+            }
+            if (images.length > 0) {
+                await localDb.productImages.bulkPut(images);
+            }
+            if (orphanCloudImageIds.length > 0) {
+                console.log(`[Sync] Purging ${orphanCloudImageIds.length} orphaned images from cloud...`);
+                deleteAllProductsApi(orphanCloudImageIds).catch(console.error);
+            }
         }
 
         // Pruning Stale Images
         if (totalImg > 0 || pendingImageIds.size === 0) {
             const localImageKeys = await localDb.productImages.toCollection().primaryKeys();
             const imagesToDelete = localImageKeys.filter(k =>
-                !serverImageIds.has(k as string) &&
-                !pendingImageIds.has(k as string)
+                (!serverImageIds.has(k as string) && !pendingImageIds.has(k as string)) ||
+                (!serverProductIds.has(k as string) && !pendingProductIds.has(k as string))
             );
 
             if (imagesToDelete.length > 0) {
@@ -684,7 +860,7 @@ export const syncAllCloudToLocal = async (onProgress: (msg: string) => void) => 
         if (snapRequests.size > 0) {
             const requests = snapRequests.docs.map(d => ({ ...d.data(), id: d.id }));
             await localDb.branchRequests.bulkPut(requests);
-            requests.forEach(it => updateStoreCache(COLLECTIONS.BRANCH_REQUESTS, it));
+            updateStoreCacheBatch(COLLECTIONS.BRANCH_REQUESTS, requests, []);
             notify("branch_requests_change");
         }
 
@@ -695,7 +871,7 @@ export const syncAllCloudToLocal = async (onProgress: (msg: string) => void) => 
         if (snapInvoices.size > 0) {
             const invoices = snapInvoices.docs.map(d => ({ ...d.data(), id: d.id }));
             await localDb.branchInvoices.bulkPut(invoices);
-            invoices.forEach(it => updateStoreCache(COLLECTIONS.BRANCH_INVOICES, it));
+            updateStoreCacheBatch(COLLECTIONS.BRANCH_INVOICES, invoices, []);
             notify("branch_invoices_change");
         }
 
@@ -706,8 +882,34 @@ export const syncAllCloudToLocal = async (onProgress: (msg: string) => void) => 
         if (snapIssues.size > 0) {
             const issues = snapIssues.docs.map(d => ({ ...d.data(), id: d.id }));
             await localDb.issues.bulkPut(issues);
-            issues.forEach(it => updateStoreCache(COLLECTIONS.ISSUES, it));
+            updateStoreCacheBatch(COLLECTIONS.ISSUES, issues, []);
             notify("issues_change");
+        }
+
+        // 6. Asset Items
+        onProgress("جاري تحميل الأصول والمواد...");
+        const qAssets = query(collection(firestore, COLLECTIONS.ASSET_ITEMS));
+        const snapAssets = await getDocs(qAssets);
+        if (snapAssets.size > 0) {
+            const assets = snapAssets.docs.map(d => ({ ...d.data(), id: d.id }));
+            await localDb.assetItems.bulkPut(assets);
+            notify("asset_items_change");
+        }
+
+        // 7. Asset Invoices
+        const qAssetInvoices = query(collection(firestore, COLLECTIONS.ASSET_INVOICES));
+        const snapAssetInvoices = await getDocs(qAssetInvoices);
+        if (snapAssetInvoices.size > 0) {
+            const assetInvoices = snapAssetInvoices.docs.map(d => ({ ...d.data(), id: d.id }));
+            await localDb.assetInvoices.bulkPut(assetInvoices);
+        }
+
+        // 8. Asset Serial Numbers
+        const qAssetSerials = query(collection(firestore, COLLECTIONS.ASSET_SERIAL_NUMBERS));
+        const snapAssetSerials = await getDocs(qAssetSerials);
+        if (snapAssetSerials.size > 0) {
+            const assetSerials = snapAssetSerials.docs.map(d => ({ ...d.data(), id: d.id }));
+            await localDb.assetSerialNumbers.bulkPut(assetSerials);
         }
 
         onProgress(`✅ تم التحميل بنجاح`);
@@ -723,11 +925,17 @@ export const syncAllCloudToLocal = async (onProgress: (msg: string) => void) => 
 export const syncProduct = syncProductToCloud;
 export const deleteProductApi = deleteProductFromCloud;
 export const deleteAllProductsApi = async (ids: string[]) => {
-    const batch = writeBatch(firestore);
-    ids.forEach(id => {
-        batch.delete(doc(firestore, COLLECTIONS.PRODUCTS, id));
-    });
-    await batch.commit();
+    if (!ids.length) return;
+    const CHUNK_SIZE = 200; // 200 products + 200 images = 400 ops per batch (< 500 max)
+    for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+        const chunk = ids.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(firestore);
+        chunk.forEach(id => {
+            batch.delete(doc(firestore, COLLECTIONS.PRODUCTS, id));
+            batch.delete(doc(firestore, COLLECTIONS.PRODUCT_IMAGES, id));
+        });
+        await batch.commit();
+    }
 }
 
 export const syncTransaction = (r: any) => syncRecord(COLLECTIONS.TRANSACTIONS, r);
@@ -766,6 +974,7 @@ export const deleteAssetRequest = (id: string) => deleteRecord(COLLECTIONS.ASSET
 export const syncBranchInventoryReport = (r: any) => syncRecord(COLLECTIONS.BRANCH_INVENTORY_REPORTS, r);
 export const syncLabelTemplate = (r: any) => syncRecord(COLLECTIONS.LABEL_TEMPLATES, r);
 export const deleteLabelTemplateApi = (id: string) => deleteRecord(COLLECTIONS.LABEL_TEMPLATES, id);
+export const syncStockLedger = (r: any) => syncRecord(COLLECTIONS.STOCK_LEDGER, r);
 
 export const pullAllDataFromFirebase = async () => {
     await syncAllCloudToLocal(() => { });
@@ -843,7 +1052,7 @@ export const syncProductsBatch = async (products: Product[]) => {
 export const syncProductImagesBatch = async (images: { productId: string, data: string }[]) => {
     if (!images.length) return
     checkQuota()
-    console.log(`☁️ Batch Syncing ${images.length} images to STORAGE...`)
+    console.log(`☁️ Batch Syncing ${images.length} Base64 images to Firestore...`)
 
     const BATCH_SIZE = 5 // Keep small for parallel uploads
     for (let i = 0; i < images.length; i += BATCH_SIZE) {
@@ -855,38 +1064,25 @@ export const syncProductImagesBatch = async (images: { productId: string, data: 
 
         while (attempts < 3 && !committed) {
             try {
-                // 1. Upload images to Storage in parallel
-                const uploadPromises = chunk.map(async (img) => {
-                    if (!img.productId || !img.data) return null;
-                    try {
-                        const storageRef = ref(storage, `product-images/${img.productId}`);
-                        await uploadString(storageRef, img.data, 'data_url');
-                        const url = await getDownloadURL(storageRef);
-                        return { productId: img.productId, url };
-                    } catch (err) {
-                        console.error(`Failed to upload image for ${img.productId}`, err);
-                        return null;
-                    }
-                });
-
-                const uploadedImages = await Promise.all(uploadPromises);
-
-                // 2. Update Products in Firestore with the new URLs
+                const compactedImages = await Promise.all(chunk.map(async image => ({
+                    ...image,
+                    data: await compactImageForFirestore(image.data),
+                })));
                 const batch = writeBatch(firestore);
-                let updatesCount = 0;
-
-                uploadedImages.forEach(item => {
-                    if (item && item.url) {
-                        const productRef = doc(firestore, COLLECTIONS.PRODUCTS, item.productId);
-                        batch.set(productRef, { image: item.url, lastSyncedAt: Timestamp.now() }, { merge: true });
-                        updatesCount++;
-                    }
+                compactedImages.forEach(image => {
+                    batch.set(doc(firestore, COLLECTIONS.PRODUCT_IMAGES, image.productId), {
+                        productId: image.productId,
+                        data: image.data,
+                        updatedAt: Timestamp.now(),
+                    });
+                    batch.set(doc(firestore, COLLECTIONS.PRODUCTS, image.productId), {
+                        image: 'DB_IMAGE',
+                        lastSyncedAt: Timestamp.now(),
+                    }, { merge: true });
                 });
 
-                if (updatesCount > 0) {
-                    await batch.commit();
-                    console.log(`☁️ Synced ${updatesCount} image URLs to Firestore products (Batch ${i})`);
-                }
+                await batch.commit();
+                console.log(`☁️ Synced ${compactedImages.length} Base64 images (Batch ${i})`);
 
                 committed = true
                 await new Promise(r => setTimeout(r, 2000))
@@ -928,6 +1124,19 @@ export async function syncReceivingNote(note: any) {
     }
 }
 
+export async function syncDeliveryNote(note: any) {
+    if (!firestore) return;
+    try {
+        await setDoc(doc(firestore, "delivery_notes", note.id), {
+            ...note,
+            updatedAt: new Date().toISOString()
+        }, { merge: true });
+    } catch (e) {
+        console.error("DeliveryNote Sync Error:", e);
+        throw e;
+    }
+}
+
 export async function syncReceiptInspectionVoucher(voucher: any) {
     if (!firestore) return;
     try {
@@ -955,6 +1164,20 @@ export async function deleteAllReceivingNotesApi(ids: string[]) {
         await batch.commit();
     } catch (e) {
         console.error("ReceivingNotes Batch Delete Error:", e);
+        throw e;
+    }
+}
+
+export async function deleteAllDeliveryNotesApi(ids: string[]) {
+    if (!firestore) return;
+    try {
+        const batch = writeBatch(firestore);
+        ids.forEach(id => {
+            batch.delete(doc(firestore, "delivery_notes", id));
+        });
+        await batch.commit();
+    } catch (e) {
+        console.error("DeliveryNotes Batch Delete Error:", e);
         throw e;
     }
 }

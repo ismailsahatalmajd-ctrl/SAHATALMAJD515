@@ -1020,18 +1020,17 @@ export function ProductsTable({
     setIsBulkDeleting(true)
     try {
       const ids = Array.from(selectedIds)
-      if (onBulkDelete) {
-        onBulkDelete(ids)
-      } else {
-        for (const id of ids) await onDelete(id)
-      }
-
-      toast({
-        title: getDualString("common.success"),
-        description: `تم حذف ${ids.length} منتج بنجاح`,
-      })
       setSelectedIds(new Set())
       setShowBulkDeleteConfirm(false)
+      if (onBulkDelete) {
+        await onBulkDelete(ids)
+      } else {
+        for (const id of ids) await onDelete(id)
+        toast({
+          title: getDualString("common.success"),
+          description: `تم حذف ${ids.length} منتج بنجاح`,
+        })
+      }
     } catch (e) {
       toast({ title: "Error", description: "Failed to delete some products", variant: "destructive" })
     } finally {

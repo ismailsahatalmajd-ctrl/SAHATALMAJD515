@@ -21,6 +21,7 @@ import type {
   AssetStatusReport,
   BranchRequestDraft,
   ReceivingNote,
+  DeliveryNote,
   Supplier,
   Employee,
   OvertimeReason,
@@ -35,9 +36,9 @@ import type {
   LabelTemplate,
   WorkScheduleRule,
   ReceiptInspectionVoucher,
+  StockLedgerRecord,
 } from './types';
-import type { BranchInvoice } from './branch-invoice-types';
-import type { BranchRequest } from './branch-request-types';
+import type { AssetItem, AssetSerialNumber, AssetRequestInvoice, AssetPurchaseOrder, AssetSupplier, AssetSupplierReturn, AssetPriceHistory, AssetPendingPurchase } from './assets-types';
 import type { PurchaseRequest } from './purchase-request-types';
 
 export class InventoryDatabase extends Dexie {
@@ -59,6 +60,7 @@ export class InventoryDatabase extends Dexie {
   branchRequestDrafts!: Table<BranchRequestDraft>; // New table
   purchaseRequests!: Table<PurchaseRequest>;
   receivingNotes!: Table<ReceivingNote>;
+  deliveryNotes!: Table<DeliveryNote>;
   suppliers!: Table<Supplier>;
   settings!: Table<{ key: string; value: any }>;
   auditLogs!: Table<AuditLogEntry>;
@@ -92,6 +94,18 @@ export class InventoryDatabase extends Dexie {
   operationRequests!: Table<OperationRequest>;
   labelTemplates!: Table<LabelTemplate>;
   workSchedules!: Table<WorkScheduleRule>;
+  stockLedger!: Table<StockLedgerRecord>;
+
+  // Assets & Materials
+  assetItems!: Table<AssetItem>;
+  assetSerialNumbers!: Table<AssetSerialNumber>;
+  assetRequestInvoices!: Table<AssetRequestInvoice>;
+  assetPurchaseOrders!: Table<AssetPurchaseOrder>;
+  assetPriceHistory!: Table<AssetPriceHistory>;
+  assetPendingPurchases!: Table<AssetPendingPurchase>;
+  assetSuppliers!: Table<AssetSupplier>;
+  assetSupplierReturns!: Table<AssetSupplierReturn>;
+  assetBranchReturns!: Table<AssetBranchReturn>;
 
   constructor() {
     super('InventoryDB');
@@ -260,6 +274,355 @@ export class InventoryDatabase extends Dexie {
       workSchedules: 'id, scopeType, branchId, employeeId, startTime, endTime, active, createdAt, updatedAt, *employeeIds',
       receiptInspectionVouchers: 'id, voucherNumber, purchaseOperationNumber, supplierName, createdAt'
     });
+
+    // Version 21: Stock Ledger
+    this.version(21).stores({
+      products: 'id, productCode, productName, category, location, quantity, currentStock, isLowStock',
+      categories: 'id, name',
+      transactions: 'id, productId, type, createdAt',
+      branches: 'id, name, location',
+      units: 'id, name',
+      issues: 'id, productId, branchId, status, delivered, createdAt, invoiceNumber',
+      returns: 'id, productId, branchId, status, createdAt',
+      locations: 'id, name',
+      issueDrafts: 'id, branchId, complete, updatedAt',
+      purchaseOrders: 'id, status, createdAt',
+      verificationLogs: 'id, issueId, status, timestamp',
+      inventoryAdjustments: 'id, productId, createdAt',
+      branchInvoices: 'id, branchId, invoiceNumber, createdAt',
+      branchRequests: 'id, branchId, status, type, createdAt',
+      branchRequestDrafts: 'id, branchId, updatedAt',
+      purchaseRequests: 'id, status, createdAt',
+      settings: 'key',
+      auditLogs: 'id, timestamp, userId, action, entity, entityId',
+      notifications: 'id, type, date, read',
+      backups: 'id, timestamp, version',
+      imageCache: 'key, timestamp',
+      syncQueue: 'id, table, op, ts, attempts, deviceId, syncedToDevices',
+      conflictLogs: 'id, table, recordId, ts',
+      changeLogs: 'id, table, entityId, ts',
+      userSessions: 'id, userId, deviceId, lastActive',
+      userPreferences: 'userId',
+      productImages: 'productId',
+      branchInventory: 'id, branchId, productId, [branchId+productId], productName, currentStock',
+      consumptionRecords: 'id, branchId, productId, date, createdAt',
+      branchAssets: 'id, branchId, category, status, createdAt',
+      maintenanceReports: 'id, assetId, branchId, status, reportedDate',
+      assetRequests: 'id, branchId, status, requestDate',
+      assetStatusReports: 'id, branchId, generatedAt',
+      receivingNotes: 'id, noteNumber, supplierName, createdAt, linkedPurchaseOperationNumber',
+      suppliers: 'id, name, createdAt',
+      employees: 'id, name, department, createdAt',
+      overtimeReasons: 'id, name, createdAt',
+      overtimeEntries: 'id, employeeId, date, status, createdAt',
+      absenceRecords: 'id, employeeId, date, type, createdAt',
+      plannedLeaves: 'id, employeeId, startDate, endDate, status, createdAt',
+      warehouseLocations: 'id, zone, aisle, rack, positionCode, status, createdAt',
+      warehouseDesignElements: 'id, warehouseId, type, createdAt',
+      branchNotes: 'id, expiresAt, *targetBranchIds',
+      branchInventoryReports: 'id, branchId, reportCode, createdAt',
+      operationRequests: 'id, operationType, status, createdAt, operationNumber, entityId',
+      labelTemplates: 'id, name, updatedAt, createdAt',
+      workSchedules: 'id, scopeType, branchId, employeeId, startTime, endTime, active, createdAt, updatedAt, *employeeIds',
+      receiptInspectionVouchers: 'id, voucherNumber, purchaseOperationNumber, supplierName, createdAt',
+      stockLedger: 'id, productId'
+    });
+
+    // Version 22: Delivery Notes
+    this.version(22).stores({
+      products: 'id, productCode, productName, category, location, quantity, currentStock, isLowStock',
+      categories: 'id, name',
+      transactions: 'id, productId, type, createdAt',
+      branches: 'id, name, location',
+      units: 'id, name',
+      issues: 'id, productId, branchId, status, delivered, createdAt, invoiceNumber',
+      returns: 'id, productId, branchId, status, createdAt',
+      locations: 'id, name',
+      issueDrafts: 'id, branchId, complete, updatedAt',
+      purchaseOrders: 'id, status, createdAt',
+      verificationLogs: 'id, issueId, status, timestamp',
+      inventoryAdjustments: 'id, productId, createdAt',
+      branchInvoices: 'id, branchId, invoiceNumber, createdAt',
+      branchRequests: 'id, branchId, status, type, createdAt',
+      branchRequestDrafts: 'id, branchId, updatedAt',
+      purchaseRequests: 'id, status, createdAt',
+      settings: 'key',
+      auditLogs: 'id, timestamp, userId, action, entity, entityId',
+      notifications: 'id, type, date, read',
+      backups: 'id, timestamp, version',
+      imageCache: 'key, timestamp',
+      syncQueue: 'id, table, op, ts, attempts, deviceId, syncedToDevices',
+      conflictLogs: 'id, table, recordId, ts',
+      changeLogs: 'id, table, entityId, ts',
+      userSessions: 'id, userId, deviceId, lastActive',
+      userPreferences: 'userId',
+      productImages: 'productId',
+      branchInventory: 'id, branchId, productId, [branchId+productId], productName, currentStock',
+      consumptionRecords: 'id, branchId, productId, date, createdAt',
+      branchAssets: 'id, branchId, category, status, createdAt',
+      maintenanceReports: 'id, assetId, branchId, status, reportedDate',
+      assetRequests: 'id, branchId, status, requestDate',
+      assetStatusReports: 'id, branchId, generatedAt',
+      receivingNotes: 'id, noteNumber, supplierName, createdAt, linkedPurchaseOperationNumber',
+      suppliers: 'id, name, createdAt',
+      employees: 'id, name, department, createdAt',
+      overtimeReasons: 'id, name, createdAt',
+      overtimeEntries: 'id, employeeId, date, status, createdAt',
+      absenceRecords: 'id, employeeId, date, type, createdAt',
+      plannedLeaves: 'id, employeeId, startDate, endDate, status, createdAt',
+      warehouseLocations: 'id, zone, aisle, rack, positionCode, status, createdAt',
+      warehouseDesignElements: 'id, warehouseId, type, createdAt',
+      branchNotes: 'id, expiresAt, *targetBranchIds',
+      branchInventoryReports: 'id, branchId, reportCode, createdAt',
+      operationRequests: 'id, operationType, status, createdAt, operationNumber, entityId',
+      labelTemplates: 'id, name, updatedAt, createdAt',
+      workSchedules: 'id, scopeType, branchId, employeeId, startTime, endTime, active, createdAt, updatedAt, *employeeIds',
+      receiptInspectionVouchers: 'id, voucherNumber, purchaseOperationNumber, supplierName, createdAt',
+      stockLedger: 'id, productId',
+      deliveryNotes: 'id, noteNumber, customerName, createdAt, linkedPurchaseOperationNumber'
+    });
+
+    // Version 23: Assets and Materials System
+    this.version(23).stores({
+      products: 'id, productCode, productName, category, location, quantity, currentStock, isLowStock',
+      categories: 'id, name',
+      transactions: 'id, productId, type, createdAt',
+      branches: 'id, name, location',
+      units: 'id, name',
+      issues: 'id, productId, branchId, status, delivered, createdAt, invoiceNumber',
+      returns: 'id, productId, branchId, status, createdAt',
+      locations: 'id, name',
+      issueDrafts: 'id, branchId, complete, updatedAt',
+      purchaseOrders: 'id, status, createdAt',
+      verificationLogs: 'id, issueId, status, timestamp',
+      inventoryAdjustments: 'id, productId, createdAt',
+      branchInvoices: 'id, branchId, invoiceNumber, createdAt',
+      branchRequests: 'id, branchId, status, type, createdAt',
+      branchRequestDrafts: 'id, branchId, updatedAt',
+      purchaseRequests: 'id, status, createdAt',
+      settings: 'key',
+      auditLogs: 'id, timestamp, userId, action, entity, entityId',
+      notifications: 'id, type, date, read',
+      backups: 'id, timestamp, version',
+      imageCache: 'key, timestamp',
+      syncQueue: 'id, table, op, ts, attempts, deviceId, syncedToDevices',
+      conflictLogs: 'id, table, recordId, ts',
+      changeLogs: 'id, table, entityId, ts',
+      userSessions: 'id, userId, deviceId, lastActive',
+      userPreferences: 'userId',
+      productImages: 'productId',
+      branchInventory: 'id, branchId, productId, [branchId+productId], productName, currentStock',
+      consumptionRecords: 'id, branchId, productId, date, createdAt',
+      branchAssets: 'id, branchId, category, status, createdAt',
+      maintenanceReports: 'id, assetId, branchId, status, reportedDate',
+      assetRequests: 'id, branchId, status, requestDate',
+      assetStatusReports: 'id, branchId, generatedAt',
+      receivingNotes: 'id, noteNumber, supplierName, createdAt, linkedPurchaseOperationNumber',
+      suppliers: 'id, name, createdAt',
+      employees: 'id, name, department, createdAt',
+      overtimeReasons: 'id, name, createdAt',
+      overtimeEntries: 'id, employeeId, date, status, createdAt',
+      absenceRecords: 'id, employeeId, date, type, createdAt',
+      plannedLeaves: 'id, employeeId, startDate, endDate, status, createdAt',
+      warehouseLocations: 'id, zone, aisle, rack, positionCode, status, createdAt',
+      warehouseDesignElements: 'id, warehouseId, type, createdAt',
+      branchNotes: 'id, expiresAt, *targetBranchIds',
+      branchInventoryReports: 'id, branchId, reportCode, createdAt',
+      operationRequests: 'id, operationType, status, createdAt, operationNumber, entityId',
+      labelTemplates: 'id, name, updatedAt, createdAt',
+      workSchedules: 'id, scopeType, branchId, employeeId, startTime, endTime, active, createdAt, updatedAt, *employeeIds',
+      receiptInspectionVouchers: 'id, voucherNumber, purchaseOperationNumber, supplierName, createdAt',
+      stockLedger: 'id, productId',
+      deliveryNotes: 'id, noteNumber, customerName, createdAt, linkedPurchaseOperationNumber',
+      // New Assets tables
+      assetItems: 'id, code, name, category, type, createdAt',
+      assetSerialNumbers: 'id, assetId, serialNumber, branchId, status, condition',
+      assetRequestInvoices: 'id, invoiceNumber, branchId, status, requestedAt'
+    });
+
+    // Version 24: Asset Purchasing
+    this.version(24).stores({
+      products: 'id, productCode, productName, category, location, quantity, currentStock, isLowStock',
+      categories: 'id, name',
+      transactions: 'id, productId, type, createdAt',
+      branches: 'id, name, location',
+      units: 'id, name',
+      issues: 'id, productId, branchId, status, delivered, createdAt, invoiceNumber',
+      returns: 'id, productId, branchId, status, createdAt',
+      locations: 'id, name',
+      issueDrafts: 'id, branchId, complete, updatedAt',
+      purchaseOrders: 'id, status, createdAt',
+      verificationLogs: 'id, issueId, status, timestamp',
+      inventoryAdjustments: 'id, productId, createdAt',
+      branchInvoices: 'id, branchId, invoiceNumber, createdAt',
+      branchRequests: 'id, branchId, status, type, createdAt',
+      branchRequestDrafts: 'id, branchId, updatedAt',
+      purchaseRequests: 'id, status, createdAt',
+      settings: 'key',
+      auditLogs: 'id, timestamp, userId, action, entity, entityId',
+      notifications: 'id, type, date, read',
+      backups: 'id, timestamp, version',
+      imageCache: 'key, timestamp',
+      syncQueue: 'id, table, op, ts, attempts, deviceId, syncedToDevices',
+      conflictLogs: 'id, table, recordId, ts',
+      changeLogs: 'id, table, entityId, ts',
+      userSessions: 'id, userId, deviceId, lastActive',
+      userPreferences: 'userId',
+      productImages: 'productId',
+      branchInventory: 'id, branchId, productId, [branchId+productId], productName, currentStock',
+      consumptionRecords: 'id, branchId, productId, date, createdAt',
+      branchAssets: 'id, branchId, category, status, createdAt',
+      maintenanceReports: 'id, assetId, branchId, status, reportedDate',
+      assetRequests: 'id, branchId, status, requestDate',
+      assetStatusReports: 'id, branchId, generatedAt',
+      receivingNotes: 'id, noteNumber, supplierName, createdAt, linkedPurchaseOperationNumber',
+      suppliers: 'id, name, createdAt',
+      employees: 'id, name, department, createdAt',
+      overtimeReasons: 'id, name, createdAt',
+      overtimeEntries: 'id, employeeId, date, status, createdAt',
+      absenceRecords: 'id, employeeId, date, type, createdAt',
+      plannedLeaves: 'id, employeeId, startDate, endDate, status, createdAt',
+      warehouseLocations: 'id, zone, aisle, rack, positionCode, status, createdAt',
+      warehouseDesignElements: 'id, warehouseId, type, createdAt',
+      branchNotes: 'id, expiresAt, *targetBranchIds',
+      branchInventoryReports: 'id, branchId, reportCode, createdAt',
+      operationRequests: 'id, operationType, status, createdAt, operationNumber, entityId',
+      labelTemplates: 'id, name, updatedAt, createdAt',
+      workSchedules: 'id, scopeType, branchId, employeeId, startTime, endTime, active, createdAt, updatedAt, *employeeIds',
+      receiptInspectionVouchers: 'id, voucherNumber, purchaseOperationNumber, supplierName, createdAt',
+      stockLedger: 'id, productId',
+      deliveryNotes: 'id, noteNumber, customerName, createdAt, linkedPurchaseOperationNumber',
+      assetItems: 'id, code, name, category, type, createdAt',
+      assetSerialNumbers: 'id, assetId, serialNumber, branchId, status, condition',
+      assetRequestInvoices: 'id, invoiceNumber, branchId, status, requestedAt',
+      assetPurchaseOrders: 'id, poNumber, supplierId, createdAt',
+      assetPriceHistory: 'id, assetId, supplierId, purchaseOrderId, date'
+    });
+
+    // Version 25: Asset Full Isolation (Suppliers & Returns)
+    this.version(25).stores({
+      products: 'id, productCode, productName, category, location, quantity, currentStock, isLowStock',
+      categories: 'id, name',
+      transactions: 'id, productId, type, createdAt',
+      branches: 'id, name, location',
+      units: 'id, name',
+      issues: 'id, productId, branchId, status, delivered, createdAt, invoiceNumber',
+      returns: 'id, productId, branchId, status, createdAt',
+      locations: 'id, name',
+      issueDrafts: 'id, branchId, complete, updatedAt',
+      purchaseOrders: 'id, status, createdAt',
+      verificationLogs: 'id, issueId, status, timestamp',
+      inventoryAdjustments: 'id, productId, createdAt',
+      branchInvoices: 'id, branchId, invoiceNumber, createdAt',
+      branchRequests: 'id, branchId, status, type, createdAt',
+      branchRequestDrafts: 'id, branchId, updatedAt',
+      purchaseRequests: 'id, status, createdAt',
+      settings: 'key',
+      auditLogs: 'id, timestamp, userId, action, entity, entityId',
+      notifications: 'id, type, date, read',
+      backups: 'id, timestamp, version',
+      imageCache: 'key, timestamp',
+      syncQueue: 'id, table, op, ts, attempts, deviceId, syncedToDevices',
+      conflictLogs: 'id, table, recordId, ts',
+      changeLogs: 'id, table, entityId, ts',
+      userSessions: 'id, userId, deviceId, lastActive',
+      userPreferences: 'userId',
+      productImages: 'productId',
+      branchInventory: 'id, branchId, productId, [branchId+productId], productName, currentStock',
+      consumptionRecords: 'id, branchId, productId, date, createdAt',
+      branchAssets: 'id, branchId, category, status, createdAt',
+      maintenanceReports: 'id, assetId, branchId, status, reportedDate',
+      assetRequests: 'id, branchId, status, requestDate',
+      assetStatusReports: 'id, branchId, generatedAt',
+      receivingNotes: 'id, noteNumber, supplierName, createdAt, linkedPurchaseOperationNumber',
+      suppliers: 'id, name, createdAt',
+      employees: 'id, name, department, createdAt',
+      overtimeReasons: 'id, name, createdAt',
+      overtimeEntries: 'id, employeeId, date, status, createdAt',
+      absenceRecords: 'id, employeeId, date, type, createdAt',
+      plannedLeaves: 'id, employeeId, startDate, endDate, status, createdAt',
+      warehouseLocations: 'id, zone, aisle, rack, positionCode, status, createdAt',
+      warehouseDesignElements: 'id, warehouseId, type, createdAt',
+      branchNotes: 'id, expiresAt, *targetBranchIds',
+      branchInventoryReports: 'id, branchId, reportCode, createdAt',
+      operationRequests: 'id, operationType, status, createdAt, operationNumber, entityId',
+      labelTemplates: 'id, name, updatedAt, createdAt',
+      workSchedules: 'id, scopeType, branchId, employeeId, startTime, endTime, active, createdAt, updatedAt, *employeeIds',
+      receiptInspectionVouchers: 'id, voucherNumber, purchaseOperationNumber, supplierName, createdAt',
+      stockLedger: 'id, productId',
+      deliveryNotes: 'id, noteNumber, customerName, createdAt, linkedPurchaseOperationNumber',
+      assetItems: 'id, code, name, category, type, createdAt',
+      assetSerialNumbers: 'id, assetId, serialNumber, branchId, status, condition',
+      assetRequestInvoices: 'id, invoiceNumber, branchId, status, requestedAt',
+      assetPurchaseOrders: 'id, poNumber, supplierId, createdAt',
+      assetPriceHistory: 'id, assetId, supplierId, purchaseOrderId, date',
+      assetSuppliers: 'id, name, createdAt',
+      assetSupplierReturns: 'id, returnNumber, supplierId, createdAt',
+      assetBranchReturns: 'id, returnNumber, branchId, status, createdAt'
+    });
+
+    // Version 26: Add assetPendingPurchases
+    this.version(26).stores({
+      products: 'id, productCode, productName, category, location, quantity, currentStock, isLowStock',
+      categories: 'id, name',
+      transactions: 'id, productId, type, createdAt',
+      branches: 'id, name, location',
+      units: 'id, name',
+      issues: 'id, productId, branchId, status, delivered, createdAt, invoiceNumber',
+      returns: 'id, productId, branchId, status, createdAt',
+      locations: 'id, name',
+      issueDrafts: 'id, branchId, complete, updatedAt',
+      purchaseOrders: 'id, status, createdAt',
+      verificationLogs: 'id, issueId, status, timestamp',
+      inventoryAdjustments: 'id, productId, createdAt',
+      branchInvoices: 'id, branchId, invoiceNumber, createdAt',
+      branchRequests: 'id, branchId, status, type, createdAt',
+      branchRequestDrafts: 'id, branchId, updatedAt',
+      purchaseRequests: 'id, status, createdAt',
+      settings: 'key',
+      auditLogs: 'id, timestamp, userId, action, entity, entityId',
+      notifications: 'id, type, date, read',
+      backups: 'id, timestamp, version',
+      imageCache: 'key, timestamp',
+      syncQueue: 'id, table, op, ts, attempts, deviceId, syncedToDevices',
+      conflictLogs: 'id, table, recordId, ts',
+      changeLogs: 'id, table, entityId, ts',
+      userSessions: 'id, userId, deviceId, lastActive',
+      userPreferences: 'userId',
+      productImages: 'productId',
+      branchInventory: 'id, branchId, productId, [branchId+productId], productName, currentStock',
+      consumptionRecords: 'id, branchId, productId, date, createdAt',
+      branchAssets: 'id, branchId, category, status, createdAt',
+      maintenanceReports: 'id, assetId, branchId, status, reportedDate',
+      assetRequests: 'id, branchId, status, requestDate',
+      assetStatusReports: 'id, branchId, generatedAt',
+      receivingNotes: 'id, noteNumber, supplierName, createdAt, linkedPurchaseOperationNumber',
+      suppliers: 'id, name, createdAt',
+      employees: 'id, name, department, createdAt',
+      overtimeReasons: 'id, name, createdAt',
+      overtimeEntries: 'id, employeeId, date, status, createdAt',
+      absenceRecords: 'id, employeeId, date, type, createdAt',
+      plannedLeaves: 'id, employeeId, startDate, endDate, status, createdAt',
+      warehouseLocations: 'id, zone, aisle, rack, positionCode, status, createdAt',
+      warehouseDesignElements: 'id, warehouseId, type, createdAt',
+      branchNotes: 'id, expiresAt, *targetBranchIds',
+      branchInventoryReports: 'id, branchId, reportCode, createdAt',
+      operationRequests: 'id, operationType, status, createdAt, operationNumber, entityId',
+      labelTemplates: 'id, name, updatedAt, createdAt',
+      workSchedules: 'id, scopeType, branchId, employeeId, startTime, endTime, active, createdAt, updatedAt, *employeeIds',
+      receiptInspectionVouchers: 'id, voucherNumber, purchaseOperationNumber, supplierName, createdAt',
+      stockLedger: 'id, productId',
+      deliveryNotes: 'id, noteNumber, customerName, createdAt, linkedPurchaseOperationNumber',
+      assetItems: 'id, code, name, category, type, createdAt',
+      assetSerialNumbers: 'id, assetId, serialNumber, branchId, status, condition',
+      assetRequestInvoices: 'id, invoiceNumber, branchId, status, requestedAt',
+      assetPurchaseOrders: 'id, poNumber, supplierId, createdAt',
+      assetPriceHistory: 'id, assetId, supplierId, purchaseOrderId, date',
+      assetSuppliers: 'id, name, createdAt',
+      assetSupplierReturns: 'id, returnNumber, supplierId, createdAt',
+      assetBranchReturns: 'id, returnNumber, branchId, status, createdAt',
+      assetPendingPurchases: 'id, requestInvoiceId, branchId, assetId, status, createdAt'
+    });
   }
 }
 
@@ -294,7 +657,8 @@ if (typeof window === 'undefined') {
     'branchRequests', 'branchRequestDrafts', 'purchaseRequests', 'receivingNotes', 'settings', 'auditLogs',
     'notifications', 'backups', 'imageCache', 'syncQueue', 'conflictLogs',
     'changeLogs', 'userSessions', 'userPreferences', 'productImages', 'suppliers',
-    'employees', 'overtimeReasons', 'overtimeEntries', 'absenceRecords', 'plannedLeaves', 'warehouseLocations', 'branchNotes', 'branchInventoryReports', 'operationRequests', 'labelTemplates', 'workSchedules' , 'receiptInspectionVouchers'
+    'employees', 'overtimeReasons', 'overtimeEntries', 'absenceRecords', 'plannedLeaves', 'warehouseLocations', 'branchNotes', 'branchInventoryReports', 'operationRequests', 'labelTemplates', 'workSchedules' , 'receiptInspectionVouchers', 'stockLedger', 'deliveryNotes',
+    'assetItems', 'assetSerialNumbers', 'assetRequestInvoices'
   ];
 
   tables.forEach(table => {
@@ -343,7 +707,7 @@ if (typeof window === 'undefined') {
       'branchRequests', 'branchRequestDrafts', 'purchaseRequests', 'receivingNotes', 'settings', 'auditLogs',
       'notifications', 'backups', 'imageCache', 'syncQueue', 'conflictLogs',
       'changeLogs', 'userSessions', 'userPreferences', 'productImages', 'suppliers',
-      'employees', 'overtimeReasons', 'overtimeEntries', 'absenceRecords', 'plannedLeaves', 'warehouseLocations', 'branchNotes', 'branchInventoryReports', 'operationRequests', 'labelTemplates', 'workSchedules', 'receiptInspectionVouchers'
+      'employees', 'overtimeReasons', 'overtimeEntries', 'absenceRecords', 'plannedLeaves', 'warehouseLocations', 'branchNotes', 'branchInventoryReports', 'operationRequests', 'labelTemplates', 'workSchedules', 'receiptInspectionVouchers', 'stockLedger', 'deliveryNotes'
     ];
 
     tables.forEach(table => {

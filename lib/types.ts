@@ -139,6 +139,38 @@ export interface ReceivingNote {
   lastModifiedBy?: string
 }
 
+export interface DeliveryNoteItem {
+  id: string
+  productId?: string
+  productCode?: string
+  productName: string
+  unit: string
+  quantity: number
+  price?: number
+  total?: number
+  notes?: string
+  image?: string
+}
+
+export interface DeliveryNote {
+  id: string
+  noteNumber: string
+  deliveringCompany: string
+  customerName: string
+  items: DeliveryNoteItem[]
+  delivererName: string
+  delivererSignature?: string
+  driverName: string
+  driverSignature?: string
+  stampImage?: string
+  linkedPurchaseOperationNumber?: string
+  createdAt: string
+  updatedAt: string
+  createdBy?: string
+  lastModifiedBy?: string
+}
+
+
 export interface ReceiptInspectionVoucherItem {
   id: string
   productId?: string
@@ -222,12 +254,14 @@ export interface Branch {
   // New auth fields
   username?: string
   passwordHash?: string
+  isActive?: boolean // حالة نشاط حساب الفرع (مفعل أو موقوف)
   // ساعات العمل النصية مثل "السبت-الخميس: 9 ص - 5 م"
   workingHours?: string
   // الخدمات المقدمة في الفرع
   services?: string[]
   // فعاليات/أنشطة الفرع
   events?: { title: string; date?: string; description?: string }[]
+  assetMonthlyBudget?: number; // Budget specifically for Assets & Materials
   createdAt: string
   updatedAt?: string
   lastModifiedBy?: string
@@ -393,6 +427,8 @@ export interface Issue {
   status?: "draft" | "pending" | "delivered" | "shipped"
   updatedAt?: string
   lastModifiedBy?: string
+  driverName?: string
+  driverPhone?: string
 }
 
 export interface IssueProduct {
@@ -458,6 +494,8 @@ export interface IssueDraft {
   notes?: string
   extractorName?: string
   inspectorName?: string
+  driverName?: string
+  driverPhone?: string
   createdAt: string
   updatedAt: string
   complete?: boolean
@@ -843,6 +881,7 @@ export interface BranchInventoryReport {
   branchName: string;
   items: BranchInventoryReportItem[];
   notes?: string;
+  assetMonthlyBudget?: number; // Budget specifically for Assets & Materials
   createdAt: string;
   updatedAt: string;
   createdBy?: string;
@@ -890,4 +929,23 @@ export interface LabelTemplate {
   createdAt: string
   updatedAt: string
   createdBy?: string
+}
+
+// ============================================
+// Stock Ledger (Independent Excel-like Tracking)
+// ============================================
+
+export interface StockLedgerRecord {
+  id: string; // Same as productId
+  productId: string;
+  openingStock: number;
+  purchases: number;
+  issues: number;
+  returns: number;
+  adjustments: number;
+  inventoryCount: number;
+  price: number;
+  createdAt: string;
+  updatedAt: string;
+  lastModifiedBy?: string;
 }

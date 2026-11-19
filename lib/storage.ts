@@ -14,6 +14,7 @@ import type {
   PurchaseOrderItem,
   VerificationLog,
   ReceivingNote,
+  DeliveryNote,
   Supplier,
   ReceivingNoteItem,
   AuditLogEntry,
@@ -59,6 +60,8 @@ import {
   stopRealtimeSync,
   syncReceivingNote,
   deleteAllReceivingNotesApi,
+  syncDeliveryNote,
+  deleteAllDeliveryNotesApi,
   syncReceiptInspectionVoucher,
   deleteAllReceiptInspectionVouchersApi,
   syncEmployee,
@@ -234,6 +237,7 @@ export async function factoryReset() {
       db.branchRequestDrafts.clear(),
       db.purchaseRequests.clear(),
       db.receivingNotes.clear(),
+      db.deliveryNotes.clear(),
       db.suppliers.clear(),
       db.receiptInspectionVouchers.clear(),
       // db.settings.clear(),
@@ -271,6 +275,7 @@ export async function factoryReset() {
       branchRequestDrafts: [],
       purchaseRequests: [],
       receivingNotes: [],
+      deliveryNotes: [],
       receiptInspectionVouchers: [],
       suppliers: [],
       employees: [],
@@ -648,40 +653,81 @@ export async function deleteProduct(id: string): Promise<boolean> {
     const { uid, name } = getUserInfo()
 
     store.cache.products = products.filter(p => p.id !== id)
+    notify("products_change")
 
     // Audit Log
     if (productToDelete) {
       addAuditLog(uid, name, 'delete', 'product', id, productToDelete.productName).catch(console.error)
     } else {
-      // Try to get name from DB if not in cache
       db.products.get(id).then(p => {
         if (p) addAuditLog(uid, name, 'delete', 'product', id, p.productName).catch(console.error)
       })
     }
 
-    await db.products.delete(id);
-    // Ensure we delete the local image cache for this product
-    await db.productImages.delete(id).catch(() => { })
+    await Promise.all([
+      db.products.delete(id),
+      db.productImages.delete(id).catch(() => { }),
+    ]);
 
     try {
-      await deleteProductApi(id)
-      await deleteProductImageFromCloud(id)
-      console.log(`[Storage] Deleted product ${id} from cloud`)
-      // Keep marked as deleting for a while to ensure 'removed' event processes
+      await deleteAllProductsApi([id])
+      console.log(`[Storage] Deleted product and image ${id} from cloud`)
       setTimeout(() => unmarkAsDeleting(id), 5000)
     } catch (e) {
       console.error("Sync Error deleteProduct:", e)
-      // If sync failed, keep it marked? Or unmark?
-      // If we unmark, it might come back if we reconnect.
-      // But we can't keep it forever in memory.
       setTimeout(() => unmarkAsDeleting(id), 10000)
     }
 
-    notify("products_change")
     return true;
   } catch (err) {
     console.error(err);
     unmarkAsDeleting(id);
+    return false;
+  }
+}
+
+export async function deleteProductsBulk(ids: string[]): Promise<boolean> {
+  if (!ids || ids.length === 0) return true;
+  const idSet = new Set(ids);
+  try {
+    ids.forEach(id => markAsDeleting(id));
+
+    // 1. Instant UI update in a single pass
+    store.cache.products = store.cache.products.filter(p => !idSet.has(p.id));
+    notify("products_change");
+
+    // 2. Single-batch local IndexedDB delete for both products and productImages
+    await Promise.all([
+      db.products.bulkDelete(ids),
+      db.productImages.bulkDelete(ids).catch(() => { }),
+      db.syncQueue.toArray().then(queue => {
+        const staleQueueIds = queue
+          .filter(q => idSet.has(q.payload?.id) || idSet.has(q.payload?.productId))
+          .map(q => q.id)
+          .filter((qid): qid is number => qid !== undefined);
+        if (staleQueueIds.length > 0) {
+          return db.syncQueue.bulkDelete(staleQueueIds);
+        }
+      }).catch(() => { })
+    ]);
+
+    // 3. Batch delete from Firestore (both products and product_images in writeBatch chunks)
+    try {
+      await deleteAllProductsApi(ids);
+      console.log(`[Storage] Batch deleted ${ids.length} products and their images from cloud`);
+      setTimeout(() => ids.forEach(id => unmarkAsDeleting(id)), 5000);
+    } catch (e) {
+      console.error("Sync Error deleteProductsBulk:", e);
+      setTimeout(() => ids.forEach(id => unmarkAsDeleting(id)), 10000);
+    }
+
+    const { uid, name } = getUserInfo();
+    addAuditLog(uid, name, 'delete', 'product', ids[0], `حذف جماعي (${ids.length} منتج)`).catch(console.error);
+
+    return true;
+  } catch (err) {
+    console.error(err);
+    ids.forEach(id => unmarkAsDeleting(id));
     return false;
   }
 }
@@ -2155,6 +2201,53 @@ export function generateReceivingNoteNumber(): string {
   const count = notes.filter(n => n.createdAt && n.createdAt.startsWith(yearStr)).length + 1
   return `GRN-${year}-${count.toString().padStart(4, '0')}`
 }
+
+// Goods Delivery Notes (GDN)
+export function getDeliveryNotes(): DeliveryNote[] {
+  return store.cache.deliveryNotes || []
+}
+
+export async function saveDeliveryNote(note: DeliveryNote): Promise<void> {
+  const notes = getDeliveryNotes()
+  const idx = notes.findIndex(n => n.id === note.id)
+  if (idx >= 0) {
+    notes[idx] = note
+  } else {
+    notes.push(note)
+  }
+  store.cache.deliveryNotes = notes
+
+  // Local Save
+  await db.deliveryNotes.put(note)
+
+  // Cloud Sync (Best effort)
+  await syncDeliveryNote(note).catch(console.error)
+
+  notify("delivery_notes_change" as any)
+}
+
+export async function deleteDeliveryNote(id: string): Promise<void> {
+  const notes = getDeliveryNotes()
+  store.cache.deliveryNotes = notes.filter(n => n.id !== id)
+
+  // Local delete
+  await db.deliveryNotes.delete(id)
+
+  // Cloud delete (Best effort)
+  await deleteAllDeliveryNotesApi([id]).catch(console.error)
+
+  notify("delivery_notes_change" as any)
+}
+
+export function generateDeliveryNoteNumber(): string {
+  const notes = getDeliveryNotes()
+  const now = new Date()
+  const year = now.getFullYear()
+  const yearStr = year.toString()
+  const count = notes.filter(n => n.createdAt && n.createdAt.startsWith(yearStr)).length + 1
+  return `GDN-${year}-${count.toString().padStart(4, '0')}`
+}
+
 
 // Suppliers
 export function getSuppliers(): Supplier[] {

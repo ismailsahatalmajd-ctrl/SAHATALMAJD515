@@ -192,8 +192,16 @@ export class DataStore {
           }
         }
 
-        // Map results back to cache with proper type casting
-        this.cache.products = (results[0] as Product[]) || []
+        // Map results back to cache with proper type casting (and filter out any ghost image-only products)
+        const rawProducts = (results[0] as Product[]) || []
+        const ghostLocalIds = rawProducts
+          .filter(p => !p.productName && !p.productCode && !p.itemNumber)
+          .map(p => p.id)
+        if (ghostLocalIds.length > 0) {
+          db.products.bulkDelete(ghostLocalIds).catch(console.error)
+          db.productImages.bulkDelete(ghostLocalIds).catch(console.error)
+        }
+        this.cache.products = rawProducts.filter(p => p.productName || p.productCode || p.itemNumber)
         this.cache.categories = (results[1] as Category[]) || []
         this.cache.transactions = (results[2] as Transaction[]) || []
         this.cache.branches = (results[3] as Branch[]) || []

@@ -2,20 +2,19 @@
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
-  Play,
-  Pause,
+  Cctv,
+  X,
+  Users,
+  Sparkles,
+  Maximize2,
   RefreshCw,
   Volume2,
   VolumeX,
-  Maximize,
-  AlertCircle,
+  ChevronDown,
   Radio,
-  Camera,
-  CheckCircle2,
-  Activity,
-  RotateCcw,
   Zap,
-  Sparkles,
+  AlertCircle,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -38,7 +37,7 @@ type PlaybackMode = "video" | "snapshot";
 
 export default function CloudVideoPlayer({
   channel,
-  channelName = `Camera ${channel}`,
+  channelName = `Camera ${channel < 10 ? `0${channel}` : channel}`,
   onFallbackToSnapshot,
   quality: initialQuality,
   onClose,
@@ -65,7 +64,8 @@ export default function CloudVideoPlayer({
   const [liveDuration, setLiveDuration] = useState(0);
   const [showAiBoxes, setShowAiBoxes] = useState(true);
   const [snapshotTimestamp, setSnapshotTimestamp] = useState<number>(Date.now());
-  const [previewLoaded, setPreviewLoaded] = useState(false);
+  const [currentTime, setCurrentTime] = useState("");
+
   const [detectedHuman, setDetectedHuman] = useState<{
     x: number;
     y: number;
@@ -74,6 +74,19 @@ export default function CloudVideoPlayer({
     label: string;
     confidence: number;
   } | null>(null);
+
+  // Live formatted clock in video viewport (e.g. 19 : 11 as shown in target design)
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2, "0");
+      const m = String(now.getMinutes()).padStart(2, "0");
+      setCurrentTime(`${h} : ${m}`);
+    };
+    updateTime();
+    const timer = setInterval(updateTime, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Auto-scan / mock intelligent human tracking bounding box on video viewport
   useEffect(() => {
@@ -342,10 +355,7 @@ export default function CloudVideoPlayer({
   };
 
   return (
-    <div
-      ref={containerRef}
-      className="relative w-full aspect-video bg-black flex flex-col items-center justify-center overflow-hidden select-none group rounded-xl"
-    >
+    <div className="w-full flex flex-col bg-white text-slate-800 select-none" dir="rtl">
       <style jsx global>{`
         #cloud-player-container-${channel} canvas {
           max-width: 100% !important;
@@ -363,218 +373,228 @@ export default function CloudVideoPlayer({
         }
       `}</style>
 
-      {/* Target DOM Container for EZUIKit WebAssembly Video */}
-      <div
-        id={`cloud-player-container-${channel}`}
-        style={{
-          width: "100%",
-          height: "100%",
-          display: playbackMode === "video" ? "flex" : "none",
-        }}
-        className="w-full h-full flex items-center justify-center bg-black"
-      />
-
-      {/* Mode 2: Ultra-Fast Mobile Snapshot Stream (100% Compatible on all phones) */}
-      {playbackMode === "snapshot" && (
-        <div className="relative w-full h-full flex items-center justify-center bg-black">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={`/api/cameras/cloud/snapshot?channel=${channel}&t=${snapshotTimestamp}`}
-            alt={channelName}
-            className="w-full h-full object-contain"
-            onLoad={() => setPreviewLoaded(true)}
-            onError={() => {
-              // Retry on transient failure
-              setTimeout(() => setSnapshotTimestamp(Date.now()), 1500);
-            }}
-          />
-        </div>
-      )}
-
-      {/* Background preview while video connects so user never sees a plain black screen */}
-      {playbackMode === "video" && connectionState === "connecting" && (
-        <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-black opacity-40 pointer-events-none">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={`/api/cameras/cloud/snapshot?channel=${channel}`}
-            alt="Camera Preview"
-            className="w-full h-full object-contain filter blur-[1px]"
-          />
-        </div>
-      )}
-
-      {/* AI Smart Bounding Box Overlay for Human / Vehicle */}
-      {detectedHuman && connectionState === "live" && showAiBoxes && (
-        <div
-          style={{
-            position: "absolute",
-            left: `${detectedHuman.x}%`,
-            top: `${detectedHuman.y}%`,
-            width: `${detectedHuman.w}%`,
-            height: `${detectedHuman.h}%`,
-          }}
-          className="border-2 border-emerald-400 rounded bg-emerald-500/10 pointer-events-none z-10 transition-all duration-300 shadow-sm"
+      {/* 1. TOP HEADER (مطابق تماماً للصورة: زر الإغلاق على اليسار، والعنوان والبادج على اليمين) */}
+      <div className="flex items-center justify-between pb-3.5 px-0.5">
+        {/* Left (in RTL): Close Button */}
+        <button
+          onClick={onClose}
+          className="h-9 w-9 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 flex items-center justify-center transition-all shadow-xs active:scale-95"
+          title="إغلاق النافذة"
         >
-          <div className="absolute -top-6 right-0 bg-emerald-600 text-white font-bold text-[10px] px-1.5 py-0.5 rounded shadow flex items-center gap-1 whitespace-nowrap">
-            <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
-            <span>
-              {detectedHuman.label} {detectedHuman.confidence}%
-            </span>
-          </div>
-        </div>
-      )}
+          <X className="h-4 w-4" />
+        </button>
 
-      {/* State 1: Connecting (🟡 جاري الاتصال) */}
-      {connectionState === "connecting" && playbackMode === "video" && (
-        <div className="absolute inset-0 bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center gap-3 text-slate-200 z-10 p-4 text-center">
-          <div className="relative">
-            <RefreshCw className="h-9 w-9 text-amber-400 animate-spin" />
-            <Radio className="h-3.5 w-3.5 text-white absolute inset-0 m-auto" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-amber-300">جاري الاتصال بالبث المباشر السحابي...</p>
-            <span className="text-xs text-slate-400">تهيئة فك التشفير ومسار البث المباشر • {channelName}</span>
-          </div>
-
-          {/* Quick switch to snapshot stream button on mobile */}
-          {isMobile && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setPlaybackMode("snapshot")}
-              className="mt-2 bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30 text-xs gap-1.5"
-            >
-              <Zap className="h-3.5 w-3.5 text-emerald-400" />
-              الفتح الفوري بنمط الجوال السريع
-            </Button>
-          )}
-        </div>
-      )}
-
-      {/* State 2: Retrying (🔄 جاري إعادة المحاولة) */}
-      {connectionState === "retrying" && (
-        <div className="absolute inset-0 bg-black/90 backdrop-blur-sm flex flex-col items-center justify-center gap-3 text-slate-200 z-10 pointer-events-none">
-          <RotateCcw className="h-10 w-10 text-blue-400 animate-spin" />
-          <p className="text-sm font-semibold text-blue-300">جاري إعادة الاتصال تلقائياً (محاولة {retryCount})...</p>
-          <span className="text-xs text-slate-400">التحقق من جاهزية مزود البث السحابي</span>
-        </div>
-      )}
-
-      {/* State 3: Disconnected / Error (🔴 انقطاع الاتصال) */}
-      {connectionState === "disconnected" && (
-        <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center gap-3 p-6 text-center z-20">
-          <div className="p-3 rounded-full bg-red-500/10 border border-red-500/20 text-red-400">
-            <AlertCircle className="h-8 w-8" />
-          </div>
-          <h3 className="text-sm font-bold text-white">انقطع اتصال البث المباشر</h3>
-          <p className="text-xs text-slate-400 max-w-md">{errorMessage || "تعذر الحفاظ على استمرار تدفق الفيديو"}</p>
-          <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
-            <Button
-              size="sm"
-              className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
-              onClick={handleRetry}
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              إعادة الاتصال
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-emerald-500/40 bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 gap-1.5"
-              onClick={() => setPlaybackMode("snapshot")}
-            >
-              <Zap className="h-3.5 w-3.5 text-emerald-400" />
-              عرض بنمط الجوال المباشر
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* State 4: Live Controls Overlay (🟢 بث مباشر نشط) */}
-      <div className="absolute top-3 right-3 left-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none z-10">
-        <div className="flex items-center gap-2 bg-black/80 backdrop-blur px-3 py-1.5 rounded-lg border border-white/10 pointer-events-auto">
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            {playbackMode === "video" ? "بث فيديو حي (30 FPS)" : "بث مباشر للجوال (⚡ حي)"}
+        {/* Right (in RTL): Live Badge + Separator + Camera Title + CCTV Icon */}
+        <div className="flex items-center gap-2.5">
+          <span className="bg-[#e8f8f0] text-[#0f766e] border border-[#a3e6cd] text-[11px] font-bold px-3 py-1 rounded-xl shadow-2xs flex items-center gap-1.5">
+            بث مباشر حي (FPS 30)
           </span>
-          <span className="text-white/20">|</span>
-          <span className="text-[11px] font-mono text-slate-300">{formatDuration(liveDuration)}</span>
-          <span className="text-white/20">|</span>
-          <button
-            onClick={() => setShowAiBoxes(!showAiBoxes)}
-            className={`text-[11px] font-bold px-2 py-0.5 rounded transition-all flex items-center gap-1 cursor-pointer select-none ${
-              showAiBoxes
-                ? "bg-emerald-500/25 text-emerald-300 border border-emerald-500/40"
-                : "bg-slate-700/50 text-slate-400 border border-slate-600"
-            }`}
-            title="تبديل إظهار مستطيلات التتبع والتعرف الذكي على الأشخاص"
-          >
-            {showAiBoxes ? "🎯 تتبع الأشخاص (AI)" : "تتبع معطل"}
-          </button>
-        </div>
 
-        {/* Mode & Quality Switchers */}
-        <div className="flex items-center gap-1.5 bg-black/80 backdrop-blur px-2.5 py-1 rounded-lg border border-white/10 pointer-events-auto">
-          {/* Mode Switch: Video vs Snapshot */}
-          <button
-            onClick={() => {
-              if (playbackMode === "video") {
-                setPlaybackMode("snapshot");
-              } else {
-                setPlaybackMode("video");
-              }
-            }}
-            className="text-[11px] font-bold px-2 py-1 rounded transition-all flex items-center gap-1 bg-blue-600/30 text-blue-300 border border-blue-500/40 hover:bg-blue-600/40"
-            title="التبديل بين بث الفيديو وبث اللقطات السريعة"
-          >
-            {playbackMode === "video" ? (
-              <>
-                <Zap className="h-3 w-3 text-amber-300" />
-                <span>نمط الجوال السريع</span>
-              </>
-            ) : (
-              <>
-                <Radio className="h-3 w-3 text-blue-300" />
-                <span>مشغل الفيديو (WASM)</span>
-              </>
-            )}
-          </button>
+          <span className="text-slate-300">|</span>
 
-          {/* Quality Switch: Sub vs 2K HD */}
-          {playbackMode === "video" && (
-            <button
-              onClick={() => setQuality(quality === "hd" ? "live" : "hd")}
-              className={`text-[11px] font-bold px-2 py-1 rounded transition-all flex items-center gap-1 cursor-pointer select-none ${
-                quality === "hd"
-                  ? "bg-amber-500/25 text-amber-300 border border-amber-500/40 hover:bg-amber-500/35"
-                  : "bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/35"
-              }`}
-              title="انقر هنا للتبديل بين الدقة الفائقة والبث السلس"
-            >
-              {quality === "hd" ? "💎 2K HD" : "⚡ Sub (سلس)"}
-            </button>
-          )}
+          <h2 className="text-base sm:text-lg font-black text-slate-800 tracking-tight">
+            {channelName}
+          </h2>
+
+          <Cctv className="h-5 w-5 text-slate-800" />
         </div>
       </div>
 
-      {/* Floating Bottom Toolbar on Hover / Mobile touch */}
-      <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between px-3 py-2 bg-black/75 backdrop-blur rounded-lg border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-        <div className="flex items-center gap-2">
-          {playbackMode === "video" && (
-            <button
-              onClick={toggleSound}
-              className="p-1.5 rounded bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white transition-colors"
-              title={isMuted ? "تشغيل الصوت" : "كتم الصوت"}
-            >
-              {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4 text-emerald-400" />}
-            </button>
-          )}
-          <span className="text-[11px] text-slate-300 font-medium">
-            {playbackMode === "video" ? `دقة البث: ${quality === "hd" ? "2K HD فائقة" : "سلس Sub"}` : "تحديث مباشر مستمر"}
+      {/* 2. VIDEO VIEWPORT CONTAINER */}
+      <div
+        ref={containerRef}
+        className="relative w-full aspect-video bg-black rounded-2xl overflow-hidden border border-slate-200 shadow-inner group flex items-center justify-center"
+      >
+        {/* Live Clock Stamp in Top Left (مطابق للصورة: 19 : 11) */}
+        {currentTime && (
+          <div className="absolute top-3 left-4 text-white font-mono font-bold text-xs sm:text-sm drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] z-10 pointer-events-none tracking-wider">
+            {currentTime}
+          </div>
+        )}
+
+        {/* Floating White Overlay Bar in Top Right (مطابق للصورة تماماً) */}
+        <div className="absolute top-3 right-3 sm:right-4 bg-white/95 backdrop-blur-md rounded-xl px-2.5 sm:px-3 py-1.5 border border-slate-200/80 shadow-md flex items-center gap-1.5 sm:gap-2 z-10 text-xs">
+          {/* Green dot + بث مباشر */}
+          <div className="flex items-center gap-1.5 font-bold text-emerald-700">
+            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="hidden xs:inline">بث مباشر</span>
+          </div>
+
+          <span className="text-slate-300">|</span>
+
+          {/* Duration counter */}
+          <span className="font-mono font-bold text-slate-800 text-xs">
+            {formatDuration(liveDuration)}
           </span>
+
+          <span className="text-slate-300">|</span>
+
+          {/* كشف الأشخاص (AI) */}
+          <button
+            onClick={() => setShowAiBoxes(!showAiBoxes)}
+            className={`flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg text-[11px] sm:text-xs font-bold transition-all ${
+              showAiBoxes
+                ? "bg-[#e8f8f0] text-[#0f766e] border border-[#a3e6cd]"
+                : "bg-slate-100 text-slate-500 border border-slate-200"
+            }`}
+            title="تبديل كشف الأشخاص بالذكاء الاصطناعي"
+          >
+            <Users className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-emerald-600" />
+            <span>كشف الأشخاص (AI)</span>
+          </button>
+
+          <span className="text-slate-300">|</span>
+
+          {/* دقة فائقة (2K HD) */}
+          <button
+            onClick={() => setQuality(quality === "hd" ? "live" : "hd")}
+            className={`flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg text-[11px] sm:text-xs font-bold transition-all ${
+              quality === "hd"
+                ? "bg-[#fef7e6] text-[#92400e] border border-[#fde68a]"
+                : "bg-slate-100 text-slate-600 border border-slate-200"
+            }`}
+            title="تبديل الدقة"
+          >
+            <Sparkles className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-amber-600" />
+            <span>{quality === "hd" ? "دقة فائقة (2K HD)" : "بث سريع (Sub)"}</span>
+          </button>
         </div>
 
+        {/* Target DOM Container for EZUIKit WebAssembly Video */}
+        <div
+          id={`cloud-player-container-${channel}`}
+          style={{
+            width: "100%",
+            height: "100%",
+            display: playbackMode === "video" ? "flex" : "none",
+          }}
+          className="w-full h-full flex items-center justify-center bg-black"
+        />
+
+        {/* Mode 2: Ultra-Fast Mobile Snapshot Stream */}
+        {playbackMode === "snapshot" && (
+          <div className="relative w-full h-full flex items-center justify-center bg-black">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`/api/cameras/cloud/snapshot?channel=${channel}&t=${snapshotTimestamp}`}
+              alt={channelName}
+              className="w-full h-full object-contain"
+              onError={() => {
+                setTimeout(() => setSnapshotTimestamp(Date.now()), 1500);
+              }}
+            />
+          </div>
+        )}
+
+        {/* Background preview while video connects */}
+        {playbackMode === "video" && connectionState === "connecting" && (
+          <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-black opacity-40 pointer-events-none">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`/api/cameras/cloud/snapshot?channel=${channel}`}
+              alt="Camera Preview"
+              className="w-full h-full object-contain filter blur-[1px]"
+            />
+          </div>
+        )}
+
+        {/* AI Smart Bounding Box Overlay for Human */}
+        {detectedHuman && connectionState === "live" && showAiBoxes && (
+          <div
+            style={{
+              position: "absolute",
+              left: `${detectedHuman.x}%`,
+              top: `${detectedHuman.y}%`,
+              width: `${detectedHuman.w}%`,
+              height: `${detectedHuman.h}%`,
+            }}
+            className="border-2 border-emerald-400 rounded bg-emerald-500/10 pointer-events-none z-10 transition-all duration-300 shadow-sm"
+          >
+            <div className="absolute -top-6 right-0 bg-emerald-600 text-white font-bold text-[10px] px-1.5 py-0.5 rounded shadow flex items-center gap-1 whitespace-nowrap">
+              <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
+              <span>
+                {detectedHuman.label} {detectedHuman.confidence}%
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* State 1: Connecting (🟡 جاري الاتصال) */}
+        {connectionState === "connecting" && playbackMode === "video" && (
+          <div className="absolute inset-0 bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center gap-3 text-slate-200 z-10 p-4 text-center">
+            <div className="relative">
+              <RefreshCw className="h-9 w-9 text-amber-400 animate-spin" />
+              <Radio className="h-3.5 w-3.5 text-white absolute inset-0 m-auto" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-amber-300">جاري الاتصال بالبث المباشر...</p>
+              <span className="text-xs text-slate-400">تهيئة فك التشفير ومسار البث المباشر • {channelName}</span>
+            </div>
+
+            {isMobile && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setPlaybackMode("snapshot")}
+                className="mt-2 bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30 text-xs gap-1.5"
+              >
+                <Zap className="h-3.5 w-3.5 text-emerald-400" />
+                الفتح بنمط الجوال السريع
+              </Button>
+            )}
+          </div>
+        )}
+
+        {/* State 2: Retrying (🔄 جاري إعادة المحاولة) */}
+        {connectionState === "retrying" && (
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-sm flex flex-col items-center justify-center gap-3 text-slate-200 z-10 pointer-events-none">
+            <RotateCcw className="h-10 w-10 text-blue-400 animate-spin" />
+            <p className="text-sm font-semibold text-blue-300">جاري إعادة الاتصال تلقائياً (محاولة {retryCount})...</p>
+          </div>
+        )}
+
+        {/* State 3: Disconnected / Error (🔴 انقطاع الاتصال) */}
+        {connectionState === "disconnected" && (
+          <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center gap-3 p-6 text-center z-20">
+            <div className="p-3 rounded-full bg-red-500/10 border border-red-500/20 text-red-400">
+              <AlertCircle className="h-8 w-8" />
+            </div>
+            <h3 className="text-sm font-bold text-white">انقطع اتصال البث المباشر</h3>
+            <p className="text-xs text-slate-400 max-w-md">{errorMessage || "تعذر الحفاظ على استمرار تدفق الفيديو"}</p>
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+              <Button
+                size="sm"
+                className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+                onClick={handleRetry}
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                إعادة الاتصال
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-emerald-500/40 bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 gap-1.5"
+                onClick={() => setPlaybackMode("snapshot")}
+              >
+                <Zap className="h-3.5 w-3.5 text-emerald-400" />
+                عرض بنمط الجوال المباشر
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 3. BOTTOM CONTROLS BAR (مطابق تماماً للصورة: ملء الشاشة وتحديث على اليسار، والصوت والدقة على اليمين) */}
+      <div className="flex items-center justify-between pt-3.5 px-0.5">
+        {/* Left (in RTL): Fullscreen & Refresh Buttons */}
         <div className="flex items-center gap-2">
+          <button
+            onClick={toggleFullscreen}
+            className="h-10 w-10 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center transition-all shadow-xs active:scale-95"
+            title="ملء الشاشة"
+          >
+            <Maximize2 className="h-4 w-4" />
+          </button>
           <button
             onClick={() => {
               if (playbackMode === "snapshot") {
@@ -583,17 +603,33 @@ export default function CloudVideoPlayer({
                 startStream();
               }
             }}
-            className="p-1.5 rounded bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white transition-colors"
+            className="h-10 w-10 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center transition-all shadow-xs active:scale-95"
             title="تحديث البث"
           >
             <RefreshCw className="h-4 w-4" />
           </button>
+        </div>
+
+        {/* Right (in RTL): Sound Toggle + Separator + Quality Dropdown */}
+        <div className="flex items-center gap-2.5">
           <button
-            onClick={toggleFullscreen}
-            className="p-1.5 rounded bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white transition-colors"
-            title="ملء الشاشة"
+            onClick={toggleSound}
+            className="h-10 w-10 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center transition-all shadow-xs active:scale-95"
+            title={isMuted ? "تشغيل الصوت" : "كتم الصوت"}
           >
-            <Maximize className="h-4 w-4" />
+            {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4 text-emerald-600" />}
+          </button>
+
+          <span className="text-slate-300">|</span>
+
+          {/* Quality Dropdown Selector */}
+          <button
+            onClick={() => setQuality(quality === "hd" ? "live" : "hd")}
+            className="h-10 px-3.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold flex items-center gap-2 transition-all shadow-xs active:scale-95"
+            title="تبديل جودة البث"
+          >
+            <ChevronDown className="h-4 w-4 text-slate-400" />
+            <span>{quality === "hd" ? "2K HD (فائقة)" : "Sub (سلس)"}</span>
           </button>
         </div>
       </div>

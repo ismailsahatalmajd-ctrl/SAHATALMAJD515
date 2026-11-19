@@ -919,37 +919,22 @@ export default function CamerasPage() {
         )}
       </div>
 
-      {/* 4. MODAL: LIVE HD STREAM POPUP (عند الضغط على الكاميرا) */}
+      {/* 4. MODAL: LIVE HD STREAM POPUP (طراز الصورة المرفقة الحديثة) */}
       {focusedChannel !== null && (
         <Dialog open={focusedChannel !== null} onOpenChange={() => setFocusedChannel(null)}>
-          <DialogContent className="max-w-5xl bg-slate-950 border-slate-800 text-white p-0 overflow-hidden rounded-2xl" dir="rtl">
-            <div className="p-4 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Cctv className="h-5 w-5 text-blue-400" />
-                <DialogTitle className="text-base font-bold text-white">
-                  {channels.find((c) => c.channel === focusedChannel)?.name || `Camera ${focusedChannel}`}
-                </DialogTitle>
-                <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs">
-                  بث مباشر حي (30 FPS)
-                </Badge>
-              </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setFocusedChannel(null)}
-                className="text-slate-400 hover:text-white"
-              >
-                ✕
-              </Button>
-            </div>
-
-            <div className="p-3 bg-black flex items-center justify-center min-h-[360px] md:min-h-[460px]">
-              <CloudVideoPlayer
-                channel={focusedChannel}
-                channelName={channels.find((c) => c.channel === focusedChannel)?.name || `Camera ${focusedChannel}`}
-                onClose={() => setFocusedChannel(null)}
-              />
-            </div>
+          <DialogContent
+            showCloseButton={false}
+            className="max-w-5xl bg-white border border-slate-200/90 text-slate-800 p-4 sm:p-5 overflow-hidden rounded-3xl shadow-2xl"
+            dir="rtl"
+          >
+            <DialogTitle className="sr-only">
+              {channels.find((c) => c.channel === focusedChannel)?.name || `Camera ${focusedChannel}`}
+            </DialogTitle>
+            <CloudVideoPlayer
+              channel={focusedChannel}
+              channelName={channels.find((c) => c.channel === focusedChannel)?.name || `Camera ${focusedChannel < 10 ? `0${focusedChannel}` : focusedChannel}`}
+              onClose={() => setFocusedChannel(null)}
+            />
           </DialogContent>
         </Dialog>
       )}

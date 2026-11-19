@@ -44,6 +44,7 @@ import {
   PanelRightOpen,
 } from "lucide-react";
 import CloudVideoPlayer from "@/components/cameras/cloud-video-player";
+import MobileCameraView from "@/components/cameras/mobile-camera-view";
 import SmartAlertsCenter from "@/components/cameras/smart-alerts-center";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -111,6 +112,9 @@ export default function CamerasPage() {
 
   // Active View Tab: 'live' | 'thumbnail' | 'alerts' | 'playback'
   const [activeTab, setActiveTab] = useState<"live" | "thumbnail" | "alerts" | "events" | "playback" | "smart" | "settings">("live");
+
+  // Mobile focused active camera (default 7 as in design screenshot)
+  const [mobileActiveChannel, setMobileActiveChannel] = useState<number>(7);
 
   // Sidebar visibility: collapsed by default on mobile screens, open on desktop
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -468,8 +472,22 @@ export default function CamerasPage() {
         </div>
       </aside>
 
-      {/* 2. MAIN CONTENT AREA */}
-      <div ref={containerRef} className="flex-1 flex flex-col p-3 md:p-6 overflow-x-hidden min-w-0">
+      {/* 0. DEDICATED MOBILE VIEW (مطابق تماماً لصورة تطبيق الجوال بدون أي تداخل) */}
+      <div className="block md:hidden w-full">
+        <MobileCameraView
+          channels={channels}
+          activeChannel={mobileActiveChannel}
+          onSelectChannel={(ch) => setMobileActiveChannel(ch)}
+          onOpenMenu={() => setIsSidebarOpen(true)}
+          onOpenAlerts={() => handleTabSelect("alerts")}
+          onDownloadSnapshot={(ch) => handleDownloadSnapshot(ch)}
+          activeTab={activeTab}
+          setActiveTab={(t) => handleTabSelect(t)}
+        />
+      </div>
+
+      {/* 2. DESKTOP MAIN CONTENT AREA (يظهر فقط للشاشات المتوسطة والكبيرة md+) */}
+      <div ref={containerRef} className="hidden md:flex flex-1 flex-col p-4 md:p-6 overflow-x-hidden min-w-0">
         {/* TOP STATUS BAR (المراقبة المباشرة + بطاقات العدادات) */}
         <div className="bg-white rounded-2xl p-4 md:p-5 border border-slate-200/80 shadow-sm mb-4 flex flex-wrap items-center justify-between gap-4">
           {/* Right Section: Page Title & Icon & Sidebar Toggle Button */}

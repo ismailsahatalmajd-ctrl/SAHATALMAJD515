@@ -884,10 +884,10 @@ export default function CamerasPage() {
               </Button>
             </div>
 
-            <div className="p-3 bg-black flex items-center justify-center min-h-[460px]">
+            <div className="p-3 bg-black flex items-center justify-center min-h-[360px] md:min-h-[460px]">
               <CloudVideoPlayer
                 channel={focusedChannel}
-                quality="hd"
+                channelName={channels.find((c) => c.channel === focusedChannel)?.name || `Camera ${focusedChannel}`}
                 onClose={() => setFocusedChannel(null)}
               />
             </div>

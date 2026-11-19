@@ -24,6 +24,8 @@ interface CloudVideoPlayerProps {
   onFallbackToSnapshot?: () => void;
   quality?: "hd" | "live";
   onClose?: () => void;
+  hideHeader?: boolean;
+  hideFooter?: boolean;
 }
 
 declare global {
@@ -41,6 +43,8 @@ export default function CloudVideoPlayer({
   onFallbackToSnapshot,
   quality: initialQuality,
   onClose,
+  hideHeader = false,
+  hideFooter = false,
 }: CloudVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerInstanceRef = useRef<any>(null);
@@ -55,6 +59,12 @@ export default function CloudVideoPlayer({
   const [quality, setQuality] = useState<"hd" | "live">(
     initialQuality || (isMobile ? "live" : "hd")
   );
+
+  useEffect(() => {
+    if (initialQuality) {
+      setQuality(initialQuality);
+    }
+  }, [initialQuality]);
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("video");
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -355,7 +365,14 @@ export default function CloudVideoPlayer({
   };
 
   return (
-    <div className="w-full flex flex-col bg-white text-slate-800 select-none" dir="rtl">
+    <div
+      className={
+        hideHeader && hideFooter
+          ? "w-full h-full relative overflow-hidden flex flex-col bg-black text-slate-800 select-none"
+          : "w-full flex flex-col bg-white text-slate-800 select-none"
+      }
+      dir="rtl"
+    >
       <style jsx global>{`
         #cloud-player-container-${channel} canvas {
           max-width: 100% !important;
@@ -374,91 +391,99 @@ export default function CloudVideoPlayer({
       `}</style>
 
       {/* 1. TOP HEADER (مطابق تماماً للصورة: زر الإغلاق على اليسار، والعنوان والبادج على اليمين) */}
-      <div className="flex items-center justify-between pb-3.5 px-0.5">
-        {/* Left (in RTL): Close Button */}
-        <button
-          onClick={onClose}
-          className="h-9 w-9 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 flex items-center justify-center transition-all shadow-xs active:scale-95"
-          title="إغلاق النافذة"
-        >
-          <X className="h-4 w-4" />
-        </button>
+      {!hideHeader && (
+        <div className="flex items-center justify-between pb-3.5 px-0.5">
+          {/* Left (in RTL): Close Button */}
+          <button
+            onClick={onClose}
+            className="h-9 w-9 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 flex items-center justify-center transition-all shadow-xs active:scale-95"
+            title="إغلاق النافذة"
+          >
+            <X className="h-4 w-4" />
+          </button>
 
-        {/* Right (in RTL): Live Badge + Separator + Camera Title + CCTV Icon */}
-        <div className="flex items-center gap-2.5">
-          <span className="bg-[#e8f8f0] text-[#0f766e] border border-[#a3e6cd] text-[11px] font-bold px-3 py-1 rounded-xl shadow-2xs flex items-center gap-1.5">
-            بث مباشر حي (FPS 30)
-          </span>
+          {/* Right (in RTL): Live Badge + Separator + Camera Title + CCTV Icon */}
+          <div className="flex items-center gap-2.5">
+            <span className="bg-[#e8f8f0] text-[#0f766e] border border-[#a3e6cd] text-[11px] font-bold px-3 py-1 rounded-xl shadow-2xs flex items-center gap-1.5">
+              بث مباشر حي (FPS 30)
+            </span>
 
-          <span className="text-slate-300">|</span>
+            <span className="text-slate-300">|</span>
 
-          <h2 className="text-base sm:text-lg font-black text-slate-800 tracking-tight">
-            {channelName}
-          </h2>
+            <h2 className="text-base sm:text-lg font-black text-slate-800 tracking-tight">
+              {channelName}
+            </h2>
 
-          <Cctv className="h-5 w-5 text-slate-800" />
+            <Cctv className="h-5 w-5 text-slate-800" />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 2. VIDEO VIEWPORT CONTAINER */}
       <div
         ref={containerRef}
-        className="relative w-full aspect-video bg-black rounded-2xl overflow-hidden border border-slate-200 shadow-inner group flex items-center justify-center"
+        className={
+          hideHeader && hideFooter
+            ? "relative w-full h-full bg-black overflow-hidden group flex items-center justify-center"
+            : "relative w-full aspect-video bg-black rounded-2xl overflow-hidden border border-slate-200 shadow-inner group flex items-center justify-center"
+        }
       >
         {/* Live Clock Stamp in Top Left (مطابق للصورة: 19 : 11) */}
-        {currentTime && (
+        {!hideHeader && currentTime && (
           <div className="absolute top-3 left-4 text-white font-mono font-bold text-xs sm:text-sm drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] z-10 pointer-events-none tracking-wider">
             {currentTime}
           </div>
         )}
 
-        {/* Floating White Overlay Bar in Top Right (مطابق للصورة تماماً) */}
-        <div className="absolute top-3 right-3 sm:right-4 bg-white/95 backdrop-blur-md rounded-xl px-2.5 sm:px-3 py-1.5 border border-slate-200/80 shadow-md flex items-center gap-1.5 sm:gap-2 z-10 text-xs">
-          {/* Green dot + بث مباشر */}
-          <div className="flex items-center gap-1.5 font-bold text-emerald-700">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="hidden xs:inline">بث مباشر</span>
+        {/* Floating White Overlay Bar in Top Right (يظهر في نمط سطح المكتب) */}
+        {!hideHeader && (
+          <div className="absolute top-3 right-3 sm:right-4 bg-white/95 backdrop-blur-md rounded-xl px-2.5 sm:px-3 py-1.5 border border-slate-200/80 shadow-md flex items-center gap-1.5 sm:gap-2 z-10 text-xs">
+            {/* Green dot + بث مباشر */}
+            <div className="flex items-center gap-1.5 font-bold text-emerald-700">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="hidden xs:inline">بث مباشر</span>
+            </div>
+
+            <span className="text-slate-300">|</span>
+
+            {/* Duration counter */}
+            <span className="font-mono font-bold text-slate-800 text-xs">
+              {formatDuration(liveDuration)}
+            </span>
+
+            <span className="text-slate-300">|</span>
+
+            {/* كشف الأشخاص (AI) */}
+            <button
+              onClick={() => setShowAiBoxes(!showAiBoxes)}
+              className={`flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg text-[11px] sm:text-xs font-bold transition-all ${
+                showAiBoxes
+                  ? "bg-[#e8f8f0] text-[#0f766e] border border-[#a3e6cd]"
+                  : "bg-slate-100 text-slate-500 border border-slate-200"
+              }`}
+              title="تبديل كشف الأشخاص بالذكاء الاصطناعي"
+            >
+              <Users className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-emerald-600" />
+              <span>كشف الأشخاص (AI)</span>
+            </button>
+
+            <span className="text-slate-300">|</span>
+
+            {/* دقة فائقة (2K HD) */}
+            <button
+              onClick={() => setQuality(quality === "hd" ? "live" : "hd")}
+              className={`flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg text-[11px] sm:text-xs font-bold transition-all ${
+                quality === "hd"
+                  ? "bg-[#fef7e6] text-[#92400e] border border-[#fde68a]"
+                  : "bg-slate-100 text-slate-600 border border-slate-200"
+              }`}
+              title="تبديل الدقة"
+            >
+              <Sparkles className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-amber-600" />
+              <span>{quality === "hd" ? "دقة فائقة (2K HD)" : "بث سريع (Sub)"}</span>
+            </button>
           </div>
-
-          <span className="text-slate-300">|</span>
-
-          {/* Duration counter */}
-          <span className="font-mono font-bold text-slate-800 text-xs">
-            {formatDuration(liveDuration)}
-          </span>
-
-          <span className="text-slate-300">|</span>
-
-          {/* كشف الأشخاص (AI) */}
-          <button
-            onClick={() => setShowAiBoxes(!showAiBoxes)}
-            className={`flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg text-[11px] sm:text-xs font-bold transition-all ${
-              showAiBoxes
-                ? "bg-[#e8f8f0] text-[#0f766e] border border-[#a3e6cd]"
-                : "bg-slate-100 text-slate-500 border border-slate-200"
-            }`}
-            title="تبديل كشف الأشخاص بالذكاء الاصطناعي"
-          >
-            <Users className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-emerald-600" />
-            <span>كشف الأشخاص (AI)</span>
-          </button>
-
-          <span className="text-slate-300">|</span>
-
-          {/* دقة فائقة (2K HD) */}
-          <button
-            onClick={() => setQuality(quality === "hd" ? "live" : "hd")}
-            className={`flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg text-[11px] sm:text-xs font-bold transition-all ${
-              quality === "hd"
-                ? "bg-[#fef7e6] text-[#92400e] border border-[#fde68a]"
-                : "bg-slate-100 text-slate-600 border border-slate-200"
-            }`}
-            title="تبديل الدقة"
-          >
-            <Sparkles className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-amber-600" />
-            <span>{quality === "hd" ? "دقة فائقة (2K HD)" : "بث سريع (Sub)"}</span>
-          </button>
-        </div>
+        )}
 
         {/* Target DOM Container for EZUIKit WebAssembly Video */}
         <div
@@ -585,54 +610,56 @@ export default function CloudVideoPlayer({
       </div>
 
       {/* 3. BOTTOM CONTROLS BAR (مطابق تماماً للصورة: ملء الشاشة وتحديث على اليسار، والصوت والدقة على اليمين) */}
-      <div className="flex items-center justify-between pt-3.5 px-0.5">
-        {/* Left (in RTL): Fullscreen & Refresh Buttons */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={toggleFullscreen}
-            className="h-10 w-10 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center transition-all shadow-xs active:scale-95"
-            title="ملء الشاشة"
-          >
-            <Maximize2 className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => {
-              if (playbackMode === "snapshot") {
-                setSnapshotTimestamp(Date.now());
-              } else {
-                startStream();
-              }
-            }}
-            className="h-10 w-10 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center transition-all shadow-xs active:scale-95"
-            title="تحديث البث"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
+      {!hideFooter && (
+        <div className="flex items-center justify-between pt-3.5 px-0.5">
+          {/* Left (in RTL): Fullscreen & Refresh Buttons */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleFullscreen}
+              className="h-10 w-10 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center transition-all shadow-xs active:scale-95"
+              title="ملء الشاشة"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => {
+                if (playbackMode === "snapshot") {
+                  setSnapshotTimestamp(Date.now());
+                } else {
+                  startStream();
+                }
+              }}
+              className="h-10 w-10 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center transition-all shadow-xs active:scale-95"
+              title="تحديث البث"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Right (in RTL): Sound Toggle + Separator + Quality Dropdown */}
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={toggleSound}
+              className="h-10 w-10 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center transition-all shadow-xs active:scale-95"
+              title={isMuted ? "تشغيل الصوت" : "كتم الصوت"}
+            >
+              {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4 text-emerald-600" />}
+            </button>
+
+            <span className="text-slate-300">|</span>
+
+            {/* Quality Dropdown Selector */}
+            <button
+              onClick={() => setQuality(quality === "hd" ? "live" : "hd")}
+              className="h-10 px-3.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold flex items-center gap-2 transition-all shadow-xs active:scale-95"
+              title="تبديل جودة البث"
+            >
+              <ChevronDown className="h-4 w-4 text-slate-400" />
+              <span>{quality === "hd" ? "2K HD (فائقة)" : "Sub (سلس)"}</span>
+            </button>
+          </div>
         </div>
-
-        {/* Right (in RTL): Sound Toggle + Separator + Quality Dropdown */}
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={toggleSound}
-            className="h-10 w-10 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center transition-all shadow-xs active:scale-95"
-            title={isMuted ? "تشغيل الصوت" : "كتم الصوت"}
-          >
-            {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4 text-emerald-600" />}
-          </button>
-
-          <span className="text-slate-300">|</span>
-
-          {/* Quality Dropdown Selector */}
-          <button
-            onClick={() => setQuality(quality === "hd" ? "live" : "hd")}
-            className="h-10 px-3.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold flex items-center gap-2 transition-all shadow-xs active:scale-95"
-            title="تبديل جودة البث"
-          >
-            <ChevronDown className="h-4 w-4 text-slate-400" />
-            <span>{quality === "hd" ? "2K HD (فائقة)" : "Sub (سلس)"}</span>
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

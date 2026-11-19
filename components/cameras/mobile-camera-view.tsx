@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import CloudVideoPlayer from "@/components/cameras/cloud-video-player";
 import {
   Cctv,
   Menu,
@@ -49,7 +50,7 @@ export default function MobileCameraView({
   setActiveTab,
 }: MobileCameraViewProps) {
   const [quality, setQuality] = useState<"live" | "hd">("live");
-  const [mode, setMode] = useState<"snapshot" | "video">("snapshot");
+  const [mode, setMode] = useState<"video" | "snapshot">("video");
   const [showAi, setShowAi] = useState<boolean>(true);
   const [showAllOther, setShowAllOther] = useState<boolean>(false);
   const [duration, setDuration] = useState<number>(0);
@@ -205,16 +206,30 @@ export default function MobileCameraView({
               </div>
             )}
 
-            {/* Live Camera View Image (Ultra-Fast 0 Latency Stream) */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`/api/cameras/cloud/snapshot?channel=${currentCam.channel}&t=${snapshotTimestamp}`}
-              alt={currentCam.name}
-              className="w-full h-full object-cover"
-              onError={() => {
-                setTimeout(() => setSnapshotTimestamp(Date.now()), 1500);
-              }}
-            />
+            {/* Live Camera View: WebAssembly Live Video Player (30 FPS) or Ultra-Fast Snapshot */}
+            {mode === "video" ? (
+              <div className="w-full h-full relative">
+                <CloudVideoPlayer
+                  key={`mobile-cam-${currentCam.channel}-${quality}`}
+                  channel={currentCam.channel}
+                  channelName={currentCam.name}
+                  quality={quality}
+                  hideHeader={true}
+                  hideFooter={true}
+                  onFallbackToSnapshot={() => setMode("snapshot")}
+                />
+              </div>
+            ) : (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={`/api/cameras/cloud/snapshot?channel=${currentCam.channel}&t=${snapshotTimestamp}`}
+                alt={currentCam.name}
+                className="w-full h-full object-cover"
+                onError={() => {
+                  setTimeout(() => setSnapshotTimestamp(Date.now()), 1500);
+                }}
+              />
+            )}
           </div>
 
           {/* Control Row 1: Status Bar (مطابق تماماً للصورة) */}
@@ -222,7 +237,7 @@ export default function MobileCameraView({
             {/* Right (in RTL): بث فيديو حي */}
             <div className="flex items-center gap-1.5 text-emerald-800 font-bold text-xs">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>بث فيديو حي</span>
+              <span>{mode === "video" ? "بث فيديو حي (30 FPS)" : "لقطات حية سريعة"}</span>
             </div>
 
             {/* Center: 00:00:00 Clock */}
@@ -249,7 +264,10 @@ export default function MobileCameraView({
           <div className="grid grid-cols-2 gap-2.5">
             {/* Sub (سلس) [HD] Button */}
             <button
-              onClick={() => setQuality(quality === "hd" ? "live" : "hd")}
+              onClick={() => {
+                setQuality(quality === "hd" ? "live" : "hd");
+                setMode("video");
+              }}
               className="bg-white hover:bg-emerald-50/50 text-[#0f766e] font-bold py-2.5 px-3 rounded-2xl border-2 border-[#34d399] flex items-center justify-center gap-2 shadow-xs active:scale-98 transition-all text-xs"
             >
               <span className="bg-emerald-600 text-white font-mono text-[10px] px-1 py-0.2 rounded font-extrabold">
@@ -258,16 +276,33 @@ export default function MobileCameraView({
               <span>{quality === "hd" ? "2K HD (فائقة)" : "Sub (سلس)"}</span>
             </button>
 
-            {/* نمط الجوال السريع Button */}
+            {/* نمط الجوال السريع / تشغيل فيديو مباشر Button */}
             <button
               onClick={() => {
-                setMode("snapshot");
-                setSnapshotTimestamp(Date.now());
+                if (mode === "video") {
+                  setMode("snapshot");
+                  setSnapshotTimestamp(Date.now());
+                } else {
+                  setMode("video");
+                }
               }}
-              className="bg-[#dbeafe] hover:bg-[#bfdbfe] text-[#1d4ed8] font-bold py-2.5 px-3 rounded-2xl border border-[#93c5fd] flex items-center justify-center gap-2 shadow-xs active:scale-98 transition-all text-xs"
+              className={`font-bold py-2.5 px-3 rounded-2xl border flex items-center justify-center gap-2 shadow-xs active:scale-98 transition-all text-xs ${
+                mode === "video"
+                  ? "bg-[#dbeafe] hover:bg-[#bfdbfe] text-[#1d4ed8] border-[#93c5fd]"
+                  : "bg-[#e8f8f0] hover:bg-[#d1fae5] text-[#0f766e] border-[#a7f3d0]"
+              }`}
             >
-              <Zap className="h-4 w-4 text-[#1d4ed8]" />
-              <span>نمط الجوال السريع</span>
+              {mode === "video" ? (
+                <>
+                  <Zap className="h-4 w-4 text-[#1d4ed8]" />
+                  <span>نمط الجوال السريع</span>
+                </>
+              ) : (
+                <>
+                  <Play className="h-4 w-4 text-emerald-600 fill-emerald-600" />
+                  <span>بث فيديو حي (30 FPS)</span>
+                </>
+              )}
             </button>
           </div>
 

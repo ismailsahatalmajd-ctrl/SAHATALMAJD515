@@ -1,6 +1,6 @@
 "use client"
 
-import { Package, BarChart3, Receipt, ShoppingCart, Building2, Barcode, ChevronLeft, Settings, LogOut, Menu, Tag, Wrench, Server, Users, CalendarDays, Map as MapIcon, LayoutDashboard, MessageSquare, ClipboardList, Fingerprint } from "lucide-react"
+import { Package, BarChart3, Receipt, ShoppingCart, Building2, Barcode, ChevronLeft, Settings, LogOut, Menu, Tag, Wrench, Server, Users, CalendarDays, Map as MapIcon, LayoutDashboard, MessageSquare, ClipboardList, Fingerprint, Cctv } from "lucide-react"
 import Link from "next/link"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import Image from "next/image"
@@ -49,6 +49,7 @@ export function Header() {
     { href: "/admin/assets", key: "nav.assets", label: "إدارة الأصول", icon: Wrench },
     { href: "/employees", key: "hr.title", label: t("hr.title"), icon: Users },
     { href: "/fingerprint-center", key: "nav.fingerprintCenter", label: t("nav.fingerprintCenter"), icon: Fingerprint },
+    { href: "/cameras", key: "nav.cameras", label: "كاميرات المراقبة", icon: Cctv },
     { href: "/admin/system", key: "nav.system", label: "موارد النظام", icon: Server },
     { href: "/admin/branch-notes", key: "nav.branchNotes", label: "ملاحظات الفروع", icon: MessageSquare },
     { href: "/settings", key: "common.settings", label: t("common.settings"), icon: Settings },

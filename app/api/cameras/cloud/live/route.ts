@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCloudToken, getCloudLiveStreamUrl, getCloudWsStreamUrl, getCloudCameras } from '@/lib/hikvision-cloud';
+import {
+  getCloudToken,
+  getCloudLiveStreamUrl,
+  getCloudWsStreamUrl,
+  getCloudHlsStreamUrl,
+  getCloudCameras,
+} from '@/lib/hikvision-cloud';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,36 +30,51 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Try resolving direct authenticated WebSocket stream first
+    // 1. Fetch HLS URL (Native mobile video stream, 30 FPS, hardware accelerated)
+    let hlsUrl: string | undefined;
+    try {
+      const hlsData = await getCloudHlsStreamUrl(channel, serialNo, quality === 'hd' ? 'hd' : 'sub');
+      hlsUrl = hlsData.hlsUrl;
+    } catch (hlsErr: any) {
+      console.warn(`HLS resolution warning for channel ${channel}:`, hlsErr.message);
+    }
+
+    // 2. Fetch direct authenticated WebSocket stream for PC EZUIKit
+    let wsUrl: string | undefined;
+    let ezopenUrl: string | undefined;
+    let accessToken: string | undefined;
+    let streamAreaDomain = 'https://isgpopen.ezvizlife.com';
+
     try {
       const wsData = await getCloudWsStreamUrl(channel, serialNo, quality);
-      return NextResponse.json({
-        success: true,
-        wsUrl: wsData.wsUrl,
-        url: wsData.ezopenUrl,
-        accessToken: wsData.accessToken,
-        streamAreaDomain: wsData.streamAreaDomain || 'https://isgpopen.ezvizlife.com',
-        type: '1',
-        quality,
-        channel,
-        serialNo,
-      });
+      wsUrl = wsData.wsUrl;
+      ezopenUrl = wsData.ezopenUrl;
+      accessToken = wsData.accessToken;
+      if (wsData.streamAreaDomain) streamAreaDomain = wsData.streamAreaDomain;
     } catch (wsErr: any) {
       console.warn('Direct WebSocket resolution failed, falling back to gateway live address:', wsErr.message);
     }
 
-    if (!cameraId) {
-      return NextResponse.json({ error: 'لم يتم العثور على معرّف الكاميرا' }, { status: 404 });
+    // If WebSocket failed and cameraId is available, fallback to gateway live address
+    if (!wsUrl && cameraId) {
+      try {
+        const streamData = await getCloudLiveStreamUrl(cameraId, serialNo, 'Y1KkbT', protocolType);
+        ezopenUrl = streamData.url;
+        accessToken = streamData.accessToken;
+        if (streamData.streamAreaDomain) streamAreaDomain = streamData.streamAreaDomain;
+      } catch (streamErr: any) {
+        console.warn('Gateway live address resolution failed:', streamErr.message);
+      }
     }
-
-    const streamData = await getCloudLiveStreamUrl(cameraId, serialNo, 'Y1KkbT', protocolType);
 
     return NextResponse.json({
       success: true,
-      url: streamData.url,
-      accessToken: streamData.accessToken,
-      streamAreaDomain: streamData.streamAreaDomain || 'https://isgpopen.ezvizlife.com',
-      type: streamData.type,
+      hlsUrl,
+      wsUrl,
+      url: ezopenUrl,
+      accessToken,
+      streamAreaDomain,
+      type: '1',
       quality,
       channel,
       serialNo,

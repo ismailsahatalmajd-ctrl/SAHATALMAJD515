@@ -47,6 +47,7 @@ export default function CloudVideoPlayer({
   hideFooter = false,
 }: CloudVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const playerInstanceRef = useRef<any>(null);
   const snapshotTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -65,6 +66,7 @@ export default function CloudVideoPlayer({
       setQuality(initialQuality);
     }
   }, [initialQuality]);
+  const [hlsUrl, setHlsUrl] = useState<string | null>(null);
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("video");
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -214,6 +216,17 @@ export default function CloudVideoPlayer({
       const res = await fetch(`/api/cameras/cloud/live?channel=${channel}&quality=${quality}`);
       const data = await res.json();
 
+      if (data.hlsUrl) {
+        setHlsUrl(data.hlsUrl);
+      }
+
+      // If running on mobile and HLS URL is available, use direct native hardware-accelerated video
+      if (isMobile && data.hlsUrl) {
+        console.log(`Starting native mobile HLS video stream for channel ${channel}:`, data.hlsUrl);
+        setConnectionState("live");
+        return;
+      }
+
       if (!data.success || (!data.wsUrl && !data.url) || !data.accessToken) {
         throw new Error(data.error || "تعذر الحصول على رابط البث من سحابة HikCentral Connect");
       }
@@ -325,6 +338,50 @@ export default function CloudVideoPlayer({
       }
     };
   }, [startStream, playbackMode]);
+
+  // Native Mobile HLS Video Controller (iOS Safari & Android Chrome)
+  useEffect(() => {
+    if (!hlsUrl || !videoRef.current || !isMobile || playbackMode !== "video") return;
+    const video = videoRef.current;
+
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      // Native Apple iOS Safari HLS Support
+      video.src = hlsUrl;
+      video.play().catch((e) => console.log("iOS HLS autoplay deferred:", e));
+    } else {
+      // Android / Chromium Hls.js fallback
+      const initHls = () => {
+        if ((window as any).Hls && (window as any).Hls.isSupported()) {
+          const hls = new (window as any).Hls({ lowLatencyMode: true, maxBufferLength: 5 });
+          hls.loadSource(hlsUrl);
+          hls.attachMedia(video);
+          hls.on((window as any).Hls.Events.MANIFEST_PARSED, () => {
+            video.play().catch(() => {});
+            setConnectionState("live");
+          });
+          hls.on((window as any).Hls.Events.ERROR, (_: any, data: any) => {
+            if (data?.fatal) {
+              console.warn("HLS.js fatal error, switching to snapshot stream:", data);
+              setPlaybackMode("snapshot");
+            }
+          });
+          return () => hls.destroy();
+        } else {
+          video.src = hlsUrl;
+          video.play().catch(() => {});
+        }
+      };
+
+      if ((window as any).Hls) {
+        initHls();
+      } else {
+        const script = document.createElement("script");
+        script.src = "/hls/hls.min.js";
+        script.onload = initHls;
+        document.body.appendChild(script);
+      }
+    }
+  }, [hlsUrl, isMobile, channel, playbackMode]);
 
   // Auto-retry on disconnect
   const handleRetry = () => {
@@ -485,16 +542,39 @@ export default function CloudVideoPlayer({
           </div>
         )}
 
-        {/* Target DOM Container for EZUIKit WebAssembly Video */}
-        <div
-          id={`cloud-player-container-${channel}`}
-          style={{
-            width: "100%",
-            height: "100%",
-            display: playbackMode === "video" ? "flex" : "none",
-          }}
-          className="w-full h-full flex items-center justify-center bg-black"
-        />
+        {/* Mode 1-A: Mobile Native HLS Video Stream (30 FPS, hardware accelerated, Zero WASM) */}
+        {playbackMode === "video" && isMobile ? (
+          <div className="relative w-full h-full flex items-center justify-center bg-black">
+            <video
+              ref={videoRef}
+              src={hlsUrl || undefined}
+              autoPlay
+              playsInline
+              muted={isMuted}
+              poster={`/api/cameras/cloud/snapshot?channel=${channel}`}
+              className="w-full h-full object-contain"
+              onPlaying={() => {
+                console.log("Mobile native HLS stream playing successfully");
+                setConnectionState("live");
+              }}
+              onError={(e) => {
+                console.warn("Mobile HLS video error, switching to snapshot stream:", e);
+                setPlaybackMode("snapshot");
+              }}
+            />
+          </div>
+        ) : (
+          /* Mode 1-B: PC / Desktop EZUIKit WebAssembly Video */
+          <div
+            id={`cloud-player-container-${channel}`}
+            style={{
+              width: "100%",
+              height: "100%",
+              display: playbackMode === "video" ? "flex" : "none",
+            }}
+            className="w-full h-full flex items-center justify-center bg-black"
+          />
+        )}
 
         {/* Mode 2: Ultra-Fast Mobile Snapshot Stream */}
         {playbackMode === "snapshot" && (
@@ -511,14 +591,14 @@ export default function CloudVideoPlayer({
           </div>
         )}
 
-        {/* Background preview while video connects */}
+        {/* Instant Camera Preview while stream initializes (Prevents black screen completely) */}
         {playbackMode === "video" && connectionState === "connecting" && (
-          <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-black opacity-40 pointer-events-none">
+          <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-black pointer-events-none">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={`/api/cameras/cloud/snapshot?channel=${channel}`}
               alt="Camera Preview"
-              className="w-full h-full object-contain filter blur-[1px]"
+              className="w-full h-full object-contain"
             />
           </div>
         )}

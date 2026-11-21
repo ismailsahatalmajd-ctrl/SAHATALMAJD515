@@ -15,7 +15,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       url: liveData.url,
+      directWsUrl: liveData.directWsUrl,
+      ezopenUrl: liveData.ezopenUrl,
       ticket: liveData.ticket,
+      accessToken: liveData.accessToken,
       deviceSerial: liveData.deviceSerial,
       channelNo: liveData.channelNo,
       quality,

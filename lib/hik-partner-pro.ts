@@ -118,12 +118,76 @@ export async function getPartnerDevices(): Promise<PartnerDevice[]> {
   }));
 }
 
-// 3. Get Live Stream Address & Ticket
+// 3. Resolve ezopen to Direct WebSocket URL
+async function resolveEzopenToWs(ezopenUrl: string, decodedTicket: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2);
+    let body = '';
+    const fields: Record<string, string> = {
+      ezopen: ezopenUrl,
+      isFlv: 'false',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      isHttp: 'false',
+      accessToken: decodedTicket,
+    };
+    for (const [k, v] of Object.entries(fields)) {
+      body += '--' + boundary + '\r\n';
+      body += 'Content-Disposition: form-data; name="' + k + '"\r\n\r\n';
+      body += v + '\r\n';
+    }
+    body += '--' + boundary + '--\r\n';
+
+    const req = https.request(
+      'https://isgpopen.ezvizlife.com/api/lapp/live/url/ezopen',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'multipart/form-data; boundary=' + boundary,
+          'Content-Length': Buffer.byteLength(body),
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+        timeout: 8000,
+      },
+      (res) => {
+        let b = '';
+        res.on('data', (c) => (b += c));
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(b);
+            if ((parsed.code === 200 || parsed.code === '200') && parsed.data?.url && parsed.data?.token) {
+              const fullWsUrl = `${parsed.data.url}&ssn=${parsed.data.token}&auth=1&biz=4&cln=100`;
+              resolve(fullWsUrl);
+              return;
+            }
+          } catch (e) {}
+          resolve(null);
+        });
+      }
+    );
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(null);
+    });
+    req.write(body);
+    req.end();
+  });
+}
+
+// 4. Get Live Stream Address & Ticket
 export async function getPartnerLiveAddress(
   deviceSerial: string,
   channelNo: number = 1,
   quality: 'live' | 'hd' = 'live'
-): Promise<{ url: string; ticket: string; deviceSerial: string; channelNo: number }> {
+): Promise<{
+  url: string;
+  directWsUrl?: string;
+  ezopenUrl: string;
+  ticket: string;
+  accessToken: string;
+  deviceSerial: string;
+  channelNo: number;
+}> {
   const tokenData = await getPartnerToken();
 
   // quality: 1 = HD (2K), 2 = Sub (Smooth)
@@ -144,9 +208,24 @@ export async function getPartnerLiveAddress(
     throw new Error(`Failed to get live address: ${parsed.message || res.body}`);
   }
 
+  const rawTicket = parsed.data.ticket;
+  const decodedTicket = Buffer.from(rawTicket, 'base64').toString('utf8');
+  const ezopenUrl = parsed.data.url;
+
+  // Attempt direct WebSocket resolution for instant zero-latency playback
+  let directWsUrl: string | null = null;
+  try {
+    directWsUrl = await resolveEzopenToWs(ezopenUrl, decodedTicket);
+  } catch (err) {
+    console.warn('Could not pre-resolve WebSocket URL:', err);
+  }
+
   return {
-    url: parsed.data.url,
-    ticket: parsed.data.ticket,
+    url: directWsUrl || ezopenUrl,
+    directWsUrl: directWsUrl || undefined,
+    ezopenUrl,
+    ticket: rawTicket,
+    accessToken: decodedTicket,
     deviceSerial,
     channelNo,
   };

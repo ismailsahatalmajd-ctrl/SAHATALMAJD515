@@ -147,7 +147,7 @@ export default function PartnerCamerasPage() {
       );
       const data = await res.json();
 
-      if (!data.success || !data.ticket || !data.url) {
+      if (!data.success || (!data.ticket && !data.accessToken) || !data.url) {
         throw new Error(data.error || "تعذر الحصول على تذكرة البث المباشر");
       }
 
@@ -159,11 +159,17 @@ export default function PartnerCamerasPage() {
       const width = Math.max(clientW, 320);
       const height = Math.round((width * 9) / 16) || 360;
 
+      const playUrl = data.directWsUrl || data.url;
+      const playToken = data.accessToken || data.ticket;
+
       const player = new window.EZUIKit.EZUIKitPlayer({
         id: containerId,
-        url: data.url,
-        accessToken: data.ticket,
+        url: playUrl,
+        accessToken: playToken,
         staticPath: "/ezuikit/ezuikit_static/v65",
+        env: {
+          domain: "https://isgpopen.ezvizlife.com",
+        },
         width: width,
         height: height,
         audio: 0,

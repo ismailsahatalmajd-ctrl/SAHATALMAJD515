@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPartnerLiveAddress } from '@/lib/hik-partner-pro';
+import { getCloudWsStreamUrl } from '@/lib/hikvision-cloud';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,6 +11,21 @@ export async function GET(req: NextRequest) {
   const quality = (searchParams.get('quality') || 'live') as 'live' | 'hd';
 
   try {
+    if (deviceSerial === 'GK0622137') {
+      const wsData = await getCloudWsStreamUrl(channelNo, 'GK0622137', quality);
+      return NextResponse.json({
+        success: true,
+        url: wsData.wsUrl,
+        directWsUrl: wsData.wsUrl,
+        ezopenUrl: `ezopen://open.ezviz.com/GK0622137/${channelNo}.${quality === 'hd' ? 'hd.' : ''}live`,
+        ticket: '',
+        accessToken: wsData.accessToken,
+        deviceSerial: 'GK0622137',
+        channelNo,
+        quality,
+      });
+    }
+
     const liveData = await getPartnerLiveAddress(deviceSerial, channelNo, quality);
 
     return NextResponse.json({

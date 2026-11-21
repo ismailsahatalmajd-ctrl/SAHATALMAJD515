@@ -100,13 +100,7 @@
                 }
                 var aHead = Module.HEAPU8.subarray(pHead, pHead + iHeadLen);
                 aHead.set(eventData.data);
-                try {
-  var kBuf = stringToBytes("Y1KkbT");
-  var pK = Module._malloc(6);
-  Module.HEAPU8.set(new Uint8Array(kBuf), pK);
-  Module._SetSecretKey(g_nPort, 1, pK, 6);
-  Module._free(pK);
-} catch(e) {}
+                
 res = Module._OpenStream(g_nPort, pHead, iHeadLen, eventData.bufPoolSize);
                 postMessage({ 'function': "OpenStream", 'errorCode': res });
                 if (res !== PLAYM4_OK) {

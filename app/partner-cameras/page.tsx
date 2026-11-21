@@ -57,6 +57,7 @@ export default function PartnerCamerasPage() {
 
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const activeRequestRef = useRef<number>(0);
 
   const currentDevice = devices[selectedDeviceIndex] || {
     deviceName: "iDS-7204HQHI-M1-XT",
@@ -125,6 +126,8 @@ export default function PartnerCamerasPage() {
   // 3. Start Live Stream for Selected Device & Channel
   const startStream = useCallback(async () => {
     if (!scriptLoaded) return;
+    const requestId = ++activeRequestRef.current;
+
     setStreamState("connecting");
     setStreamError(null);
 
@@ -147,6 +150,11 @@ export default function PartnerCamerasPage() {
       );
       const data = await res.json();
 
+      // Check if a newer request was made while fetching
+      if (requestId !== activeRequestRef.current) {
+        return;
+      }
+
       if (!data.success || (!data.ticket && !data.accessToken) || !data.url) {
         throw new Error(data.error || "تعذر الحصول على تذكرة البث المباشر");
       }
@@ -162,6 +170,9 @@ export default function PartnerCamerasPage() {
       const playUrl = data.directWsUrl || data.url;
       const playToken = data.accessToken || data.ticket;
 
+      // Final DOM clean before instantiating new player
+      if (dom) dom.innerHTML = "";
+
       const player = new window.EZUIKit.EZUIKitPlayer({
         id: containerId,
         url: playUrl,
@@ -175,9 +186,13 @@ export default function PartnerCamerasPage() {
         audio: 0,
         autoplay: true,
         handleSuccess: () => {
-          setStreamState("live");
+          if (requestId === activeRequestRef.current) {
+            setStreamState("live");
+            setStreamError(null);
+          }
         },
         handleError: (e: any) => {
+          if (requestId !== activeRequestRef.current) return;
           console.warn("Partner Player event:", e);
           if (e?.code !== "200" && e?.retcode !== "0") {
             setStreamError(e?.msg || e?.message || "انقطع اتصال البث");
@@ -188,9 +203,11 @@ export default function PartnerCamerasPage() {
 
       playerRef.current = player;
     } catch (err: any) {
-      console.error(err);
-      setStreamError(err.message || "حدث خطأ أثناء تشغيل البث المباشر");
-      setStreamState("error");
+      if (requestId === activeRequestRef.current) {
+        console.error(err);
+        setStreamError(err.message || "حدث خطأ أثناء تشغيل البث المباشر");
+        setStreamState("error");
+      }
     }
   }, [scriptLoaded, currentDevice.deviceSerial, selectedChannel, quality]);
 

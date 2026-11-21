@@ -53,7 +53,6 @@ export default function PartnerCamerasPage() {
   const [selectedChannel, setSelectedChannel] = useState<number>(1);
   const [quality, setQuality] = useState<"live" | "hd">("live");
   const [activeTab, setActiveTab] = useState<"live" | "alerts">("live");
-  const [showAiTracking, setShowAiTracking] = useState<boolean>(true);
   const [alarmsCount, setAlarmsCount] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -464,280 +463,200 @@ export default function PartnerCamerasPage() {
         </div>
 
         {/* TAB 1: LIVE VIDEO STREAM */}
-        {activeTab === "live" && (
-          <>
-            {/* 3. MAIN VIDEO PLAYER CARD */}
-            <div className="bg-white rounded-3xl border border-slate-200/90 p-4 sm:p-5 shadow-sm space-y-4">
-              {/* Player Header Row */}
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-2">
-                  <div className="h-8 w-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs">
-                    CH {selectedChannel < 10 ? `0${selectedChannel}` : selectedChannel}
-                  </div>
-                  <div>
-                    <h2 className="text-base font-extrabold text-slate-900">
-                      كاميرا 0{selectedChannel} - {currentDevice.deviceName}
-                    </h2>
-                    <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                      <span>الرقم التسلسلي: {currentDevice.deviceSerial}</span>
-                      <span>•</span>
-                      <span>المدة: {formatTimer(duration)}</span>
-                    </div>
-                  </div>
+        <div className={activeTab === "live" ? "space-y-5" : "hidden"}>
+          {/* 3. MAIN VIDEO PLAYER CARD */}
+          <div className="bg-white rounded-3xl border border-slate-200/90 p-4 sm:p-5 shadow-sm space-y-4">
+            {/* Player Header Row */}
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs">
+                  CH {selectedChannel < 10 ? `0${selectedChannel}` : selectedChannel}
                 </div>
-
-                <div className="flex items-center gap-2">
-                  {/* AI Target Tracking Toggle Button */}
-                  <button
-                    onClick={() => setShowAiTracking(!showAiTracking)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 active:scale-95 ${
-                      showAiTracking
-                        ? "bg-emerald-50 text-emerald-800 border-emerald-300 shadow-2xs"
-                        : "bg-slate-100 text-slate-500 border-slate-200"
-                    }`}
-                    title="تبديل كشف وتتبع الأهداف الذكية"
-                  >
-                    <Users className="h-3.5 w-3.5 text-emerald-600" />
-                    <span>تتبع الأهداف (AI)</span>
-                    <span className={`h-2 w-2 rounded-full ${showAiTracking ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />
-                  </button>
-
-                  <button
-                    onClick={toggleFullscreen}
-                    className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 active:scale-95 transition-all"
-                    title="ملء الشاشة"
-                  >
-                    <Maximize2 className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={startStream}
-                    className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 active:scale-95 transition-all"
-                    title="إعادة الاتصال"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                  </button>
+                <div>
+                  <h2 className="text-base font-extrabold text-slate-900">
+                    كاميرا 0{selectedChannel} - {currentDevice.deviceName}
+                  </h2>
+                  <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                    <span>الرقم التسلسلي: {currentDevice.deviceSerial}</span>
+                    <span>•</span>
+                    <span>المدة: {formatTimer(duration)}</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Video Viewport Container */}
-              <div
-                ref={containerRef}
-                className="relative w-full aspect-video bg-black rounded-2xl overflow-hidden border border-slate-200 shadow-inner group flex items-center justify-center"
-              >
-                {/* Top-Left Red Live Badge */}
-                <div className="absolute top-3 left-3 bg-red-600/90 text-white font-bold text-[10px] px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-md z-10 pointer-events-none">
-                  <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
-                  <span>بث حي Hik-Partner</span>
-                </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={toggleFullscreen}
+                  className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 active:scale-95 transition-all"
+                  title="ملء الشاشة"
+                >
+                  <Maximize2 className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={startStream}
+                  className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 active:scale-95 transition-all"
+                  title="إعادة الاتصال"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
 
-                {/* Bottom-Left Channel Number */}
-                <div className="absolute bottom-3 left-3 bg-black/65 backdrop-blur-xs text-white text-[10px] font-mono px-2 py-0.5 rounded-md border border-white/10 z-10 pointer-events-none">
-                  CH 0{selectedChannel} • {quality === "hd" ? "2K" : "SUB"}
-                </div>
-
-                {/* AI Smart Bounding Box Overlays (تتبع الأهداف الذكية) */}
-                {showAiTracking && streamState === "live" && (
-                  <>
-                    {/* Specific tracking for channel 8 (as seen in warehouse image) */}
-                    {selectedChannel === 8 && (
-                      <>
-                        {/* Worker / Human Bounding Box */}
-                        <div
-                          style={{
-                            position: "absolute",
-                            left: "52%",
-                            top: "43%",
-                            width: "6%",
-                            height: "12%",
-                          }}
-                          className="border-2 border-emerald-400 rounded bg-emerald-500/10 pointer-events-none z-10 transition-all duration-300 shadow-sm"
-                        >
-                          <div className="absolute -top-5 right-0 bg-emerald-600 text-white font-bold text-[9px] px-1.5 py-0.5 rounded shadow flex items-center gap-1 whitespace-nowrap">
-                            <span className="h-1.5 w-1.5 rounded-full bg-white animate-ping" />
-                            <span>عامل / إنسان (Human) 98%</span>
-                          </div>
-                        </div>
-
-                        {/* Container Truck / Vehicle Bounding Box */}
-                        <div
-                          style={{
-                            position: "absolute",
-                            left: "55%",
-                            top: "37%",
-                            width: "30%",
-                            height: "46%",
-                          }}
-                          className="border-2 border-indigo-400 rounded bg-indigo-500/10 pointer-events-none z-10 transition-all duration-300 shadow-sm"
-                        >
-                          <div className="absolute -top-5 right-0 bg-indigo-600 text-white font-bold text-[9px] px-1.5 py-0.5 rounded shadow flex items-center gap-1 whitespace-nowrap">
-                            <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                            <span>شاحنة نقل WAN HAI (Vehicle) 99.4%</span>
-                          </div>
-                        </div>
-                      </>
-                    )}
-
-                    {/* For other channels, general smart detection box if motion is active */}
-                    {selectedChannel !== 8 && (
-                      <div
-                        style={{
-                          position: "absolute",
-                          left: "46%",
-                          top: "36%",
-                          width: "8%",
-                          height: "22%",
-                        }}
-                        className="border-2 border-emerald-400 rounded bg-emerald-500/10 pointer-events-none z-10 transition-all duration-300 shadow-sm"
-                      >
-                        <div className="absolute -top-5 right-0 bg-emerald-600 text-white font-bold text-[9px] px-1.5 py-0.5 rounded shadow flex items-center gap-1 whitespace-nowrap">
-                          <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
-                          <span>هدف ذكي / حركة (Motion) 96.5%</span>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-
-            {/* Target DOM Element for EZUIKit Video */}
+            {/* Video Viewport Container */}
             <div
-              id="partner-player-viewport"
-              className="w-full h-full flex items-center justify-center bg-black"
-            />
-
-            {/* Connecting State */}
-            {streamState === "connecting" && (
-              <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-xs flex flex-col items-center justify-center gap-2.5 text-slate-200 z-20">
-                <RefreshCw className="h-8 w-8 text-indigo-400 animate-spin" />
-                <p className="text-xs font-bold text-indigo-200">
-                  جاري الاتصال بسحابة Hik-Partner Pro (قناة {selectedChannel})...
-                </p>
+              ref={containerRef}
+              className="relative w-full aspect-video bg-black rounded-2xl overflow-hidden border border-slate-200 shadow-inner group flex items-center justify-center"
+            >
+              {/* Top-Left Red Live Badge */}
+              <div className="absolute top-3 left-3 bg-red-600/90 text-white font-bold text-[10px] px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-md z-10 pointer-events-none">
+                <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
+                <span>بث حي Hik-Partner</span>
               </div>
-            )}
 
-            {/* Error / Verification Code State */}
-            {streamState === "error" && (
-              <div className="absolute inset-0 bg-slate-950/95 backdrop-blur-xs flex flex-col items-center justify-center gap-3 text-slate-200 z-20 p-5 text-center">
-                {streamError?.includes("رمز سري") || streamError?.includes("مشفر") ? (
-                  <div className="flex flex-col items-center gap-3 max-w-md w-full animate-in fade-in zoom-in-95 duration-200">
-                    <div className="h-12 w-12 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center border border-amber-500/20 shadow-lg shadow-amber-500/5">
-                      <ShieldCheck className="h-6 w-6" />
+              {/* Bottom-Left Channel Number */}
+              <div className="absolute bottom-3 left-3 bg-black/65 backdrop-blur-xs text-white text-[10px] font-mono px-2 py-0.5 rounded-md border border-white/10 z-10 pointer-events-none">
+                CH 0{selectedChannel} • {quality === "hd" ? "2K" : "SUB"}
+              </div>
+
+              {/* Isolated Target DOM Element for EZUIKit Video */}
+              <div className="w-full h-full flex items-center justify-center bg-black">
+                <div
+                  id="partner-player-viewport"
+                  className="w-full h-full flex items-center justify-center"
+                />
+              </div>
+
+              {/* Connecting State */}
+              {streamState === "connecting" && (
+                <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-xs flex flex-col items-center justify-center gap-2.5 text-slate-200 z-20 pointer-events-none">
+                  <RefreshCw className="h-8 w-8 text-indigo-400 animate-spin" />
+                  <p className="text-xs font-bold text-indigo-200">
+                    جاري الاتصال بسحابة Hik-Partner Pro (قناة {selectedChannel})...
+                  </p>
+                </div>
+              )}
+
+              {/* Error / Verification Code State */}
+              {streamState === "error" && (
+                <div className="absolute inset-0 bg-slate-950/95 backdrop-blur-xs flex flex-col items-center justify-center gap-3 text-slate-200 z-20 p-5 text-center">
+                  {streamError?.includes("رمز سري") || streamError?.includes("مشفر") ? (
+                    <div className="flex flex-col items-center gap-3 max-w-md w-full animate-in fade-in zoom-in-95 duration-200">
+                      <div className="h-12 w-12 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center border border-amber-500/20 shadow-lg shadow-amber-500/5">
+                        <ShieldCheck className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-extrabold text-white">تشفير الفيديو مفعّل (Verification Code)</h4>
+                        <p className="text-xs text-slate-400 mt-1">
+                          أدخل رمز التحقق المطبوع على ملصق الـ DVR لفك التشفير فوراً:
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 w-full max-w-xs mt-1">
+                        <input
+                          type="text"
+                          value={verificationCode}
+                          onChange={(e) => setVerificationCode(e.target.value.toUpperCase())}
+                          placeholder="مثلاً: ABCDEF"
+                          maxLength={12}
+                          className="flex-1 bg-slate-900 border border-slate-700 focus:border-indigo-500 text-white text-center font-mono font-bold tracking-widest text-sm rounded-xl px-3 py-2 outline-none shadow-inner"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            if (verificationCode.trim()) {
+                              localStorage.setItem(`partner_vcode_${currentDevice.deviceSerial}`, verificationCode.trim());
+                            }
+                            startStream();
+                          }}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4"
+                        >
+                          تشغيل
+                        </Button>
+                      </div>
+
+                      <div className="mt-3 pt-3 border-t border-slate-800 text-[11px] text-slate-400 text-right space-y-1.5 w-full bg-slate-900/60 p-3 rounded-xl border border-slate-800/80">
+                        <p className="font-bold text-slate-300">أو يمكنك إيقاف التشفير نهائياً عن الجهاز عبر:</p>
+                        <p>
+                          1. تطبيق <b>Hik-Connect</b> ➔ إعدادات الجهاز ⚙️ ➔ إيقاف <b>تشفير الصورة والفيديو</b>.
+                        </p>
+                        <p>
+                          2. موقع <b>Hik-Partner Pro</b> ➔ الموقع والجهاز ➔ التكوين عن بُعد ➔ الشبكة ➔ إيقاف <b>تشفير دفق الفيديو</b>.
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="text-sm font-extrabold text-white">تشفير الفيديو مفعّل (Verification Code)</h4>
-                      <p className="text-xs text-slate-400 mt-1">
-                        أدخل رمز التحقق المطبوع على ملصق الـ DVR لفك التشفير فوراً:
+                  ) : (
+                    <>
+                      <AlertCircle className="h-8 w-8 text-red-400" />
+                      <p className="text-xs font-bold text-red-300">
+                        {streamError || "تعذر بدء البث المباشر لهذه القناة"}
                       </p>
-                    </div>
-
-                    <div className="flex items-center gap-2 w-full max-w-xs mt-1">
-                      <input
-                        type="text"
-                        value={verificationCode}
-                        onChange={(e) => setVerificationCode(e.target.value.toUpperCase())}
-                        placeholder="مثلاً: ABCDEF"
-                        maxLength={12}
-                        className="flex-1 bg-slate-900 border border-slate-700 focus:border-indigo-500 text-white text-center font-mono font-bold tracking-widest text-sm rounded-xl px-3 py-2 outline-none shadow-inner"
-                      />
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          if (verificationCode.trim()) {
-                            localStorage.setItem(`partner_vcode_${currentDevice.deviceSerial}`, verificationCode.trim());
-                          }
-                          startStream();
-                        }}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4"
-                      >
-                        تشغيل
+                      <Button size="sm" onClick={startStream} className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5">
+                        <RotateCcw className="h-3.5 w-3.5" /> إعادة المحاولة
                       </Button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 4. CHANNELS SELECTOR GRID */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+                <Cctv className="h-4 w-4 text-indigo-600" />
+                <span>قنوات الكاميرا المتاحة على هذا الجهاز ({totalChannels} قنوات)</span>
+              </h3>
+              <span className="text-xs text-slate-400 font-medium">اضغط على أي قناة لتشغيلها</span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {channelsList.map((ch) => {
+                const isSelected = ch === selectedChannel;
+                return (
+                  <div
+                    key={ch}
+                    onClick={() => setSelectedChannel(ch)}
+                    className={`rounded-2xl border p-4 cursor-pointer transition-all flex flex-col justify-between gap-3 active:scale-98 ${
+                      isSelected
+                        ? "bg-indigo-50/80 border-indigo-400 shadow-sm ring-2 ring-indigo-500/20"
+                        : "bg-white border-slate-200 hover:border-slate-300 hover:shadow-xs"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-black text-slate-700">CH 0{ch}</span>
+                      <span className="h-2 w-2 rounded-full bg-emerald-500" />
                     </div>
 
-                    <div className="mt-3 pt-3 border-t border-slate-800 text-[11px] text-slate-400 text-right space-y-1.5 w-full bg-slate-900/60 p-3 rounded-xl border border-slate-800/80">
-                      <p className="font-bold text-slate-300">أو يمكنك إيقاف التشفير نهائياً عن الجهاز عبر:</p>
-                      <p>
-                        1. تطبيق <b>Hik-Connect</b> ➔ إعدادات الجهاز ⚙️ ➔ إيقاف <b>تشفير الصورة والفيديو</b>.
-                      </p>
-                      <p>
-                        2. موقع <b>Hik-Partner Pro</b> ➔ الموقع والجهاز ➔ التكوين عن بُعد ➔ الشبكة ➔ إيقاف <b>تشفير دفق الفيديو</b>.
-                      </p>
+                    <div>
+                      <div className="font-extrabold text-xs text-slate-800">الكاميرا 0{ch}</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        {isSelected ? "يعمل البث حالياً" : "جاهز للبث"}
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold">
+                      <span className={isSelected ? "text-indigo-600" : "text-slate-500"}>
+                        {isSelected ? "● مباشر" : "تشغيل"}
+                      </span>
+                      <Play className={`h-3.5 w-3.5 ${isSelected ? "text-indigo-600 fill-indigo-600" : "text-slate-400"}`} />
                     </div>
                   </div>
-                ) : (
-                  <>
-                    <AlertCircle className="h-8 w-8 text-red-400" />
-                    <p className="text-xs font-bold text-red-300">
-                      {streamError || "تعذر بدء البث المباشر لهذه القناة"}
-                    </p>
-                    <Button size="sm" onClick={startStream} className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5">
-                      <RotateCcw className="h-3.5 w-3.5" /> إعادة المحاولة
-                    </Button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
+                );
+              })}
+            </div>
+          </section>
         </div>
 
-        {/* 4. CHANNELS SELECTOR GRID */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
-              <Cctv className="h-4 w-4 text-indigo-600" />
-              <span>قنوات الكاميرا المتاحة على هذا الجهاز ({totalChannels} قنوات)</span>
-            </h3>
-            <span className="text-xs text-slate-400 font-medium">اضغط على أي قناة لتشغيلها</span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {channelsList.map((ch) => {
-              const isSelected = ch === selectedChannel;
-              return (
-                <div
-                  key={ch}
-                  onClick={() => setSelectedChannel(ch)}
-                  className={`rounded-2xl border p-4 cursor-pointer transition-all flex flex-col justify-between gap-3 active:scale-98 ${
-                    isSelected
-                      ? "bg-indigo-50/80 border-indigo-400 shadow-sm ring-2 ring-indigo-500/20"
-                      : "bg-white border-slate-200 hover:border-slate-300 hover:shadow-xs"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs font-black text-slate-700">CH 0{ch}</span>
-                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                  </div>
-
-                  <div>
-                    <div className="font-extrabold text-xs text-slate-800">الكاميرا 0{ch}</div>
-                    <div className="text-[10px] text-slate-400 mt-0.5">
-                      {isSelected ? "يعمل البث حالياً" : "جاهز للبث"}
-                    </div>
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold">
-                    <span className={isSelected ? "text-indigo-600" : "text-slate-500"}>
-                      {isSelected ? "● مباشر" : "تشغيل"}
-                    </span>
-                    <Play className={`h-3.5 w-3.5 ${isSelected ? "text-indigo-600 fill-indigo-600" : "text-slate-400"}`} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-          </>
-        )}
-
         {/* TAB 2: SMART ALERTS & DETECTION CENTER */}
-        {activeTab === "alerts" && (
-          <div className="space-y-4">
-            <SmartAlertsCenter
-              onSelectCamera={(channel) => {
-                setSelectedChannel(channel);
-                setActiveTab("live");
-              }}
-            />
-          </div>
-        )}
+        <div className={activeTab === "alerts" ? "space-y-4" : "hidden"}>
+          <SmartAlertsCenter
+            onSelectCamera={(channel) => {
+              setSelectedChannel(channel);
+              setActiveTab("live");
+            }}
+          />
+        </div>
       </main>
     </div>
   );

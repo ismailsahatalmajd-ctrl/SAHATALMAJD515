@@ -186,7 +186,7 @@ export default function PartnerCamerasPage() {
           : "") ||
         (currentDevice.deviceSerial === "GK0622137" ? "Y1KkbT" : "");
 
-      if (activeCode) {
+      if (activeCode && !playUrl.includes("checkCode=")) {
         if (playUrl.includes("?")) {
           playUrl += `&checkCode=${encodeURIComponent(activeCode)}`;
         } else {
@@ -239,7 +239,11 @@ export default function PartnerCamerasPage() {
           }
 
           // 3. Handle actual stream errors
-          const msg = e?.msg || e?.message || e?.data?.msg || e?.data?.message;
+          const isStreamErr5411 = e?.retcode === 5411 || e?.code === 5411 || e?.errorCode === 5411;
+          const msg = isStreamErr5411
+            ? "تعذر سحب البث من هذه القناة (تأكد من توصيل الكاميرا بمنفذ الـ DVR أو إذن المشاهدة)"
+            : e?.msg || e?.message || e?.data?.msg || e?.data?.message;
+
           if (msg || (e?.code && e.code !== "0") || (e?.retcode && e.retcode !== 0 && e.retcode !== -1)) {
             setStreamError(msg || "انقطع اتصال البث المباشر");
             setStreamState("error");
@@ -460,6 +464,7 @@ export default function PartnerCamerasPage() {
 
             {/* Target DOM Element for EZUIKit Video */}
             <div
+              key={`${currentDevice.deviceSerial}-${selectedChannel}`}
               id="partner-player-viewport"
               className="w-full h-full flex items-center justify-center bg-black"
             />

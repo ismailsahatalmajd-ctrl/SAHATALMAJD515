@@ -25,6 +25,7 @@ import {
   Radio,
   Globe,
   Wifi,
+  ExternalLink,
   ShieldCheck,
   ShieldAlert,
   Bell,
@@ -457,6 +458,14 @@ export default function CamerasPage() {
               <Settings className="h-4 w-4 text-slate-400" />
               <span>الإعدادات</span>
             </button>
+
+            <Link
+              href="/partner-cameras"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-indigo-600 bg-indigo-50/60 hover:bg-indigo-100 font-bold border border-indigo-200/50 transition-colors"
+            >
+              <ExternalLink className="h-4 w-4 text-indigo-600" />
+              <span>منصة Hik-Partner</span>
+            </Link>
           </nav>
         </div>
 
@@ -574,6 +583,15 @@ export default function CamerasPage() {
                 <div className="text-[10px] text-slate-400 font-mono">GK0622137</div>
               </div>
             </div>
+
+            {/* 6. Switch to Hik-Partner Pro */}
+            <Link
+              href="/partner-cameras"
+              className="bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 px-3.5 py-2 rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-xs transition-all active:scale-95"
+            >
+              <ExternalLink className="h-3.5 w-3.5 text-indigo-600" />
+              <span>منصة Hik-Partner</span>
+            </Link>
           </div>
         </div>
 

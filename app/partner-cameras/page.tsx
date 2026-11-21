@@ -93,7 +93,7 @@ export default function PartnerCamerasPage() {
     }
     const s = document.createElement("script");
     s.id = scriptId;
-    s.src = "/ezuikit/ezuikit.js?v=partner_2026";
+    s.src = "/ezuikit/ezuikit.js?v=partner_fix_v3";
     s.async = true;
     s.onload = () => setScriptLoaded(true);
     document.body.appendChild(s);

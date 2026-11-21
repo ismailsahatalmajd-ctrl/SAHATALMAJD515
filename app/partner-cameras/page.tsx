@@ -194,8 +194,26 @@ export default function PartnerCamerasPage() {
         handleError: (e: any) => {
           if (requestId !== activeRequestRef.current) return;
           console.warn("Partner Player event:", e);
-          if (e?.code !== "200" && e?.retcode !== "0") {
-            setStreamError(e?.msg || e?.message || "انقطع اتصال البث");
+
+          // 1. Ignore normal runtime statistics/info callbacks
+          if (e?.type === "handleRunTimeInfoError") {
+            // Only if nErrorCode === 5 does it indicate encrypted stream requiring a password
+            if (e?.data?.nErrorCode === 5) {
+              setStreamError("الفيديو مشفر برمز سري (Verification Code)");
+              setStreamState("error");
+            }
+            return;
+          }
+
+          // 2. Ignore non-error or informational codes
+          if (e?.code === "200" || e?.code === 200 || e?.retcode === "0" || e?.retcode === 0) {
+            return;
+          }
+
+          // 3. Handle actual stream errors
+          const msg = e?.msg || e?.message || e?.data?.msg || e?.data?.message;
+          if (msg || (e?.code && e.code !== "0") || (e?.retcode && e.retcode !== 0 && e.retcode !== -1)) {
+            setStreamError(msg || "انقطع اتصال البث المباشر");
             setStreamState("error");
           }
         },
@@ -294,17 +312,40 @@ export default function PartnerCamerasPage() {
               </div>
             </div>
 
-            {/* Device Info */}
-            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-2xl px-3.5 py-2">
-              <HardDrive className="h-4 w-4 text-indigo-600" />
-              <div>
-                <div className="text-[10px] text-slate-400 font-medium">جهاز الـ DVR</div>
-                <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                  <span>{currentDevice.deviceName}</span>
-                  <span className="text-[10px] font-mono text-slate-400">({currentDevice.deviceSerial})</span>
+            {/* Device Info & Selector */}
+            {devices.length > 1 ? (
+              <div className="flex items-center gap-2 bg-slate-50 border border-indigo-200/80 rounded-2xl px-3.5 py-1.5 shadow-2xs">
+                <HardDrive className="h-4 w-4 text-indigo-600" />
+                <div>
+                  <div className="text-[10px] text-slate-400 font-medium">جهاز الـ DVR النشط</div>
+                  <select
+                    value={selectedDeviceIndex}
+                    onChange={(e) => {
+                      setSelectedDeviceIndex(Number(e.target.value));
+                      setSelectedChannel(1);
+                    }}
+                    className="text-xs font-bold text-slate-800 bg-transparent border-none outline-none cursor-pointer font-sans"
+                  >
+                    {devices.map((d, idx) => (
+                      <option key={d.deviceSerial || idx} value={idx}>
+                        {d.deviceName} ({d.deviceSerial}) • {d.totalChannels || 4} قنوات
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-2xl px-3.5 py-2">
+                <HardDrive className="h-4 w-4 text-indigo-600" />
+                <div>
+                  <div className="text-[10px] text-slate-400 font-medium">جهاز الـ DVR</div>
+                  <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <span>{currentDevice.deviceName}</span>
+                    <span className="text-[10px] font-mono text-slate-400">({currentDevice.deviceSerial})</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Online Status */}
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold">

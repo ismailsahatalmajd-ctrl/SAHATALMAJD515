@@ -102,7 +102,7 @@ export default function PartnerCamerasPage() {
     }
     const s = document.createElement("script");
     s.id = scriptId;
-    s.src = "/ezuikit/ezuikit.js?v=partner_fix_v3";
+    s.src = "/ezuikit/ezuikit.js?v=partner_fix_v4";
     s.async = true;
     s.onload = () => setScriptLoaded(true);
     document.body.appendChild(s);
@@ -183,7 +183,8 @@ export default function PartnerCamerasPage() {
         verificationCode.trim() ||
         (typeof window !== "undefined"
           ? localStorage.getItem(`partner_vcode_${currentDevice.deviceSerial}`) || ""
-          : "");
+          : "") ||
+        (currentDevice.deviceSerial === "GK0622137" ? "Y1KkbT" : "");
 
       if (activeCode) {
         if (playUrl.includes("?")) {
@@ -204,6 +205,10 @@ export default function PartnerCamerasPage() {
         env: {
           domain: "https://isgpopen.ezvizlife.com",
         },
+        header: {
+          verifyCode: activeCode,
+        },
+        validCode: activeCode,
         width: width,
         height: height,
         audio: 0,
@@ -243,6 +248,12 @@ export default function PartnerCamerasPage() {
       });
 
       playerRef.current = player;
+
+      if ((player as any)?.jSPlugin?.JS_SetSecretKey && activeCode) {
+        try {
+          (player as any).jSPlugin.JS_SetSecretKey(0, activeCode);
+        } catch (e) {}
+      }
     } catch (err: any) {
       if (requestId === activeRequestRef.current) {
         console.error(err);

@@ -11,34 +11,37 @@ export async function GET(req: NextRequest) {
   const quality = (searchParams.get('quality') || 'live') as 'live' | 'hd';
 
   try {
-    if (deviceSerial === 'GK0622137') {
-      const wsData = await getCloudWsStreamUrl(channelNo, 'GK0622137', quality);
+    try {
+      const liveData = await getPartnerLiveAddress(deviceSerial, channelNo, quality);
       return NextResponse.json({
         success: true,
-        url: wsData.wsUrl,
-        directWsUrl: wsData.wsUrl,
-        ezopenUrl: `ezopen://open.ezviz.com/GK0622137/${channelNo}.${quality === 'hd' ? 'hd.' : ''}live`,
-        ticket: '',
-        accessToken: wsData.accessToken,
-        deviceSerial: 'GK0622137',
-        channelNo,
+        url: liveData.url,
+        directWsUrl: liveData.directWsUrl,
+        ezopenUrl: liveData.ezopenUrl,
+        ticket: liveData.ticket,
+        accessToken: liveData.accessToken,
+        deviceSerial: liveData.deviceSerial,
+        channelNo: liveData.channelNo,
         quality,
       });
+    } catch (partnerErr: any) {
+      console.warn(`Hik-Partner Pro live address failed for ${deviceSerial}:`, partnerErr?.message);
+      if (deviceSerial === 'GK0622137') {
+        const wsData = await getCloudWsStreamUrl(channelNo, 'GK0622137', quality);
+        return NextResponse.json({
+          success: true,
+          url: wsData.wsUrl,
+          directWsUrl: wsData.wsUrl,
+          ezopenUrl: `ezopen://open.ezviz.com/GK0622137/${channelNo}.${quality === 'hd' ? 'hd.' : ''}live`,
+          ticket: '',
+          accessToken: wsData.accessToken,
+          deviceSerial: 'GK0622137',
+          channelNo,
+          quality,
+        });
+      }
+      throw partnerErr;
     }
-
-    const liveData = await getPartnerLiveAddress(deviceSerial, channelNo, quality);
-
-    return NextResponse.json({
-      success: true,
-      url: liveData.url,
-      directWsUrl: liveData.directWsUrl,
-      ezopenUrl: liveData.ezopenUrl,
-      ticket: liveData.ticket,
-      accessToken: liveData.accessToken,
-      deviceSerial: liveData.deviceSerial,
-      channelNo: liveData.channelNo,
-      quality,
-    });
   } catch (error: any) {
     console.error('Failed to get Hik-Partner live address:', error);
     return NextResponse.json(

@@ -54,6 +54,7 @@ export default function PartnerCamerasPage() {
   const [streamError, setStreamError] = useState<string | null>(null);
   const [duration, setDuration] = useState<number>(0);
   const [scriptLoaded, setScriptLoaded] = useState<boolean>(false);
+  const [verificationCode, setVerificationCode] = useState<string>("");
 
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -67,6 +68,14 @@ export default function PartnerCamerasPage() {
     deviceType: "iDS-7204HQHI-M1/XT",
     totalChannels: 4,
   };
+
+  // Sync stored verification code when switching device
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem(`partner_vcode_${currentDevice.deviceSerial}`) || "";
+      setVerificationCode(stored);
+    }
+  }, [currentDevice.deviceSerial]);
 
   const totalChannels = currentDevice.totalChannels || 4;
   const channelsList = Array.from({ length: totalChannels }, (_, i) => i + 1);
@@ -167,8 +176,22 @@ export default function PartnerCamerasPage() {
       const width = Math.max(clientW, 320);
       const height = Math.round((width * 9) / 16) || 360;
 
-      const playUrl = data.directWsUrl || data.url;
+      let playUrl = data.directWsUrl || data.url;
       const playToken = data.accessToken || data.ticket;
+
+      const activeCode =
+        verificationCode.trim() ||
+        (typeof window !== "undefined"
+          ? localStorage.getItem(`partner_vcode_${currentDevice.deviceSerial}`) || ""
+          : "");
+
+      if (activeCode) {
+        if (playUrl.includes("?")) {
+          playUrl += `&checkCode=${encodeURIComponent(activeCode)}`;
+        } else {
+          playUrl += `?checkCode=${encodeURIComponent(activeCode)}`;
+        }
+      }
 
       // Final DOM clean before instantiating new player
       if (dom) dom.innerHTML = "";
@@ -440,16 +463,65 @@ export default function PartnerCamerasPage() {
               </div>
             )}
 
-            {/* Error State */}
+            {/* Error / Verification Code State */}
             {streamState === "error" && (
-              <div className="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center gap-3 text-slate-200 z-20 p-4 text-center">
-                <AlertCircle className="h-8 w-8 text-red-400" />
-                <p className="text-xs font-bold text-red-300">
-                  {streamError || "تعذر بدء البث المباشر لهذه القناة"}
-                </p>
-                <Button size="sm" onClick={startStream} className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5">
-                  <RotateCcw className="h-3.5 w-3.5" /> إعادة المحاولة
-                </Button>
+              <div className="absolute inset-0 bg-slate-950/95 backdrop-blur-xs flex flex-col items-center justify-center gap-3 text-slate-200 z-20 p-5 text-center">
+                {streamError?.includes("رمز سري") || streamError?.includes("مشفر") ? (
+                  <div className="flex flex-col items-center gap-3 max-w-md w-full animate-in fade-in zoom-in-95 duration-200">
+                    <div className="h-12 w-12 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center border border-amber-500/20 shadow-lg shadow-amber-500/5">
+                      <ShieldCheck className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-extrabold text-white">تشفير الفيديو مفعّل (Verification Code)</h4>
+                      <p className="text-xs text-slate-400 mt-1">
+                        أدخل رمز التحقق المطبوع على ملصق الـ DVR لفك التشفير فوراً:
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full max-w-xs mt-1">
+                      <input
+                        type="text"
+                        value={verificationCode}
+                        onChange={(e) => setVerificationCode(e.target.value.toUpperCase())}
+                        placeholder="مثلاً: ABCDEF"
+                        maxLength={12}
+                        className="flex-1 bg-slate-900 border border-slate-700 focus:border-indigo-500 text-white text-center font-mono font-bold tracking-widest text-sm rounded-xl px-3 py-2 outline-none shadow-inner"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          if (verificationCode.trim()) {
+                            localStorage.setItem(`partner_vcode_${currentDevice.deviceSerial}`, verificationCode.trim());
+                          }
+                          startStream();
+                        }}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4"
+                      >
+                        تشغيل
+                      </Button>
+                    </div>
+
+                    <div className="mt-3 pt-3 border-t border-slate-800 text-[11px] text-slate-400 text-right space-y-1.5 w-full bg-slate-900/60 p-3 rounded-xl border border-slate-800/80">
+                      <p className="font-bold text-slate-300">أو يمكنك إيقاف التشفير نهائياً عن الجهاز عبر:</p>
+                      <p>
+                        1. تطبيق <b>Hik-Connect</b> ➔ إعدادات الجهاز ⚙️ ➔ إيقاف <b>تشفير الصورة والفيديو</b>.
+                      </p>
+                      <p>
+                        2. موقع <b>Hik-Partner Pro</b> ➔ الموقع والجهاز ➔ التكوين عن بُعد ➔ الشبكة ➔ إيقاف <b>تشفير دفق الفيديو</b>.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <AlertCircle className="h-8 w-8 text-red-400" />
+                    <p className="text-xs font-bold text-red-300">
+                      {streamError || "تعذر بدء البث المباشر لهذه القناة"}
+                    </p>
+                    <Button size="sm" onClick={startStream} className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1.5">
+                      <RotateCcw className="h-3.5 w-3.5" /> إعادة المحاولة
+                    </Button>
+                  </>
+                )}
               </div>
             )}
           </div>

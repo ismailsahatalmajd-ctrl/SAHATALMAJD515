@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useRef, useMemo } from "react"
-import { Loader2, RefreshCw, ArrowRightLeft, ServerCrash, Eye, Printer, Plus, Trash2, Edit, CheckCircle, XCircle, ChevronDown, Search, Download, Settings2, Calculator, ShoppingCart, Flame, PackageCheck } from "lucide-react"
+import { Loader2, RefreshCw, ArrowRightLeft, ServerCrash, Eye, Printer, Plus, Trash2, Edit, CheckCircle, XCircle, ChevronDown, Search, Download, Settings2, Calculator, ShoppingCart, Flame, PackageCheck, X } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -266,6 +266,138 @@ const ProductCombobox = ({ products, value, onChange }: { products: Product[], v
     );
 };
 
+const BRANCH_SEARCH_ALIASES: string[][] = [
+    ["hail", "j.hail", "jdhal", "حائل", "حايل", "16000", "jadeel hail", "فرع حائل", "مستودع حائل"],
+    ["dammam", "j.dammam", "jddmm", "الدمام", "دمام", "14000", "jadeel dammam", "فرع الدمام", "مستودع الدمام"],
+    ["suwaidi", "j.suwaidi", "jdswd", "السويدي", "سويدي", "11000", "jadeel al-suwaidi", "jadeel suwaidi", "فرع السويدي"],
+    ["qurtuba", "qurtubah", "j.qurtuba", "jdqrt", "قرطبة", "قرطبه", "12000", "jadeel qurtuba", "فرع قرطبة"],
+    ["king salman", "salman", "j.king salman", "jdksl", "الملك سلمان", "سلمان", "13000", "jadeel king salman", "فرع الملك سلمان"],
+    ["qassim", "qasim", "j.qassim", "jdqsm", "القصيم", "قصيم", "35000", "عنيزة", "بريدة", "jadeel qassim", "فرع القصيم"],
+    ["roastery", "mahmasa", "mhmsa", "محمصة", "المحمصة", "محمصه", "المحمصه", "34000", "al-mahmasa"],
+    ["anas", "hnans", "أنس", "انس", "30000", "hanoverian anas", "فرع أنس", "فرع انس"],
+    ["via riyadh", "via", "hnvia", "فيا", "فيا الرياض", "29000", "hanoverian via", "فرع فيا"],
+    ["catering", "ctrwh", "تموين", "التموين", "كايترينج", "36000"],
+    ["takhassusi", "hntkh", "التخصصي", "تخصصي", "25000", "hanoverian takhassusi", "فرع التخصصي"],
+    ["factory", "fctry", "المصنع", "مصنع", "04000", "4000"],
+    ["mamlaka", "hnmam", "المملكة", "مملكة", "المملكه", "33000", "hanoverian mamlaka", "فرع المملكة"],
+    ["makkah", "mecca", "hnmkh", "مكة", "مكه", "28000", "hanoverian makkah", "فرع مكة"],
+    ["narjis", "jdnrj", "النرجس", "نرجس", "18000", "jadeel al-narjis", "jadeel narjis", "فرع النرجس"],
+    ["diriyah", "diriya", "hndir", "الدرعية", "درعية", "الدرعيه", "32000", "hanoverian diriyah", "فرع الدرعية"],
+    ["kafd", "hnkfd", "كافد", "26000", "hanoverian kafd", "فرع كافد"],
+    ["rawdah", "rawda", "jdrwd", "الروضة", "روضة", "الروضه", "09000", "9000", "jadeel al-rawdah", "jadeel rawdah", "فرع الروضة"],
+    ["jeddah", "jiddah", "hnjed", "جدة", "جده", "27000", "hanoverian jeddah", "فرع جدة"],
+    ["abha", "jdabh", "أبها", "ابها", "15000", "jadeel abha", "فرع أبها"],
+    ["laban", "jdlbn", "لبن", "10000", "ظهرة لبن", "jadeel laban", "فرع لبن"],
+    ["shafa", "shifa", "mrshf", "الشفاء", "الشفا", "شفا", "شفاء", "01000", "1000", "مستودع الشفا"]
+];
+
+function normalizeSearchText(text: string): string {
+    if (!text) return "";
+    return text
+        .toLowerCase()
+        .replace(/[\u064B-\u065F\u0640]/g, "")
+        .replace(/[أإآ]/g, "ا")
+        .replace(/ة/g, "ه")
+        .replace(/ى/g, "ي")
+        .replace(/[._\-]/g, " ")
+        .trim();
+}
+
+function compactText(text: string): string {
+    return normalizeSearchText(text).replace(/[^a-z0-9\u0621-\u064A]/g, "");
+}
+
+const SEARCH_STOP_WORDS = new Set(["فرع", "مستودع", "طلب", "فاتورة", "فاتوره", "عملية", "عمليه", "رقم", "في", "من", "الى", "branch", "warehouse", "order"]);
+
+function matchesTransferSearch(t: OdooTransfer, query: string, branchName: string): boolean {
+    if (!query || !query.trim()) return true;
+
+    const rawTokens = query.trim().split(/\s+/).filter(Boolean);
+    if (rawTokens.length === 0) return true;
+
+    const ownerName = t.request_owner_id ? t.request_owner_id[1] : "";
+    const opName = t.replenishment_operation_type_id ? t.replenishment_operation_type_id[1] : "";
+    const catName = t.category_id ? t.category_id[1] : "";
+    const orderName = t.name && t.name !== '/' ? t.name : "";
+    const orderId = String(t.id || "");
+    const pickingNames = t.pickings ? t.pickings.map(p => p.name).filter(Boolean).join(" ") : "";
+    const stateName = t.request_status || "";
+
+    const directTexts = [
+        ownerName,
+        branchName,
+        `فرع ${branchName}`,
+        `مستودع ${branchName}`,
+        opName,
+        catName,
+        orderName,
+        orderId,
+        pickingNames,
+        stateName
+    ];
+
+    const normalizedDirect = directTexts.map(normalizeSearchText);
+    const compactedDirect = directTexts.map(compactText);
+
+    const transferCombinedText = normalizedDirect.join(" ");
+    const transferCombinedCompact = compactedDirect.join("");
+
+    const transferAliasKeywords: string[] = [];
+    for (const group of BRANCH_SEARCH_ALIASES) {
+        const matchesGroup = group.some(kw => {
+            const normKw = normalizeSearchText(kw);
+            const compKw = compactText(kw);
+            return (
+                transferCombinedText.includes(normKw) ||
+                (compKw.length >= 3 && transferCombinedCompact.includes(compKw))
+            );
+        });
+        if (matchesGroup) {
+            for (const kw of group) {
+                transferAliasKeywords.push(normalizeSearchText(kw));
+                transferAliasKeywords.push(compactText(kw));
+            }
+        }
+    }
+
+    const nonStopTokens = rawTokens.filter(tok => !SEARCH_STOP_WORDS.has(normalizeSearchText(tok)));
+    const activeTokens = nonStopTokens.length > 0 ? nonStopTokens : rawTokens;
+
+    return activeTokens.every(token => {
+        const normToken = normalizeSearchText(token);
+        const compToken = compactText(token);
+        if (!normToken) return true;
+
+        if (normalizedDirect.some(dt => dt.includes(normToken))) return true;
+        if (compToken && compactedDirect.some(ct => ct.includes(compToken))) return true;
+
+        if (transferAliasKeywords.some(ak => ak.includes(normToken) || (compToken && ak.includes(compToken)))) {
+            return true;
+        }
+
+        for (const group of BRANCH_SEARCH_ALIASES) {
+            const tokenInGroup = group.some(kw => {
+                const normKw = normalizeSearchText(kw);
+                const compKw = compactText(kw);
+                return normKw.includes(normToken) || (compToken.length >= 3 && compKw.includes(compToken));
+            });
+            if (tokenInGroup) {
+                const transferInGroup = group.some(kw => {
+                    const normKw = normalizeSearchText(kw);
+                    const compKw = compactText(kw);
+                    return (
+                        transferCombinedText.includes(normKw) ||
+                        (compKw.length >= 3 && transferCombinedCompact.includes(compKw))
+                    );
+                });
+                if (transferInGroup) return true;
+            }
+        }
+
+        return false;
+    });
+}
+
 export default function OdooTransfersPage() {
     const { user, loading: authLoading } = useAuth()
     const { toast } = useToast()
@@ -393,6 +525,7 @@ export default function OdooTransfersPage() {
             const mapped = getWarehouseName(`${code}/Stock`);
             return mapped !== `${code}/Stock` ? mapped.replace(/^\d+\s*-\s*/, '').replace(/\s*W\.H$/i, '') : code;
         }
+        if (owner && owner.includes("@")) return owner.split("@")[0];
         return owner || (t.name !== '/' ? t.name : `طلب #${t.id}`);
     }
 
@@ -804,13 +937,8 @@ export default function OdooTransfersPage() {
         }
         
         if (!searchQuery) return true;
-        const q = searchQuery.toLowerCase();
-        return (
-            (t.name && t.name.toLowerCase().includes(q)) ||
-            (t.category_id && t.category_id[1] && t.category_id[1].toLowerCase().includes(q)) ||
-            (t.replenishment_operation_type_id && t.replenishment_operation_type_id[1] && t.replenishment_operation_type_id[1].toLowerCase().includes(q)) ||
-            (t.pickings && t.pickings.some(p => p.name && p.name.toLowerCase().includes(q)))
-        )
+        const branchName = getTransferBranchName(t);
+        return matchesTransferSearch(t, searchQuery, branchName);
     });
 
     return (
@@ -1011,13 +1139,26 @@ export default function OdooTransfersPage() {
                                     </button>
                                 ))}
                             </div>
-                            <input 
-                                type="text" 
-                                placeholder="بحث برقم العملية أو المستودع..." 
-                                className="p-1.5 border rounded-md text-xs w-52 focus:outline-none focus:ring-1 focus:ring-primary bg-white"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                            />
+                            <div className="relative flex items-center">
+                                <Search className="absolute right-2.5 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                                <input 
+                                    type="text" 
+                                    placeholder="بحث باسم الفرع، صاحب الطلب، رقم العملية..." 
+                                    className="pr-8 pl-7 py-1.5 border rounded-md text-xs w-60 md:w-72 focus:outline-none focus:ring-1 focus:ring-primary bg-white shadow-sm"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                                {searchQuery && (
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setSearchQuery('')}
+                                        className="absolute left-2 text-muted-foreground hover:text-foreground p-0.5 rounded-full"
+                                        title="مسح البحث"
+                                    >
+                                        <X className="h-3.5 w-3.5" />
+                                    </button>
+                                )}
+                            </div>
                             <select 
                                 className="p-1.5 border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-primary bg-white"
                                 value={pageSize}
@@ -1059,8 +1200,46 @@ export default function OdooTransfersPage() {
                                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
                             </div>
                         ) : filteredTransfers.length === 0 ? (
-                            <div className="text-center py-12 text-muted-foreground">
-                                لا توجد فواتير في هذا القسم.
+                            <div className="text-center py-12 text-muted-foreground space-y-3">
+                                {searchQuery ? (
+                                    <>
+                                        <p className="text-sm font-medium">
+                                            لا توجد فواتير أو طلبات مطابقة للبحث &ldquo;{searchQuery}&rdquo; في هذا القسم.
+                                        </p>
+                                        <div className="flex items-center justify-center gap-2 flex-wrap">
+                                            <Button 
+                                                variant="outline" 
+                                                size="sm" 
+                                                onClick={() => setSearchQuery('')}
+                                                className="text-xs"
+                                            >
+                                                مسح البحث وعرض الكل
+                                            </Button>
+                                            {activeTab !== 'all' && (
+                                                <Button 
+                                                    variant="default" 
+                                                    size="sm" 
+                                                    onClick={() => setActiveTab('all')}
+                                                    className="text-xs"
+                                                >
+                                                    البحث في قسم (كافة الفواتير / all)
+                                                </Button>
+                                            )}
+                                            {pageSize !== 'all' && (
+                                                <Button 
+                                                    variant="secondary" 
+                                                    size="sm" 
+                                                    onClick={() => setPageSize('all')}
+                                                    className="text-xs"
+                                                >
+                                                    البحث في كافة العمليات (عرض الكل)
+                                                </Button>
+                                            )}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <p>لا توجد فواتير في هذا القسم.</p>
+                                )}
                             </div>
                         ) : (
                             <div className="rounded-md border overflow-auto max-h-[calc(100vh-220px)] relative">
@@ -1132,7 +1311,21 @@ export default function OdooTransfersPage() {
                                                         {t.category_id ? t.category_id[1] : '-'}
                                                     </TableCell>
                                                     <TableCell className="text-sm font-medium">
-                                                        {t.request_owner_id ? t.request_owner_id[1] : '-'}
+                                                        <div className="flex flex-col">
+                                                            <span>{t.request_owner_id ? t.request_owner_id[1] : '-'}</span>
+                                                            {(() => {
+                                                                const bName = getTransferBranchName(t);
+                                                                const owner = t.request_owner_id ? t.request_owner_id[1] : '';
+                                                                if (bName && bName !== owner && bName !== 'فرع غير محدد' && bName !== (t.name !== '/' ? t.name : `طلب #${t.id}`)) {
+                                                                    return (
+                                                                        <span className="text-[11px] text-muted-foreground font-normal">
+                                                                            📍 {bName}
+                                                                        </span>
+                                                                    );
+                                                                }
+                                                                return null;
+                                                            })()}
+                                                        </div>
                                                     </TableCell>
                                                     <TableCell className="text-sm">
                                                         {t.replenishment_operation_type_id ? t.replenishment_operation_type_id[1] : '-'}

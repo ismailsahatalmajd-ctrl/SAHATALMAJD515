@@ -328,11 +328,19 @@ export default function MarsadPage() {
     setDetectedPeople(0);
     setDetectedVehicles(0);
 
-    // Clean previous player
+    // Clean previous player or video
     if (playerRef.current) {
       try {
         playerRef.current.stop();
         playerRef.current = null;
+      } catch (e) {}
+    }
+    const prevVid = dom.querySelector("video") as any;
+    if (prevVid) {
+      try {
+        prevVid.pause();
+        prevVid._hls?.destroy?.();
+        prevVid.src = "";
       } catch (e) {}
     }
 
@@ -345,6 +353,50 @@ export default function MarsadPage() {
       const data = await res.json();
 
       if (requestId !== activeRequestRef.current) return;
+
+      // Mobile Device Detection (iPhone / iPad / Android)
+      const isMobile =
+        typeof navigator !== "undefined" &&
+        /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+      // On Mobile: Use Native Hardware-Accelerated Video (Zero WASM, No Black Screen, 30 FPS)
+      if (isMobile && data.hlsUrl) {
+        dom.innerHTML = "";
+        const video = document.createElement("video");
+        video.id = "marsad-mobile-video";
+        video.src = data.hlsUrl;
+        video.className = "w-full h-full object-contain bg-black";
+        video.setAttribute("playsinline", "true");
+        video.setAttribute("webkit-playsinline", "true");
+        video.autoplay = true;
+        video.muted = true;
+        video.controls = false;
+
+        video.onplaying = () => {
+          if (requestId === activeRequestRef.current) {
+            setStreamState("live");
+            setStreamError(null);
+          }
+        };
+        video.onloadeddata = () => {
+          video.play().catch(() => {});
+        };
+
+        if (
+          !video.canPlayType("application/vnd.apple.mpegurl") &&
+          (window as any).Hls &&
+          (window as any).Hls.isSupported()
+        ) {
+          const hls = new (window as any).Hls({ lowLatencyMode: true });
+          hls.loadSource(data.hlsUrl);
+          hls.attachMedia(video);
+          (video as any)._hls = hls;
+        }
+
+        dom.appendChild(video);
+        video.play().catch(() => {});
+        return;
+      }
 
       if (!data.success || (!data.url && !data.directWsUrl && !data.ezopenUrl)) {
         throw new Error(data.error || "تعذر جلب رابط البث السحابي");
@@ -421,6 +473,15 @@ export default function MarsadPage() {
           playerRef.current = null;
         } catch (e) {}
       }
+      const dom = document.getElementById("marsad-player-viewport");
+      const vid = dom?.querySelector("video") as any;
+      if (vid) {
+        try {
+          vid.pause();
+          vid._hls?.destroy?.();
+          vid.src = "";
+        } catch (e) {}
+      }
     };
   }, [startStream, scriptLoaded]);
 
@@ -439,16 +500,28 @@ export default function MarsadPage() {
     let timerId: any = null;
     let lastFrameBase64: string = "";
 
-    // 1. Hardware-Direct Frame Grabber from EZUIKit PlayM4 WebAssembly Decoder
+    // 1. Hardware-Direct Frame Grabber from Native Mobile Video or Desktop PlayM4 Decoder
     const captureCurrentFrame = async (): Promise<{
       source: HTMLImageElement | HTMLCanvasElement | HTMLVideoElement;
       srcWidth: number;
       srcHeight: number;
       base64?: string;
     } | null> => {
-      const player = playerRef.current;
+      const viewport = document.getElementById("marsad-player-viewport");
+      if (!viewport) return null;
 
-      // Method A: Direct from JSPlugin PlayM4 WebAssembly Decoder
+      // Priority 1: Mobile Native Video element (iOS Safari / Android)
+      const vid = viewport.querySelector("video");
+      if (vid && vid.videoWidth > 40 && vid.videoHeight > 40) {
+        return {
+          source: vid,
+          srcWidth: vid.videoWidth,
+          srcHeight: vid.videoHeight,
+        };
+      }
+
+      // Priority 2: Desktop EZUIKit PlayM4 WebAssembly Decoder (Strictly prevent file download)
+      const player = playerRef.current;
       if (
         player &&
         (player as any).jSPlugin &&
@@ -456,7 +529,7 @@ export default function MarsadPage() {
       ) {
         try {
           const capPromise = new Promise<any>((resolve) => {
-            const timeout = setTimeout(() => resolve(null), 300);
+            const timeout = setTimeout(() => resolve(null), 250);
             try {
               (player as any).jSPlugin.JS_CapturePicture(
                 0,
@@ -466,7 +539,7 @@ export default function MarsadPage() {
                   clearTimeout(timeout);
                   resolve(res);
                 },
-                true
+                true // 5th arg TRUE: strictly prevents file download!
               );
             } catch (err) {
               clearTimeout(timeout);
@@ -495,45 +568,13 @@ export default function MarsadPage() {
         } catch (e) {}
       }
 
-      // Method B: EZUIKit Player .capturePicture wrapper
-      if (player && typeof (player as any).capturePicture === "function") {
-        try {
-          const cap = await (player as any).capturePicture("marsad_cap", false);
-          if (cap && cap.data && cap.data.base64) {
-            lastFrameBase64Ref.current = cap.data.base64;
-            const img = new Image();
-            await new Promise((res) => {
-              img.onload = res;
-              img.onerror = res;
-              img.src = cap.data.base64;
-            });
-            if (img.width > 30) {
-              return {
-                source: img,
-                srcWidth: img.naturalWidth || img.width,
-                srcHeight: img.naturalHeight || img.height,
-                base64: cap.data.base64,
-              };
-            }
-          }
-        } catch (e) {}
-      }
-
-      // Method C: Canvas / Video elements in DOM
-      const viewport = document.getElementById("marsad-player-viewport");
-      if (!viewport) return null;
-
+      // Priority 3: Canvas elements in DOM
       const canvases = viewport.getElementsByTagName("canvas");
       for (let i = 0; i < canvases.length; i++) {
         const c = canvases[i];
         if (c.id !== "marsad-detection-overlay" && c.width > 50 && c.height > 50) {
           return { source: c, srcWidth: c.width, srcHeight: c.height };
         }
-      }
-
-      const vid = viewport.querySelector("video");
-      if (vid && vid.videoWidth > 50) {
-        return { source: vid, srcWidth: vid.videoWidth, srcHeight: vid.videoHeight };
       }
 
       return null;

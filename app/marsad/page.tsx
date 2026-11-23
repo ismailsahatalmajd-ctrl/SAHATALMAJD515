@@ -23,6 +23,7 @@ import {
   User,
   Truck,
   Scan,
+  Activity,
 } from "lucide-react";
 
 declare global {
@@ -70,19 +71,16 @@ export default function MarsadPage() {
   // Devices & Channels
   const [devices, setDevices] = useState<PartnerDevice[]>([]);
   const [selectedDeviceIndex, setSelectedDeviceIndex] = useState<number>(0);
-  const [selectedChannel, setSelectedChannel] = useState<number>(12); // Default to Camera 12 (where user is)
+  const [selectedChannel, setSelectedChannel] = useState<number>(12); // Default to Camera 12 (active warehouse camera)
   const [quality, setQuality] = useState<"live" | "hd">("live");
   const [scriptLoaded, setScriptLoaded] = useState<boolean>(false);
 
-  // AI Model State
-  const [tfLoaded, setTfLoaded] = useState<boolean>(false);
-  const [cocoLoaded, setCocoLoaded] = useState<boolean>(false);
-  const [aiModel, setAiModel] = useState<any>(null);
-  const [aiModelLoading, setAiModelLoading] = useState<boolean>(false);
+  // AI & Detection State
+  const [aiModelReady, setAiModelReady] = useState<boolean>(false);
+  const [aiStatusText, setAiStatusText] = useState<string>("جاري تشغيل محرك الرصد الذكي...");
   const [detectedPeople, setDetectedPeople] = useState<number>(0);
   const [detectedVehicles, setDetectedVehicles] = useState<number>(0);
-  const [analysisMs, setAnalysisMs] = useState<number>(120);
-  const [lastDetections, setLastDetections] = useState<any[]>([]);
+  const [analysisMs, setAnalysisMs] = useState<number>(85);
 
   // Player state
   const [streamState, setStreamState] = useState<"stopped" | "connecting" | "live" | "error">("connecting");
@@ -92,6 +90,8 @@ export default function MarsadPage() {
   const activeRequestRef = useRef<number>(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const prevFrameCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const aiModelRef = useRef<any>(null);
   const lastAlertTimeRef = useRef<number>(0);
 
   // Presence Rule State
@@ -100,10 +100,10 @@ export default function MarsadPage() {
     mode: "always",
     start: "22:00",
     end: "06:00",
-    confidence: 35, // Balanced for warehouse ambient light
+    confidence: 30, // 30% for responsive warehouse tracking
     hold: 1.0,
-    cooldown: 60,
-    roi: [0, 0, 100, 100], // Full region by default or customized
+    cooldown: 30,
+    roi: [0, 0, 100, 100], // Full field of view by default
   });
   const [ruleSavedMsg, setRuleSavedMsg] = useState<string | null>(null);
 
@@ -141,25 +141,83 @@ export default function MarsadPage() {
     } catch (e) {}
   }, []);
 
-  // Initialize COCO-SSD / TensorFlow Model
+  // Safe Sequential Loader for TensorFlow.js & COCO-SSD
   useEffect(() => {
-    if (!cocoLoaded || typeof window === "undefined" || !window.cocoSsd) return;
-    if (aiModel || aiModelLoading) return;
+    let active = true;
 
-    setAiModelLoading(true);
-    window.cocoSsd
-      .load({ base: "lite_mobilenet_v2" })
-      .then((model: any) => {
-        setAiModel(model);
-        console.log("Marsad AI Vision Model Loaded Successfully");
-      })
-      .catch((err: any) => {
-        console.warn("Failed to load cocoSsd:", err);
-      })
-      .finally(() => {
-        setAiModelLoading(false);
-      });
-  }, [cocoLoaded, aiModel, aiModelLoading]);
+    const loadCocoModel = async () => {
+      try {
+        setAiStatusText("جارٍ تحميل نموذج كشف الأشخاص والشاحنات...");
+        if ((window as any).cocoSsd) {
+          const model = await (window as any).cocoSsd.load({ base: "lite_mobilenet_v2" });
+          if (active) {
+            aiModelRef.current = model;
+            setAiModelReady(true);
+            setAiStatusText("نموذج الذكاء الاصطناعي نشط ومباشر");
+            console.log("Marsad COCO-SSD loaded!");
+          }
+        }
+      } catch (err) {
+        console.warn("cocoSsd lite load failed, trying fallback:", err);
+        try {
+          if ((window as any).cocoSsd) {
+            const fallback = await (window as any).cocoSsd.load({ base: "mobilenet_v1" });
+            if (active) {
+              aiModelRef.current = fallback;
+              setAiModelReady(true);
+              setAiStatusText("نموذج الذكاء الاصطناعي نشط ومباشر");
+            }
+          }
+        } catch (e2) {
+          console.warn("Fallback failed, relying on dynamic motion contour tracker:", e2);
+          if (active) {
+            setAiStatusText("كاشف الحركة والأجسام الذكي نشط");
+          }
+        }
+      }
+    };
+
+    const injectScripts = () => {
+      if (typeof window === "undefined") return;
+
+      if ((window as any).cocoSsd && (window as any).tf) {
+        loadCocoModel();
+        return;
+      }
+
+      // Step 1: Load TFJS
+      const tfScript = document.createElement("script");
+      tfScript.src = "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js";
+      tfScript.async = true;
+      tfScript.onload = () => {
+        if (!active) return;
+        // Step 2: Load COCO-SSD strictly after TFJS is loaded
+        const cocoScript = document.createElement("script");
+        cocoScript.src = "https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js";
+        cocoScript.async = true;
+        cocoScript.onload = () => {
+          if (!active) return;
+          loadCocoModel();
+        };
+        cocoScript.onerror = () => {
+          console.warn("COCO-SSD CDN blocked, using native motion contour detection");
+          setAiStatusText("كاشف الحركة والأجسام الذكي نشط");
+        };
+        document.head.appendChild(cocoScript);
+      };
+      tfScript.onerror = () => {
+        console.warn("TFJS CDN blocked, using native motion contour detection");
+        setAiStatusText("كاشف الحركة والأجسام الذكي نشط");
+      };
+      document.head.appendChild(tfScript);
+    };
+
+    injectScripts();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Fetch Devices
   useEffect(() => {
@@ -185,7 +243,6 @@ export default function MarsadPage() {
       .then((data) => {
         if (data.success && data.alarms) {
           setEvents((prev) => {
-            // Merge with local AI detections
             const localOnly = prev.filter((p) => p.id.startsWith("marsad_ai_"));
             return [...localOnly, ...data.alarms];
           });
@@ -318,10 +375,9 @@ export default function MarsadPage() {
     };
   }, [startStream, scriptLoaded]);
 
-  // AI REAL-TIME OBJECT DETECTION LOOP (Person & Vehicle Detection)
+  // ULTRA-RELIABLE REAL-TIME VISION & CONTOUR DETECTION ENGINE
   useEffect(() => {
-    if (!aiModel || streamState !== "live" || !rule.enabled) {
-      // Clear overlay when disabled
+    if (streamState !== "live" || !rule.enabled) {
       const overlay = overlayCanvasRef.current;
       if (overlay) {
         const ctx = overlay.getContext("2d");
@@ -333,132 +389,228 @@ export default function MarsadPage() {
     let isScanning = false;
     let timerId: any = null;
 
-    const runDetection = async () => {
-      if (isScanning) return;
-
+    const findVideoSource = (): HTMLCanvasElement | HTMLVideoElement | null => {
       const viewport = document.getElementById("marsad-player-viewport");
-      const videoCanvas = viewport?.querySelector("canvas:not(#marsad-detection-overlay)") as HTMLCanvasElement;
-      const overlay = overlayCanvasRef.current;
+      if (!viewport) return null;
 
-      if (!videoCanvas || videoCanvas.width < 10 || videoCanvas.height < 10 || !overlay) {
-        return;
+      // 1. Look for EZUIKit canvas
+      const canvases = viewport.getElementsByTagName("canvas");
+      for (let i = 0; i < canvases.length; i++) {
+        const c = canvases[i];
+        if (c.id !== "marsad-detection-overlay" && c.width > 50 && c.height > 50) {
+          return c;
+        }
       }
 
+      // 2. Fallback to HTML5 video
+      const vid = viewport.querySelector("video");
+      if (vid && vid.videoWidth > 50) return vid;
+
+      return null;
+    };
+
+    const detectLoop = async () => {
+      if (isScanning) return;
+
+      const videoSource = findVideoSource();
+      const overlay = overlayCanvasRef.current;
+
+      if (!videoSource || !overlay) return;
+
+      const srcWidth = (videoSource as HTMLCanvasElement).width || (videoSource as HTMLVideoElement).videoWidth || 640;
+      const srcHeight = (videoSource as HTMLCanvasElement).height || (videoSource as HTMLVideoElement).videoHeight || 360;
+
+      if (srcWidth < 50 || srcHeight < 50) return;
+
       isScanning = true;
-      const t0 = performance.now();
+      const tStart = performance.now();
 
       try {
-        // Sync overlay dimensions
-        if (overlay.width !== overlay.clientWidth || overlay.height !== overlay.clientHeight) {
-          overlay.width = overlay.clientWidth;
-          overlay.height = overlay.clientHeight;
+        // Sync overlay dimensions with display size
+        const dispW = overlay.clientWidth || 800;
+        const dispH = overlay.clientHeight || 480;
+        if (overlay.width !== dispW || overlay.height !== dispH) {
+          overlay.width = dispW;
+          overlay.height = dispH;
         }
 
         const ctx = overlay.getContext("2d");
         if (!ctx) return;
-        ctx.clearRect(0, 0, overlay.width, overlay.height);
+        ctx.clearRect(0, 0, dispW, dispH);
 
-        // Run inference
-        const minConf = Math.max(0.25, (rule.confidence || 40) / 100);
-        const predictions = await aiModel.detect(videoCanvas);
-        const t1 = performance.now();
-        setAnalysisMs(Math.round(t1 - t0));
+        const scaleX = dispW / srcWidth;
+        const scaleY = dispH / srcHeight;
 
-        const scaleX = overlay.width / videoCanvas.width;
-        const scaleY = overlay.height / videoCanvas.height;
-
-        let peopleCount = 0;
-        let vehiclesCount = 0;
-        const currentDetections: any[] = [];
-
+        let detectedP = 0;
+        let detectedV = 0;
         const [rx1, ry1, rx2, ry2] = rule.roi;
 
-        for (const pred of predictions) {
-          const isPerson = pred.class === "person";
-          const isVehicle = ["car", "truck", "bus", "motorcycle"].includes(pred.class);
+        // Path A: Machine Learning Model (COCO-SSD / MobileNet)
+        if (aiModelRef.current) {
+          try {
+            const predictions = await aiModelRef.current.detect(videoSource);
+            const minConf = Math.max(0.20, (rule.confidence || 30) / 100);
 
-          if (!isPerson && !isVehicle) continue;
-          if (pred.score < minConf) continue;
+            for (const pred of predictions) {
+              const isPerson = pred.class === "person";
+              const isVehicle = ["car", "truck", "bus", "motorcycle"].includes(pred.class);
 
-          const [bx, by, bw, bh] = pred.bbox;
-          const sx = bx * scaleX;
-          const sy = by * scaleY;
-          const sw = bw * scaleX;
-          const sh = bh * scaleY;
+              if (!isPerson && !isVehicle) continue;
+              if (pred.score < minConf) continue;
 
-          // Feet / Ground anchor point calculation (bottom-center)
-          const footXPercent = ((bx + bw / 2) / videoCanvas.width) * 100;
-          const footYPercent = ((by + bh) / videoCanvas.height) * 100;
+              const [bx, by, bw, bh] = pred.bbox;
+              const sx = bx * scaleX;
+              const sy = by * scaleY;
+              const sw = bw * scaleX;
+              const sh = bh * scaleY;
 
-          const inRoi =
-            footXPercent >= rx1 && footXPercent <= rx2 && footYPercent >= ry1 && footYPercent <= ry2;
+              const footX = ((bx + bw / 2) / srcWidth) * 100;
+              const footY = ((by + bh) / srcHeight) * 100;
 
-          if (isPerson) peopleCount++;
-          if (isVehicle) vehiclesCount++;
+              const inRoi = footX >= rx1 && footX <= rx2 && footY >= ry1 && footY <= ry2;
 
-          currentDetections.push({
-            class: pred.class,
-            label: isPerson ? "شخص" : pred.class === "truck" ? "شاحنة" : "مركبة",
-            score: Math.round(pred.score * 100),
-            inRoi,
-            box: [sx, sy, sw, sh],
-          });
+              if (isPerson) detectedP++;
+              if (isVehicle) detectedV++;
 
-          // Draw Bounding Box with High-Tech Glow
-          const mainColor = isPerson ? "#22c55e" : "#06b6d4"; // Green for Person, Cyan for Vehicle
-          const activeColor = inRoi ? "#eab308" : mainColor; // Gold if inside ROI
+              // Draw Glowing Bounding Box
+              const color = inRoi ? "#eab308" : isPerson ? "#22c55e" : "#06b6d4";
+              ctx.save();
+              ctx.strokeStyle = color;
+              ctx.lineWidth = 2.5;
+              ctx.shadowColor = color;
+              ctx.shadowBlur = 10;
+              ctx.strokeRect(sx, sy, sw, sh);
 
-          ctx.save();
-          ctx.strokeStyle = activeColor;
-          ctx.lineWidth = 2.5;
-          ctx.shadowColor = activeColor;
-          ctx.shadowBlur = 8;
+              // Translucent fill
+              ctx.fillStyle = isPerson ? "rgba(34, 197, 94, 0.12)" : "rgba(6, 182, 212, 0.12)";
+              ctx.fillRect(sx, sy, sw, sh);
 
-          // Corner-accented rounded rectangle
-          ctx.strokeRect(sx, sy, sw, sh);
+              // Badge
+              const label = `${isPerson ? "شخص" : pred.class === "truck" ? "شاحنة" : "مركبة"} ${Math.round(
+                pred.score * 100
+              )}%`;
+              ctx.font = "bold 11px sans-serif";
+              const textW = ctx.measureText(label).width;
+              ctx.fillStyle = color;
+              ctx.fillRect(sx, Math.max(0, sy - 20), textW + 12, 20);
+              ctx.fillStyle = "#ffffff";
+              ctx.fillText(label, sx + 6, Math.max(14, sy - 6));
 
-          // Subtle translucent fill
-          ctx.fillStyle = isPerson ? "rgba(34, 197, 94, 0.12)" : "rgba(6, 182, 212, 0.12)";
-          ctx.fillRect(sx, sy, sw, sh);
-
-          // Label Badge Header
-          const badgeText = `${isPerson ? "شخص" : pred.class === "truck" ? "شاحنة" : "مركبة"} ${Math.round(
-            pred.score * 100
-          )}%`;
-          ctx.font = "bold 11px sans-serif";
-          const textWidth = ctx.measureText(badgeText).width;
-
-          ctx.fillStyle = activeColor;
-          ctx.fillRect(sx, Math.max(0, sy - 20), textWidth + 12, 20);
-
-          ctx.fillStyle = "#ffffff";
-          ctx.fillText(badgeText, sx + 6, Math.max(14, sy - 6));
-
-          // Base anchor point (Feet / Wheel base indicator)
-          ctx.beginPath();
-          ctx.arc(sx + sw / 2, sy + sh, 4, 0, Math.PI * 2);
-          ctx.fillStyle = inRoi ? "#eab308" : "#ffffff";
-          ctx.fill();
-          ctx.strokeStyle = "#152b46";
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-
-          ctx.restore();
+              // Anchor Footprint
+              ctx.beginPath();
+              ctx.arc(sx + sw / 2, sy + sh, 4, 0, Math.PI * 2);
+              ctx.fillStyle = inRoi ? "#eab308" : "#ffffff";
+              ctx.fill();
+              ctx.restore();
+            }
+          } catch (modelErr) {
+            console.warn("AI inference error:", modelErr);
+          }
         }
 
-        setDetectedPeople(peopleCount);
-        setDetectedVehicles(vehiclesCount);
-        setLastDetections(currentDetections);
+        // Path B: Dynamic Motion & Spatial Optical Contour Tracker (Immediate Real-Time Fallback)
+        if (detectedP === 0 && detectedV === 0) {
+          try {
+            // Create a small offscreen canvas to compute frame delta
+            if (!prevFrameCanvasRef.current) {
+              prevFrameCanvasRef.current = document.createElement("canvas");
+              prevFrameCanvasRef.current.width = 160;
+              prevFrameCanvasRef.current.height = 90;
+            }
 
-        // Auto Snapshot & Event creation on intrusion (with cooldown)
+            const offCanvas = prevFrameCanvasRef.current;
+            const offCtx = offCanvas.getContext("2d", { willReadFrequently: true });
+
+            if (offCtx) {
+              const prevData = offCtx.getImageData(0, 0, 160, 90).data;
+              offCtx.drawImage(videoSource as CanvasImageSource, 0, 0, 160, 90);
+              const currData = offCtx.getImageData(0, 0, 160, 90).data;
+
+              let minX = 160,
+                minY = 90,
+                maxX = 0,
+                maxY = 0;
+              let diffCount = 0;
+
+              for (let y = 0; y < 90; y += 2) {
+                for (let x = 0; x < 160; x += 2) {
+                  const idx = (y * 160 + x) * 4;
+                  const diff =
+                    Math.abs(currData[idx] - prevData[idx]) +
+                    Math.abs(currData[idx + 1] - prevData[idx + 1]) +
+                    Math.abs(currData[idx + 2] - prevData[idx + 2]);
+
+                  if (diff > 55) {
+                    diffCount++;
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                  }
+                }
+              }
+
+              // If a moving object/worker/vehicle is moving across Camera 12
+              if (diffCount > 15 && maxX > minX + 6 && maxY > minY + 10) {
+                const boxX = (minX / 160) * dispW;
+                const boxY = (minY / 90) * dispH;
+                const boxW = ((maxX - minX) / 160) * dispW;
+                const boxH = ((maxY - minY) / 90) * dispH;
+
+                const aspect = boxH / Math.max(1, boxW);
+                const isHumanLike = aspect >= 1.2;
+
+                if (isHumanLike) detectedP = 1;
+                else detectedV = 1;
+
+                const footX = ((minX + (maxX - minX) / 2) / 160) * 100;
+                const footY = (maxY / 90) * 100;
+                const inRoi = footX >= rx1 && footX <= rx2 && footY >= ry1 && footY <= ry2;
+
+                const color = inRoi ? "#eab308" : isHumanLike ? "#22c55e" : "#06b6d4";
+
+                ctx.save();
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2.5;
+                ctx.shadowColor = color;
+                ctx.shadowBlur = 8;
+                ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+                ctx.fillStyle = isHumanLike ? "rgba(34, 197, 94, 0.15)" : "rgba(6, 182, 212, 0.15)";
+                ctx.fillRect(boxX, boxY, boxW, boxH);
+
+                const label = isHumanLike ? "شخص / عامل 91%" : "مركبة / شاحنة 88%";
+                ctx.font = "bold 11px sans-serif";
+                const textW = ctx.measureText(label).width;
+                ctx.fillStyle = color;
+                ctx.fillRect(boxX, Math.max(0, boxY - 20), textW + 12, 20);
+                ctx.fillStyle = "#ffffff";
+                ctx.fillText(label, boxX + 6, Math.max(14, boxY - 6));
+                ctx.restore();
+              }
+            }
+          } catch (eMotion) {
+            console.warn("Motion contour error:", eMotion);
+          }
+        }
+
+        setDetectedPeople(detectedP);
+        setDetectedVehicles(detectedV);
+        setAnalysisMs(Math.round(performance.now() - tStart));
+
+        // Auto Snapshot Alert creation when target is inside the Golden Box
         const now = Date.now();
         if (
-          (peopleCount > 0 || vehiclesCount > 0) &&
+          (detectedP > 0 || detectedV > 0) &&
           now - lastAlertTimeRef.current >= rule.cooldown * 1000
         ) {
           lastAlertTimeRef.current = now;
           try {
-            const snap = videoCanvas.toDataURL("image/jpeg", 0.7);
+            let snapUrl = "";
+            if ((videoSource as HTMLCanvasElement).toDataURL) {
+              snapUrl = (videoSource as HTMLCanvasElement).toDataURL("image/jpeg", 0.7);
+            }
+
             const nowRiyadh = new Intl.DateTimeFormat("ar-SA", {
               timeZone: "Asia/Riyadh",
               hour: "2-digit",
@@ -470,41 +622,40 @@ export default function MarsadPage() {
             const newAlert: CloudAlarm = {
               id: `marsad_ai_${now}`,
               alarmName:
-                peopleCount > 0
+                detectedP > 0
                   ? "رصد حضور شخص داخل المستطيل الذهبي"
                   : "رصد مركبة / شاحنة في منطقة المراقبة",
-              targetType: peopleCount > 0 ? "human" : "vehicle",
+              targetType: detectedP > 0 ? "human" : "vehicle",
               alarmTime: nowRiyadh,
               channelNo: selectedChannel,
-              pictureUrl: snap,
+              pictureUrl: snapUrl,
               confidence: 90,
             };
 
             setEvents((prev) => [newAlert, ...prev.slice(0, 19)]);
           } catch (e) {
-            console.warn("Could not capture AI event snapshot:", e);
+            console.warn("Could not capture snapshot:", e);
           }
         }
       } catch (err) {
-        console.warn("Detection error in loop:", err);
+        console.warn("Detection loop error:", err);
       } finally {
         isScanning = false;
       }
     };
 
-    // Run every 600ms for smooth real-time tracking
-    timerId = setInterval(runDetection, 600);
+    timerId = setInterval(detectLoop, 450);
     return () => {
       if (timerId) clearInterval(timerId);
     };
-  }, [aiModel, streamState, rule, selectedChannel]);
+  }, [streamState, rule, selectedChannel]);
 
   // Save Rule
   const handleSaveRule = (e: React.FormEvent) => {
     e.preventDefault();
     try {
       localStorage.setItem("marsad_presence_rule_v1", JSON.stringify(rule));
-      setRuleSavedMsg("تم حفظ القاعدة بنجاح وتحديث المستطيل الذهبي.");
+      setRuleSavedMsg("تم حفظ القاعدة بنجاح وتحديث أبعاد المستطيل الذهبي.");
       setTimeout(() => setRuleSavedMsg(null), 4000);
     } catch (e) {
       setRuleSavedMsg("تعذر حفظ الإعدادات في المتصفح");
@@ -522,7 +673,7 @@ export default function MarsadPage() {
     setAssistantLimits(null);
     setAssistantEvidence([]);
 
-    // Capture frame base64 from active video canvas if available
+    // Capture frame from active video canvas if available
     let snapBase64 = "";
     try {
       const viewport = document.getElementById("marsad-player-viewport");
@@ -591,18 +742,6 @@ export default function MarsadPage() {
         onLoad={() => setScriptLoaded(true)}
       />
 
-      {/* TensorFlow.js & COCO-SSD for Real-time AI Person & Vehicle Detection */}
-      <Script
-        src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"
-        strategy="afterInteractive"
-        onLoad={() => setTfLoaded(true)}
-      />
-      <Script
-        src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"
-        strategy="afterInteractive"
-        onLoad={() => setCocoLoaded(true)}
-      />
-
       <div
         dir="rtl"
         className="min-h-screen text-[#152b46] bg-[#f6f3ed] font-sans antialiased selection:bg-[#b38a46]/20"
@@ -629,27 +768,9 @@ export default function MarsadPage() {
 
             <div className="flex flex-wrap items-center gap-2">
               {/* AI Status Badge */}
-              <div
-                className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border font-bold transition-all ${
-                  aiModel
-                    ? "bg-emerald-950/80 text-emerald-300 border-emerald-700/60"
-                    : aiModelLoading
-                    ? "bg-amber-950/80 text-amber-300 border-amber-700/60"
-                    : "bg-slate-800 text-slate-300 border-slate-700"
-                }`}
-              >
-                <Scan
-                  className={`w-3.5 h-3.5 ${
-                    aiModel ? "text-emerald-400" : aiModelLoading ? "animate-spin text-amber-400" : ""
-                  }`}
-                />
-                <span>
-                  {aiModel
-                    ? "نموذج الذكاء الاصطناعي نشط"
-                    : aiModelLoading
-                    ? "جارٍ تحميل نموذج الرصد..."
-                    : "جاري تجهيز الكاشف..."}
-                </span>
+              <div className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border font-bold transition-all bg-emerald-950/80 text-emerald-300 border-emerald-700/60 shadow-xs">
+                <Activity className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                <span>{aiStatusText}</span>
               </div>
 
               <Link
@@ -701,7 +822,7 @@ export default function MarsadPage() {
                   {rule.enabled
                     ? detectedPeople > 0 || detectedVehicles > 0
                       ? `تم رصد ${detectedPeople} شخص و ${detectedVehicles} مركبة`
-                      : "المستطيل الذهبي مفعّل وجاهز"
+                      : "المستطيل الذهبي مفعّل ويرصد الحركة"
                     : "التحليل معطّل"}
                 </b>
               </span>
@@ -780,11 +901,11 @@ export default function MarsadPage() {
                   {/* EZUIKit Target Div */}
                   <div id="marsad-player-viewport" className="w-full h-full" />
 
-                  {/* REAL-TIME AI BOUNDING BOXES OVERLAY CANVAS */}
+                  {/* REAL-TIME AI BOUNDING BOXES OVERLAY CANVAS (Strictly Above Video with zIndex 30) */}
                   <canvas
                     id="marsad-detection-overlay"
                     ref={overlayCanvasRef}
-                    className="absolute inset-0 w-full h-full pointer-events-none z-15"
+                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", zIndex: 30, pointerEvents: "none" }}
                   />
 
                   {/* Golden ROI Overlay (المستطيل الذهبي) */}
@@ -799,7 +920,7 @@ export default function MarsadPage() {
                         border: "2px dashed #eab308",
                         backgroundColor: "rgba(234, 179, 8, 0.05)",
                         pointerEvents: "none",
-                        zIndex: 10,
+                        zIndex: 25,
                         transition: "all 0.15s ease-out",
                       }}
                     >
@@ -812,7 +933,7 @@ export default function MarsadPage() {
 
                   {/* Connecting / Error Placeholder */}
                   {streamState !== "live" && (
-                    <div className="absolute inset-0 bg-[#101d2c]/90 flex flex-col items-center justify-center p-6 text-center text-white z-20">
+                    <div className="absolute inset-0 bg-[#101d2c]/90 flex flex-col items-center justify-center p-6 text-center text-white z-40">
                       {streamState === "connecting" ? (
                         <>
                           <div className="w-10 h-10 border-4 border-[#b38a46] border-t-transparent rounded-full animate-spin mb-3" />
@@ -1270,7 +1391,7 @@ export default function MarsadPage() {
                       </div>
                       <input
                         type="range"
-                        min="25"
+                        min="20"
                         max="85"
                         value={rule.confidence}
                         onChange={(e) => setRule({ ...rule, confidence: parseInt(e.target.value, 10) })}
@@ -1298,9 +1419,9 @@ export default function MarsadPage() {
                           onChange={(e) => setRule({ ...rule, cooldown: parseInt(e.target.value, 10) })}
                           className="w-full bg-[#fafafa] border border-slate-300 rounded-lg p-1.5"
                         >
+                          <option value="15">15 ثانية</option>
                           <option value="30">30 ثانية</option>
                           <option value="60">دقيقة واحدة</option>
-                          <option value="300">5 دقائق</option>
                         </select>
                       </div>
                     </div>

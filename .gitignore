@@ -70,4 +70,7 @@ hs_err_pid*.log
 # Firebase Secrets
 newproject2-2afdc-firebase-adminsdk-fbsvc-95b0d31379.json
 
+# Local Marsad native project
+app/partner-cameras/Marsad-iPhone-Project/
+
 

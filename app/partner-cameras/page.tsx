@@ -24,6 +24,7 @@ import {
   Users,
   Car,
   ShieldAlert,
+  Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -329,15 +330,22 @@ export default function PartnerCamerasPage() {
             </div>
           </div>
 
-          {/* Quick link back to Main 16-Cam page */}
+          {/* Quick links */}
           <div className="flex items-center gap-2">
+            <Link
+              href="/marsad"
+              className="bg-[#152b46] hover:bg-[#203f67] text-white text-xs font-bold py-2 px-3.5 rounded-xl border border-[#203f67] flex items-center gap-2 transition-all active:scale-95 shadow-xs"
+            >
+              <Eye className="h-4 w-4 text-[#b38a46]" />
+              <span>نظام مرصد الذكي</span>
+            </Link>
+
             <Link
               href="/cameras"
               className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3.5 rounded-xl border border-slate-200 flex items-center gap-2 transition-all active:scale-95"
             >
               <Cctv className="h-4 w-4 text-blue-600" />
-              <span>كاميرات المستودع الرئيسية (16 كاميرا)</span>
-              <ChevronLeft className="h-3.5 w-3.5 text-slate-400" />
+              <span>كاميرات المستودع (16)</span>
             </Link>
 
             <button

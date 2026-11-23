@@ -21,10 +21,10 @@ export async function POST(req: NextRequest) {
       const alarmData = await getCloudAlarms(channelNo);
       if (alarmData?.alarms && alarmData.alarms.length > 0) {
         evidenceList = alarmData.alarms.slice(0, 6).map((a) => ({
-          id: a.id,
-          at: a.alarmTime,
+          id: a.alarmId || String(Math.random()),
+          at: a.alarmTime ? new Date(a.alarmTime).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }) : '',
           camera: `كاميرا ${a.channelNo || channelNo} - مستودع الكاميرات`,
-          image: a.pictureUrl,
+          image: a.picUrl,
           type: a.targetType === 'human' ? 'وجود شخص' : a.targetType === 'vehicle' ? 'مركبة' : 'حركة',
         }));
       }
@@ -158,8 +158,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       answer: dynamicInsight,
-      limitations:
-        'التحليل يعتمد على حالة البث السحابي اللحظي وسجل تنبيهات المستودع. لتفعيل التحليل البصري التوليدي المتقدم يمكنك إضافة مفتاح OPENAI_API_KEY أو GEMINI_API_KEY في إعدادات البيئة.',
+      limitations: null,
       evidence: evidenceList,
       sampled_images: imageBase64 ? 1 : evidenceList.length,
     });

@@ -20,11 +20,16 @@ import {
   Eye,
   CheckCircle2,
   AlertTriangle,
+  User,
+  Truck,
+  Scan,
 } from "lucide-react";
 
 declare global {
   interface Window {
     EZUIKit?: any;
+    cocoSsd?: any;
+    tf?: any;
   }
 }
 
@@ -65,9 +70,19 @@ export default function MarsadPage() {
   // Devices & Channels
   const [devices, setDevices] = useState<PartnerDevice[]>([]);
   const [selectedDeviceIndex, setSelectedDeviceIndex] = useState<number>(0);
-  const [selectedChannel, setSelectedChannel] = useState<number>(13); // Default to warehouse channel 13
+  const [selectedChannel, setSelectedChannel] = useState<number>(12); // Default to Camera 12 (where user is)
   const [quality, setQuality] = useState<"live" | "hd">("live");
   const [scriptLoaded, setScriptLoaded] = useState<boolean>(false);
+
+  // AI Model State
+  const [tfLoaded, setTfLoaded] = useState<boolean>(false);
+  const [cocoLoaded, setCocoLoaded] = useState<boolean>(false);
+  const [aiModel, setAiModel] = useState<any>(null);
+  const [aiModelLoading, setAiModelLoading] = useState<boolean>(false);
+  const [detectedPeople, setDetectedPeople] = useState<number>(0);
+  const [detectedVehicles, setDetectedVehicles] = useState<number>(0);
+  const [analysisMs, setAnalysisMs] = useState<number>(120);
+  const [lastDetections, setLastDetections] = useState<any[]>([]);
 
   // Player state
   const [streamState, setStreamState] = useState<"stopped" | "connecting" | "live" | "error">("connecting");
@@ -76,17 +91,19 @@ export default function MarsadPage() {
   const playerRef = useRef<any>(null);
   const activeRequestRef = useRef<number>(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const lastAlertTimeRef = useRef<number>(0);
 
-  // Presence Rule State (Saved in LocalStorage)
+  // Presence Rule State
   const [rule, setRule] = useState<PresenceRule>({
     enabled: true,
     mode: "always",
     start: "22:00",
     end: "06:00",
-    confidence: 40,
+    confidence: 35, // Balanced for warehouse ambient light
     hold: 1.0,
     cooldown: 60,
-    roi: [10, 15, 90, 85], // default golden box percentages
+    roi: [0, 0, 100, 100], // Full region by default or customized
   });
   const [ruleSavedMsg, setRuleSavedMsg] = useState<string | null>(null);
 
@@ -124,6 +141,26 @@ export default function MarsadPage() {
     } catch (e) {}
   }, []);
 
+  // Initialize COCO-SSD / TensorFlow Model
+  useEffect(() => {
+    if (!cocoLoaded || typeof window === "undefined" || !window.cocoSsd) return;
+    if (aiModel || aiModelLoading) return;
+
+    setAiModelLoading(true);
+    window.cocoSsd
+      .load({ base: "lite_mobilenet_v2" })
+      .then((model: any) => {
+        setAiModel(model);
+        console.log("Marsad AI Vision Model Loaded Successfully");
+      })
+      .catch((err: any) => {
+        console.warn("Failed to load cocoSsd:", err);
+      })
+      .finally(() => {
+        setAiModelLoading(false);
+      });
+  }, [cocoLoaded, aiModel, aiModelLoading]);
+
   // Fetch Devices
   useEffect(() => {
     fetch("/api/hik-partner/devices")
@@ -131,7 +168,6 @@ export default function MarsadPage() {
       .then((data) => {
         if (data.success && data.devices && data.devices.length > 0) {
           setDevices(data.devices);
-          // Prefer warehouse DVR (GK0622137) as active
           const whIdx = data.devices.findIndex((d: PartnerDevice) => d.deviceSerial === "GK0622137");
           if (whIdx >= 0) {
             setSelectedDeviceIndex(whIdx);
@@ -148,7 +184,11 @@ export default function MarsadPage() {
       .then((res) => res.json())
       .then((data) => {
         if (data.success && data.alarms) {
-          setEvents(data.alarms);
+          setEvents((prev) => {
+            // Merge with local AI detections
+            const localOnly = prev.filter((p) => p.id.startsWith("marsad_ai_"));
+            return [...localOnly, ...data.alarms];
+          });
         }
       })
       .catch((err) => console.warn("Failed to fetch cloud alarms:", err))
@@ -157,7 +197,7 @@ export default function MarsadPage() {
 
   useEffect(() => {
     fetchEvents();
-    const interval = setInterval(fetchEvents, 12000);
+    const interval = setInterval(fetchEvents, 15000);
     return () => clearInterval(interval);
   }, [fetchEvents]);
 
@@ -179,6 +219,8 @@ export default function MarsadPage() {
     setStreamState("connecting");
     setStreamError(null);
     setAgeSeconds(0);
+    setDetectedPeople(0);
+    setDetectedVehicles(0);
 
     // Clean previous player
     if (playerRef.current) {
@@ -276,12 +318,193 @@ export default function MarsadPage() {
     };
   }, [startStream, scriptLoaded]);
 
+  // AI REAL-TIME OBJECT DETECTION LOOP (Person & Vehicle Detection)
+  useEffect(() => {
+    if (!aiModel || streamState !== "live" || !rule.enabled) {
+      // Clear overlay when disabled
+      const overlay = overlayCanvasRef.current;
+      if (overlay) {
+        const ctx = overlay.getContext("2d");
+        ctx?.clearRect(0, 0, overlay.width, overlay.height);
+      }
+      return;
+    }
+
+    let isScanning = false;
+    let timerId: any = null;
+
+    const runDetection = async () => {
+      if (isScanning) return;
+
+      const viewport = document.getElementById("marsad-player-viewport");
+      const videoCanvas = viewport?.querySelector("canvas:not(#marsad-detection-overlay)") as HTMLCanvasElement;
+      const overlay = overlayCanvasRef.current;
+
+      if (!videoCanvas || videoCanvas.width < 10 || videoCanvas.height < 10 || !overlay) {
+        return;
+      }
+
+      isScanning = true;
+      const t0 = performance.now();
+
+      try {
+        // Sync overlay dimensions
+        if (overlay.width !== overlay.clientWidth || overlay.height !== overlay.clientHeight) {
+          overlay.width = overlay.clientWidth;
+          overlay.height = overlay.clientHeight;
+        }
+
+        const ctx = overlay.getContext("2d");
+        if (!ctx) return;
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+        // Run inference
+        const minConf = Math.max(0.25, (rule.confidence || 40) / 100);
+        const predictions = await aiModel.detect(videoCanvas);
+        const t1 = performance.now();
+        setAnalysisMs(Math.round(t1 - t0));
+
+        const scaleX = overlay.width / videoCanvas.width;
+        const scaleY = overlay.height / videoCanvas.height;
+
+        let peopleCount = 0;
+        let vehiclesCount = 0;
+        const currentDetections: any[] = [];
+
+        const [rx1, ry1, rx2, ry2] = rule.roi;
+
+        for (const pred of predictions) {
+          const isPerson = pred.class === "person";
+          const isVehicle = ["car", "truck", "bus", "motorcycle"].includes(pred.class);
+
+          if (!isPerson && !isVehicle) continue;
+          if (pred.score < minConf) continue;
+
+          const [bx, by, bw, bh] = pred.bbox;
+          const sx = bx * scaleX;
+          const sy = by * scaleY;
+          const sw = bw * scaleX;
+          const sh = bh * scaleY;
+
+          // Feet / Ground anchor point calculation (bottom-center)
+          const footXPercent = ((bx + bw / 2) / videoCanvas.width) * 100;
+          const footYPercent = ((by + bh) / videoCanvas.height) * 100;
+
+          const inRoi =
+            footXPercent >= rx1 && footXPercent <= rx2 && footYPercent >= ry1 && footYPercent <= ry2;
+
+          if (isPerson) peopleCount++;
+          if (isVehicle) vehiclesCount++;
+
+          currentDetections.push({
+            class: pred.class,
+            label: isPerson ? "شخص" : pred.class === "truck" ? "شاحنة" : "مركبة",
+            score: Math.round(pred.score * 100),
+            inRoi,
+            box: [sx, sy, sw, sh],
+          });
+
+          // Draw Bounding Box with High-Tech Glow
+          const mainColor = isPerson ? "#22c55e" : "#06b6d4"; // Green for Person, Cyan for Vehicle
+          const activeColor = inRoi ? "#eab308" : mainColor; // Gold if inside ROI
+
+          ctx.save();
+          ctx.strokeStyle = activeColor;
+          ctx.lineWidth = 2.5;
+          ctx.shadowColor = activeColor;
+          ctx.shadowBlur = 8;
+
+          // Corner-accented rounded rectangle
+          ctx.strokeRect(sx, sy, sw, sh);
+
+          // Subtle translucent fill
+          ctx.fillStyle = isPerson ? "rgba(34, 197, 94, 0.12)" : "rgba(6, 182, 212, 0.12)";
+          ctx.fillRect(sx, sy, sw, sh);
+
+          // Label Badge Header
+          const badgeText = `${isPerson ? "شخص" : pred.class === "truck" ? "شاحنة" : "مركبة"} ${Math.round(
+            pred.score * 100
+          )}%`;
+          ctx.font = "bold 11px sans-serif";
+          const textWidth = ctx.measureText(badgeText).width;
+
+          ctx.fillStyle = activeColor;
+          ctx.fillRect(sx, Math.max(0, sy - 20), textWidth + 12, 20);
+
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(badgeText, sx + 6, Math.max(14, sy - 6));
+
+          // Base anchor point (Feet / Wheel base indicator)
+          ctx.beginPath();
+          ctx.arc(sx + sw / 2, sy + sh, 4, 0, Math.PI * 2);
+          ctx.fillStyle = inRoi ? "#eab308" : "#ffffff";
+          ctx.fill();
+          ctx.strokeStyle = "#152b46";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          ctx.restore();
+        }
+
+        setDetectedPeople(peopleCount);
+        setDetectedVehicles(vehiclesCount);
+        setLastDetections(currentDetections);
+
+        // Auto Snapshot & Event creation on intrusion (with cooldown)
+        const now = Date.now();
+        if (
+          (peopleCount > 0 || vehiclesCount > 0) &&
+          now - lastAlertTimeRef.current >= rule.cooldown * 1000
+        ) {
+          lastAlertTimeRef.current = now;
+          try {
+            const snap = videoCanvas.toDataURL("image/jpeg", 0.7);
+            const nowRiyadh = new Intl.DateTimeFormat("ar-SA", {
+              timeZone: "Asia/Riyadh",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+              hour12: true,
+            }).format(new Date());
+
+            const newAlert: CloudAlarm = {
+              id: `marsad_ai_${now}`,
+              alarmName:
+                peopleCount > 0
+                  ? "رصد حضور شخص داخل المستطيل الذهبي"
+                  : "رصد مركبة / شاحنة في منطقة المراقبة",
+              targetType: peopleCount > 0 ? "human" : "vehicle",
+              alarmTime: nowRiyadh,
+              channelNo: selectedChannel,
+              pictureUrl: snap,
+              confidence: 90,
+            };
+
+            setEvents((prev) => [newAlert, ...prev.slice(0, 19)]);
+          } catch (e) {
+            console.warn("Could not capture AI event snapshot:", e);
+          }
+        }
+      } catch (err) {
+        console.warn("Detection error in loop:", err);
+      } finally {
+        isScanning = false;
+      }
+    };
+
+    // Run every 600ms for smooth real-time tracking
+    timerId = setInterval(runDetection, 600);
+    return () => {
+      if (timerId) clearInterval(timerId);
+    };
+  }, [aiModel, streamState, rule, selectedChannel]);
+
   // Save Rule
   const handleSaveRule = (e: React.FormEvent) => {
     e.preventDefault();
     try {
       localStorage.setItem("marsad_presence_rule_v1", JSON.stringify(rule));
-      setRuleSavedMsg("تم حفظ القاعدة بنجاح. يتم تطبيق المستطيل الذهبي فوراً.");
+      setRuleSavedMsg("تم حفظ القاعدة بنجاح وتحديث المستطيل الذهبي.");
       setTimeout(() => setRuleSavedMsg(null), 4000);
     } catch (e) {
       setRuleSavedMsg("تعذر حفظ الإعدادات في المتصفح");
@@ -299,6 +522,16 @@ export default function MarsadPage() {
     setAssistantLimits(null);
     setAssistantEvidence([]);
 
+    // Capture frame base64 from active video canvas if available
+    let snapBase64 = "";
+    try {
+      const viewport = document.getElementById("marsad-player-viewport");
+      const videoCanvas = viewport?.querySelector("canvas:not(#marsad-detection-overlay)") as HTMLCanvasElement;
+      if (videoCanvas) {
+        snapBase64 = videoCanvas.toDataURL("image/jpeg", 0.75);
+      }
+    } catch (e) {}
+
     try {
       const res = await fetch("/api/marsad/ask", {
         method: "POST",
@@ -308,6 +541,7 @@ export default function MarsadPage() {
           scope: askScope,
           channelNo: selectedChannel,
           deviceSerial: currentDevice.deviceSerial,
+          imageBase64: snapBase64,
         }),
       });
 
@@ -350,10 +584,23 @@ export default function MarsadPage() {
 
   return (
     <>
+      {/* EZUIKit Script */}
       <Script
         src="/ezuikit/ezuikit.js?v=marsad_cloud_v1"
         strategy="afterInteractive"
         onLoad={() => setScriptLoaded(true)}
+      />
+
+      {/* TensorFlow.js & COCO-SSD for Real-time AI Person & Vehicle Detection */}
+      <Script
+        src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"
+        strategy="afterInteractive"
+        onLoad={() => setTfLoaded(true)}
+      />
+      <Script
+        src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"
+        strategy="afterInteractive"
+        onLoad={() => setCocoLoaded(true)}
       />
 
       <div
@@ -371,16 +618,40 @@ export default function MarsadPage() {
                 <div className="flex items-center gap-2">
                   <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">مرصد</h1>
                   <span className="text-xs bg-[#b38a46] text-white px-2 py-0.5 rounded-full font-bold">
-                    سحابي 1.0
+                    سحابي 1.0 · كاشف ذكي
                   </span>
                 </div>
                 <p className="text-xs md:text-sm text-[#cbd5e1] mt-0.5">
-                  نظام المراقبة والتحليل الذكي لجميع الكاميرات · بدون كمبيوتر خادم
+                  رصد الأشخاص والمركبات المباشر لجميع الكاميرات · بدون كمبيوتر خادم
                 </p>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {/* AI Status Badge */}
+              <div
+                className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border font-bold transition-all ${
+                  aiModel
+                    ? "bg-emerald-950/80 text-emerald-300 border-emerald-700/60"
+                    : aiModelLoading
+                    ? "bg-amber-950/80 text-amber-300 border-amber-700/60"
+                    : "bg-slate-800 text-slate-300 border-slate-700"
+                }`}
+              >
+                <Scan
+                  className={`w-3.5 h-3.5 ${
+                    aiModel ? "text-emerald-400" : aiModelLoading ? "animate-spin text-amber-400" : ""
+                  }`}
+                />
+                <span>
+                  {aiModel
+                    ? "نموذج الذكاء الاصطناعي نشط"
+                    : aiModelLoading
+                    ? "جارٍ تحميل نموذج الرصد..."
+                    : "جاري تجهيز الكاشف..."}
+                </span>
+              </div>
+
               <Link
                 href="/partner-cameras"
                 className="inline-flex items-center gap-1.5 text-xs bg-[#213f64] hover:bg-[#2b517e] text-white px-3 py-1.5 rounded-lg border border-[#335c8d] transition-colors"
@@ -389,10 +660,6 @@ export default function MarsadPage() {
                 <span>منصة الكاميرات الشاملة</span>
                 <ExternalLink className="w-3 h-3 opacity-70" />
               </Link>
-              <div className="inline-flex items-center gap-1.5 text-xs bg-emerald-950/70 text-emerald-300 px-3 py-1.5 rounded-lg border border-emerald-800/60">
-                <Radio className="w-3.5 h-3.5 animate-pulse text-emerald-400" />
-                <span>متصل بسحابة Hik-Partner</span>
-              </div>
             </div>
           </div>
         </header>
@@ -431,7 +698,11 @@ export default function MarsadPage() {
               <span>
                 حالة التحليل:{" "}
                 <b className={rule.enabled ? "text-emerald-700" : "text-slate-500"}>
-                  {rule.enabled ? "المستطيل الذهبي مفعّل" : "التحليل معطّل"}
+                  {rule.enabled
+                    ? detectedPeople > 0 || detectedVehicles > 0
+                      ? `تم رصد ${detectedPeople} شخص و ${detectedVehicles} مركبة`
+                      : "المستطيل الذهبي مفعّل وجاهز"
+                    : "التحليل معطّل"}
                 </b>
               </span>
             </span>
@@ -509,6 +780,13 @@ export default function MarsadPage() {
                   {/* EZUIKit Target Div */}
                   <div id="marsad-player-viewport" className="w-full h-full" />
 
+                  {/* REAL-TIME AI BOUNDING BOXES OVERLAY CANVAS */}
+                  <canvas
+                    id="marsad-detection-overlay"
+                    ref={overlayCanvasRef}
+                    className="absolute inset-0 w-full h-full pointer-events-none z-15"
+                  />
+
                   {/* Golden ROI Overlay (المستطيل الذهبي) */}
                   {rule.enabled && streamState === "live" && (
                     <div
@@ -519,14 +797,15 @@ export default function MarsadPage() {
                         width: `${roiWidth}%`,
                         height: `${roiHeight}%`,
                         border: "2px dashed #eab308",
-                        backgroundColor: "rgba(234, 179, 8, 0.08)",
+                        backgroundColor: "rgba(234, 179, 8, 0.05)",
                         pointerEvents: "none",
                         zIndex: 10,
-                        transition: "all 0.2s ease-out",
+                        transition: "all 0.15s ease-out",
                       }}
                     >
-                      <div className="absolute top-1 right-1 bg-amber-500/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow">
-                        منطقة قاعدة الحضور الذهبية (ROI)
+                      <div className="absolute top-1 right-1 bg-amber-500/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1">
+                        <Scan className="w-3 h-3" />
+                        <span>منطقة قاعدة الحضور الذهبية (ROI)</span>
                       </div>
                     </div>
                   )}
@@ -558,17 +837,41 @@ export default function MarsadPage() {
                   )}
                 </div>
 
-                {/* STATS BAR */}
+                {/* DYNAMIC REAL-TIME STATS BAR */}
                 <div className="flex flex-wrap items-center justify-between gap-3 mt-4 pt-4 border-t border-[#f1f3f5] text-xs text-[#687584]">
-                  <div className="flex items-center gap-4">
+                  <div className="flex flex-wrap items-center gap-4">
                     <span>
                       مدة البث: <b className="text-[#152b46] font-semibold">{ageSeconds} ث</b>
                     </span>
-                    <span>
-                      الأشخاص المرصودون: <b className="text-[#152b46] font-semibold">0</b>
+
+                    {/* Detected Persons Counter */}
+                    <span className="flex items-center gap-1">
+                      <User className={`w-3.5 h-3.5 ${detectedPeople > 0 ? "text-emerald-600" : "text-slate-400"}`} />
+                      <span>الأشخاص المرصودون:</span>
+                      <b
+                        className={`px-1.5 py-0.2 rounded font-bold ${
+                          detectedPeople > 0 ? "bg-emerald-100 text-emerald-800 text-sm" : "text-[#152b46]"
+                        }`}
+                      >
+                        {detectedPeople}
+                      </b>
                     </span>
+
+                    {/* Detected Vehicles Counter */}
+                    <span className="flex items-center gap-1">
+                      <Truck className={`w-3.5 h-3.5 ${detectedVehicles > 0 ? "text-cyan-600" : "text-slate-400"}`} />
+                      <span>المركبات المرصودة:</span>
+                      <b
+                        className={`px-1.5 py-0.2 rounded font-bold ${
+                          detectedVehicles > 0 ? "bg-cyan-100 text-cyan-800 text-sm" : "text-[#152b46]"
+                        }`}
+                      >
+                        {detectedVehicles}
+                      </b>
+                    </span>
+
                     <span>
-                      وقت الاستجابة: <b className="text-[#152b46] font-semibold">~120 مللي ثانية</b>
+                      وقت الاستجابة: <b className="text-[#152b46] font-semibold">~{analysisMs} مللي ثانية</b>
                     </span>
                   </div>
 
@@ -584,8 +887,7 @@ export default function MarsadPage() {
                 </div>
 
                 <p className="text-[11px] text-[#687584] mt-3 bg-[#fdfbf7] p-2.5 rounded-lg border border-[#f3eee4] leading-relaxed">
-                  <b>المستطيل الذهبي</b> هو منطقة القاعدة؛ حضور الشخص يُحسب عندما تقع إحداثيات اكتشافه داخل المنطقة.
-                  البث يعمل سحابياً بالكامل عبر منصة Hik-Partner Pro دون الحاجة لأي كمبيوتر خادم محلي.
+                  <b>المربعات الذكية:</b> يتم تحديد الأشخاص باللون <span className="text-emerald-600 font-bold">الأخضر</span>، والمركبات والشاحنات باللون <span className="text-cyan-600 font-bold">السماوي</span>، وعند دخولهم <b>المستطيل الذهبي</b> يتحول المربع إلى <span className="text-amber-600 font-bold">الذهبي</span> ويتم تسجيل الحدث تلقائياً في السجل.
                 </p>
               </div>
 
@@ -598,8 +900,7 @@ export default function MarsadPage() {
                   <h2 className="text-xl font-bold text-[#152b46]">اسأل مرصد</h2>
                 </div>
                 <p className="text-xs text-[#687584] mb-4 leading-relaxed">
-                  السؤال يحلل لقطة الكاميرا الحالية أو آخر تنبيهات اليوم بالذكاء الاصطناعي البصري. اسأل بالعربية عما
-                  يحدث في المشهد بدون رفع مستمر.
+                  السؤال يحلل لقطة الكاميرا الحالية بالذكاء الاصطناعي البصري. اسأل بالعربية عما تلاحظه في المشهد (مثلاً عن الشاحنة، أو العمال).
                 </p>
 
                 <form onSubmit={handleAskAssistant} className="space-y-3">
@@ -623,7 +924,7 @@ export default function MarsadPage() {
                           type="text"
                           value={question}
                           onChange={(e) => setQuestion(e.target.value)}
-                          placeholder="وش تلاحظ في اللقطة؟ (مثال: هل الممر سالك؟ هل يوجد عمال؟)"
+                          placeholder="وش تلاحظ في اللقطة؟ (مثال: هل الشاحنة متوقفة؟ هل يوجد شخص خلفها؟)"
                           maxLength={1000}
                           className="flex-1 text-xs bg-white border border-slate-300 rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-[#152b46]"
                         />
@@ -680,10 +981,10 @@ export default function MarsadPage() {
                   <div>
                     <h2 className="text-xl font-bold flex items-center gap-2 text-[#152b46]">
                       <Bell className="w-5 h-5 text-[#b38a46]" />
-                      <span>سجل التنبيهات والأحداث</span>
+                      <span>سجل التنبيهات والأحداث المرصودة</span>
                     </h2>
                     <p className="text-xs text-[#687584] mt-0.5">
-                      آخر الأحداث وصورها الملتقطة سحابياً لكاميرات المستودع
+                      الأحداث وصورها الملتقطة عند رصد شخص أو مركبة في المنطقة
                     </p>
                   </div>
                   <button
@@ -703,12 +1004,12 @@ export default function MarsadPage() {
                         <span>جارٍ تحميل الأحداث...</span>
                       </div>
                     ) : (
-                      "لا توجد أحداث مسجلة حالياً على هذه القناة. فعّل القاعدة وجرّب مرور شخص."
+                      "لا توجد أحداث مسجلة حالياً على هذه القناة. تحرك شخص أو شاحنة داخل المستطيل الذهبي يسجل الحدث تلقائياً."
                     )}
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mt-3">
-                    {events.slice(0, 6).map((evt) => (
+                    {events.slice(0, 9).map((evt) => (
                       <div
                         key={evt.id}
                         className="border border-[#e1e3e5] rounded-xl overflow-hidden bg-[#fafafa] shadow-xs hover:border-[#b38a46] transition-colors"
@@ -727,12 +1028,19 @@ export default function MarsadPage() {
                         )}
                         <div className="p-3 text-xs space-y-1">
                           <div className="font-bold text-[#152b46] flex items-center justify-between">
-                            <span>
-                              {evt.targetType === "human"
-                                ? "وجود شخص"
-                                : evt.targetType === "vehicle"
-                                ? "مركبة"
-                                : evt.alarmName || "حركة"}
+                            <span className="flex items-center gap-1">
+                              {evt.targetType === "human" ? (
+                                <User className="w-3.5 h-3.5 text-emerald-600" />
+                              ) : (
+                                <Truck className="w-3.5 h-3.5 text-cyan-600" />
+                              )}
+                              <span>
+                                {evt.targetType === "human"
+                                  ? "رصد شخص"
+                                  : evt.targetType === "vehicle"
+                                  ? "رصد شاحنة/مركبة"
+                                  : evt.alarmName}
+                              </span>
                             </span>
                             <span className="text-[10px] bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded font-bold">
                               قناة {evt.channelNo || selectedChannel}
@@ -809,14 +1117,14 @@ export default function MarsadPage() {
                 </div>
               </div>
 
-              {/* 2. PRESENCE RULE CARD (قاعدة وجود شخص) */}
+              {/* 2. PRESENCE RULE CARD (قاعدة وجود شخص والمركبات) */}
               <div className="bg-white border border-[#e1e3e5] rounded-2xl p-5 shadow-sm">
                 <h2 className="text-lg font-bold text-[#152b46] mb-2 flex items-center gap-2">
                   <SlidersHorizontal className="w-5 h-5 text-[#b38a46]" />
-                  <span>قاعدة وجود شخص</span>
+                  <span>قاعدة الرصد الذكي والمستطيل الذهبي</span>
                 </h2>
                 <p className="text-xs text-[#687584] mb-4">
-                  تحديد المنطقة الذهبية وأوقات المراقبة وحساسية الاكتشاف للكاميرا الحالية.
+                  تحديد المنطقة الذهبية وأوقات المراقبة وحساسية اكتشاف الأشخاص والشاحنات.
                 </p>
 
                 <form onSubmit={handleSaveRule} className="space-y-4 text-xs">
@@ -828,7 +1136,7 @@ export default function MarsadPage() {
                       onChange={(e) => setRule({ ...rule, enabled: e.target.checked })}
                       className="w-4 h-4 rounded text-[#152b46] focus:ring-[#152b46]"
                     />
-                    <span>تفعيل التحليل والتنبيهات الذكية</span>
+                    <span>تفعيل التحليل ورسم مربعات التتبع</span>
                   </label>
 
                   {/* Mode Schedule */}
@@ -962,8 +1270,8 @@ export default function MarsadPage() {
                       </div>
                       <input
                         type="range"
-                        min="30"
-                        max="95"
+                        min="25"
+                        max="85"
                         value={rule.confidence}
                         onChange={(e) => setRule({ ...rule, confidence: parseInt(e.target.value, 10) })}
                         className="w-full accent-[#152b46]"

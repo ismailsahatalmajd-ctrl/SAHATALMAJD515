@@ -62,6 +62,92 @@ interface PresenceRule {
   roi: [number, number, number, number]; // [x1, y1, x2, y2] percentages 0..100
 }
 
+// Schedule & Rule Status Evaluator
+function getScheduleStatus(rule: PresenceRule): {
+  isActive: boolean;
+  statusLabel: string;
+  scheduleLabel: string;
+  isOvernight: boolean;
+  currentRiyadhTimeStr: string;
+} {
+  if (!rule.enabled) {
+    return {
+      isActive: false,
+      statusLabel: "القاعدة معطلة",
+      scheduleLabel: "معطلة",
+      isOvernight: false,
+      currentRiyadhTimeStr: "",
+    };
+  }
+
+  // Current Riyadh Time
+  const now = new Date();
+  const riyadhParts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Riyadh",
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  }).formatToParts(now);
+
+  const curH = parseInt(riyadhParts.find((p) => p.type === "hour")?.value || "0", 10);
+  const curM = parseInt(riyadhParts.find((p) => p.type === "minute")?.value || "0", 10);
+  const nowMin = curH * 60 + curM;
+
+  const currentRiyadhTimeStr = new Intl.DateTimeFormat("ar-SA", {
+    timeZone: "Asia/Riyadh",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  }).format(now);
+
+  if (rule.mode === "always") {
+    return {
+      isActive: true,
+      statusLabel: "نشطة طوال اليوم (24 ساعة)",
+      scheduleLabel: "طوال اليوم (24 ساعة)",
+      isOvernight: false,
+      currentRiyadhTimeStr,
+    };
+  }
+
+  // Parse start & end times (handles "17:00", "05:00 PM", "5:00", etc.)
+  const parseMin = (t: string) => {
+    if (!t) return 0;
+    const isPM = /pm/i.test(t);
+    const isAM = /am/i.test(t);
+    const clean = t.replace(/[^0-9:]/g, "");
+    const [hStr, mStr] = clean.split(":");
+    let h = parseInt(hStr || "0", 10);
+    const m = parseInt(mStr || "0", 10);
+    if (isPM && h < 12) h += 12;
+    if (isAM && h === 12) h = 0;
+    return h * 60 + m;
+  };
+
+  const startM = parseMin(rule.start || "17:00");
+  const endM = parseMin(rule.end || "06:00");
+  const isOvernight = startM > endM;
+
+  const isActive = isOvernight
+    ? nowMin >= startM || nowMin <= endM
+    : nowMin >= startM && nowMin <= endM;
+
+  const formatMin12h = (min: number) => {
+    const h24 = Math.floor(min / 60);
+    const m = min % 60;
+    const period = h24 >= 12 ? "م" : "ص";
+    const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+    return `${String(h12).padStart(2, "0")}:${String(m).padStart(2, "0")} ${period}`;
+  };
+
+  const scheduleLabel = `${formatMin12h(startM)} - ${formatMin12h(endM)}`;
+  const statusLabel = isActive
+    ? `نشطة ضمن وقت الجدول (${scheduleLabel})`
+    : `خارج وقت الجدول المحدد (${scheduleLabel})`;
+
+  return { isActive, statusLabel, scheduleLabel, isOvernight, currentRiyadhTimeStr };
+}
+
 interface CloudAlarm {
   id: string;
   alarmName: string;
@@ -85,6 +171,7 @@ export default function MarsadPage() {
   const [aiStatusText, setAiStatusText] = useState<string>("جاري تشغيل محرك الرصد الذكي...");
   const [detectedPeople, setDetectedPeople] = useState<number>(0);
   const [detectedVehicles, setDetectedVehicles] = useState<number>(0);
+  const [targetsInRoi, setTargetsInRoi] = useState<{ people: number; vehicles: number }>({ people: 0, vehicles: 0 });
   const [analysisMs, setAnalysisMs] = useState<number>(85);
 
   // Player state
@@ -610,6 +697,9 @@ export default function MarsadPage() {
         const [rx1, ry1, rx2, ry2] = rule.roi;
         let detectedP = 0;
         let detectedV = 0;
+        let inRoiP = 0;
+        let inRoiV = 0;
+        const currentSchedule = getScheduleStatus(rule);
 
         // Create or reuse offscreen 320x180 canvas for ultra-fast multi-tier vision analysis
         if (!prevFrameCanvasRef.current) {
@@ -673,7 +763,13 @@ export default function MarsadPage() {
           if (isHuman) detectedP++;
           else detectedV++;
 
-          const color = inRoi ? "#eab308" : isHuman ? "#22c55e" : "#06b6d4";
+          if (inRoi) {
+            if (isHuman) inRoiP++;
+            else inRoiV++;
+          }
+
+          const isTargetInRoi = inRoi && currentSchedule.isActive;
+          const color = isTargetInRoi ? "#eab308" : isHuman ? "#22c55e" : "#06b6d4";
 
           ctx.save();
           ctx.strokeStyle = color;
@@ -682,10 +778,18 @@ export default function MarsadPage() {
           ctx.shadowBlur = 10;
           ctx.strokeRect(sx, sy, sw, sh);
 
-          ctx.fillStyle = isHuman ? "rgba(34, 197, 94, 0.16)" : "rgba(6, 182, 212, 0.16)";
+          ctx.fillStyle = isTargetInRoi
+            ? "rgba(234, 179, 8, 0.20)"
+            : isHuman
+            ? "rgba(34, 197, 94, 0.16)"
+            : "rgba(6, 182, 212, 0.16)";
           ctx.fillRect(sx, sy, sw, sh);
 
-          const badgeText = `${isHuman ? "شخص / هدف ذكي (AcuSense)" : "مركبة (AcuSense)"} 99%`;
+          const badgeText = `${
+            isTargetInRoi
+              ? isHuman ? "شخص داخل المستطيل الذهبي" : "مركبة داخل المستطيل الذهبي"
+              : isHuman ? "شخص / هدف ذكي (AcuSense)" : "مركبة (AcuSense)"
+          } 99%`;
           ctx.font = "bold 11px sans-serif";
           const tw = ctx.measureText(badgeText).width;
           ctx.fillStyle = color;
@@ -696,7 +800,7 @@ export default function MarsadPage() {
           // Foot anchor
           ctx.beginPath();
           ctx.arc(sx + sw / 2, sy + sh, 4, 0, Math.PI * 2);
-          ctx.fillStyle = inRoi ? "#eab308" : "#ffffff";
+          ctx.fillStyle = isTargetInRoi ? "#eab308" : "#ffffff";
           ctx.fill();
           ctx.restore();
         }
@@ -730,7 +834,13 @@ export default function MarsadPage() {
               if (isPerson) detectedP++;
               if (isVehicle) detectedV++;
 
-              const color = inRoi ? "#eab308" : isPerson ? "#22c55e" : "#06b6d4";
+              if (inRoi) {
+                if (isPerson) inRoiP++;
+                if (isVehicle) inRoiV++;
+              }
+
+              const isTargetInRoi = inRoi && currentSchedule.isActive;
+              const color = isTargetInRoi ? "#eab308" : isPerson ? "#22c55e" : "#06b6d4";
               ctx.save();
               ctx.strokeStyle = color;
               ctx.lineWidth = 2.5;
@@ -738,12 +848,18 @@ export default function MarsadPage() {
               ctx.shadowBlur = 10;
               ctx.strokeRect(sx, sy, sw, sh);
 
-              ctx.fillStyle = isPerson ? "rgba(34, 197, 94, 0.14)" : "rgba(6, 182, 212, 0.14)";
+              ctx.fillStyle = isTargetInRoi
+                ? "rgba(234, 179, 8, 0.20)"
+                : isPerson
+                ? "rgba(34, 197, 94, 0.14)"
+                : "rgba(6, 182, 212, 0.14)";
               ctx.fillRect(sx, sy, sw, sh);
 
-              const label = `${isPerson ? "شخص" : pred.class === "truck" ? "شاحنة" : "مركبة"} ${Math.round(
-                pred.score * 100
-              )}%`;
+              const label = `${
+                isTargetInRoi
+                  ? isPerson ? "شخص داخل المستطيل الذهبي" : "مركبة داخل المستطيل الذهبي"
+                  : isPerson ? "شخص" : pred.class === "truck" ? "شاحنة" : "مركبة"
+              } ${Math.round(pred.score * 100)}%`;
               ctx.font = "bold 11px sans-serif";
               const textW = ctx.measureText(label).width;
               ctx.fillStyle = color;
@@ -753,7 +869,7 @@ export default function MarsadPage() {
 
               ctx.beginPath();
               ctx.arc(sx + sw / 2, sy + sh, 4, 0, Math.PI * 2);
-              ctx.fillStyle = inRoi ? "#eab308" : "#ffffff";
+              ctx.fillStyle = isTargetInRoi ? "#eab308" : "#ffffff";
               ctx.fill();
               ctx.restore();
             }
@@ -804,11 +920,13 @@ export default function MarsadPage() {
               if (isHumanLike) detectedP = 1;
               else detectedV = 1;
 
-              const footX = ((minX + (maxX - minX) / 2) / 320) * 100;
-              const footY = (maxY / 180) * 100;
-              const inRoi = footX >= rx1 && footX <= rx2 && footY >= ry1 && footY <= ry2;
+              if (inRoi) {
+                if (isHumanLike) inRoiP = 1;
+                else inRoiV = 1;
+              }
 
-              const color = inRoi ? "#eab308" : isHumanLike ? "#22c55e" : "#06b6d4";
+              const isTargetInRoi = inRoi && currentSchedule.isActive;
+              const color = isTargetInRoi ? "#eab308" : isHumanLike ? "#22c55e" : "#06b6d4";
 
               ctx.save();
               ctx.strokeStyle = color;
@@ -817,10 +935,18 @@ export default function MarsadPage() {
               ctx.shadowBlur = 8;
               ctx.strokeRect(boxX, boxY, boxW, boxH);
 
-              ctx.fillStyle = isHumanLike ? "rgba(34, 197, 94, 0.15)" : "rgba(6, 182, 212, 0.15)";
+              ctx.fillStyle = isTargetInRoi
+                ? "rgba(234, 179, 8, 0.20)"
+                : isHumanLike
+                ? "rgba(34, 197, 94, 0.15)"
+                : "rgba(6, 182, 212, 0.15)";
               ctx.fillRect(boxX, boxY, boxW, boxH);
 
-              const label = isHumanLike ? "شخص / عامل 92%" : "مركبة / شاحنة 89%";
+              const label = `${
+                isTargetInRoi
+                  ? isHumanLike ? "شخص داخل المستطيل الذهبي" : "مركبة داخل المستطيل الذهبي"
+                  : isHumanLike ? "شخص / عامل 92%" : "مركبة / شاحنة 89%"
+              }`;
               ctx.font = "bold 11px sans-serif";
               const textW = ctx.measureText(label).width;
               ctx.fillStyle = color;
@@ -836,12 +962,18 @@ export default function MarsadPage() {
 
         setDetectedPeople(detectedP);
         setDetectedVehicles(detectedV);
+        setTargetsInRoi({ people: inRoiP, vehicles: inRoiV });
         setAnalysisMs(Math.round(performance.now() - tStart));
 
-        // Auto Snapshot Alert creation when target is inside the Golden Box
+        // Auto Snapshot Alert creation:
+        // STRICT REQUIREMENTS:
+        // 1. Rule MUST be enabled and within its active schedule (currentSchedule.isActive === true)
+        // 2. Target MUST be strictly INSIDE the Golden Box (inRoiP > 0 || inRoiV > 0)
+        // 3. Cooldown time has elapsed
         const now = Date.now();
         if (
-          (detectedP > 0 || detectedV > 0) &&
+          currentSchedule.isActive &&
+          (inRoiP > 0 || inRoiV > 0) &&
           now - lastAlertTimeRef.current >= rule.cooldown * 1000
         ) {
           lastAlertTimeRef.current = now;
@@ -862,10 +994,10 @@ export default function MarsadPage() {
             const newAlert: CloudAlarm = {
               id: `marsad_ai_${now}`,
               alarmName:
-                detectedP > 0
+                inRoiP > 0
                   ? "رصد حضور شخص داخل المستطيل الذهبي"
-                  : "رصد مركبة / شاحنة في منطقة المراقبة",
-              targetType: detectedP > 0 ? "human" : "vehicle",
+                  : "رصد مركبة / شاحنة داخل المستطيل الذهبي",
+              targetType: inRoiP > 0 ? "human" : "vehicle",
               alarmTime: nowRiyadh,
               channelNo: selectedChannel,
               pictureUrl: snapUrl,
@@ -899,8 +1031,13 @@ export default function MarsadPage() {
     e.preventDefault();
     try {
       localStorage.setItem("marsad_presence_rule_v1", JSON.stringify(rule));
-      setRuleSavedMsg("تم حفظ القاعدة بنجاح وتحديث أبعاد المستطيل الذهبي.");
-      setTimeout(() => setRuleSavedMsg(null), 4000);
+      const status = getScheduleStatus(rule);
+      setRuleSavedMsg(
+        status.isActive
+          ? `تم حفظ وتطبيق القاعدة بنجاح: المستطيل الذهبي نشط حالياً بتوقيت الرياض (${status.scheduleLabel}).`
+          : `تم حفظ وتطبيق القاعدة بنجاح: خارج وقت الجدول (${status.scheduleLabel})، التنبيهات في وضع الانتظار حتى حلول الوقت.`
+      );
+      setTimeout(() => setRuleSavedMsg(null), 5000);
     } catch (e) {
       setRuleSavedMsg("تعذر حفظ الإعدادات في المتصفح");
     }
@@ -981,6 +1118,7 @@ export default function MarsadPage() {
   const [x1, y1, x2, y2] = rule.roi;
   const roiWidth = Math.max(5, x2 - x1);
   const roiHeight = Math.max(5, y2 - y1);
+  const scheduleStatus = getScheduleStatus(rule);
 
   return (
     <>
@@ -1063,17 +1201,36 @@ export default function MarsadPage() {
               </span>
             </span>
 
-            <span className="inline-flex items-center gap-1.5 bg-white border border-[#e1e3e5] px-3.5 py-1.5 rounded-full shadow-sm text-[#687584]">
-              <ShieldCheck className="w-3.5 h-3.5 text-[#b38a46]" />
+            <span
+              className={`inline-flex items-center gap-1.5 border px-3.5 py-1.5 rounded-full shadow-sm text-xs font-bold transition-all ${
+                !rule.enabled
+                  ? "bg-slate-50 border-slate-300 text-slate-600"
+                  : !scheduleStatus.isActive
+                  ? "bg-amber-50 border-amber-300 text-amber-800"
+                  : targetsInRoi.people > 0 || targetsInRoi.vehicles > 0
+                  ? "bg-rose-50 border-rose-300 text-rose-700 animate-pulse"
+                  : "bg-emerald-50 border-emerald-300 text-emerald-800"
+              }`}
+            >
+              <ShieldCheck
+                className={`w-3.5 h-3.5 ${
+                  !rule.enabled
+                    ? "text-slate-500"
+                    : !scheduleStatus.isActive
+                    ? "text-amber-600"
+                    : targetsInRoi.people > 0 || targetsInRoi.vehicles > 0
+                    ? "text-rose-600"
+                    : "text-emerald-600"
+                }`}
+              />
               <span>
-                حالة التحليل:{" "}
-                <b className={rule.enabled ? "text-emerald-700" : "text-slate-500"}>
-                  {rule.enabled
-                    ? detectedPeople > 0 || detectedVehicles > 0
-                      ? `تم رصد ${detectedPeople} شخص و ${detectedVehicles} مركبة`
-                      : "المستطيل الذهبي مفعّل ويرصد الحركة"
-                    : "التحليل معطّل"}
-                </b>
+                {!rule.enabled
+                  ? "قاعدة المرصد: معطلة"
+                  : !scheduleStatus.isActive
+                  ? `قاعدة المرصد: في وضع الانتظار (خارج الجدول: ${scheduleStatus.scheduleLabel})`
+                  : targetsInRoi.people > 0 || targetsInRoi.vehicles > 0
+                  ? `🚨 رصد هدف داخل المستطيل الذهبي!`
+                  : `قاعدة المرصد: نشطة وترصد المستطيل الذهبي`}
               </span>
             </span>
 
@@ -1166,16 +1323,38 @@ export default function MarsadPage() {
                         top: `${y1}%`,
                         width: `${roiWidth}%`,
                         height: `${roiHeight}%`,
-                        border: "2px dashed #eab308",
-                        backgroundColor: "rgba(234, 179, 8, 0.05)",
+                        border: scheduleStatus.isActive
+                          ? targetsInRoi.people > 0 || targetsInRoi.vehicles > 0
+                            ? "2.5px solid #ef4444"
+                            : "2px dashed #eab308"
+                          : "2px dashed #94a3b8",
+                        backgroundColor: scheduleStatus.isActive
+                          ? targetsInRoi.people > 0 || targetsInRoi.vehicles > 0
+                            ? "rgba(239, 68, 68, 0.15)"
+                            : "rgba(234, 179, 8, 0.06)"
+                          : "rgba(148, 163, 184, 0.08)",
                         pointerEvents: "none",
                         zIndex: 25,
                         transition: "all 0.15s ease-out",
                       }}
                     >
-                      <div className="absolute top-1 right-1 bg-amber-500/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1">
+                      <div
+                        className={`absolute top-1 right-1 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1 ${
+                          scheduleStatus.isActive
+                            ? targetsInRoi.people > 0 || targetsInRoi.vehicles > 0
+                              ? "bg-rose-600 animate-pulse"
+                              : "bg-amber-500/90"
+                            : "bg-slate-600/90"
+                        }`}
+                      >
                         <Scan className="w-3 h-3" />
-                        <span>منطقة قاعدة الحضور الذهبية (ROI)</span>
+                        <span>
+                          {scheduleStatus.isActive
+                            ? targetsInRoi.people > 0 || targetsInRoi.vehicles > 0
+                              ? "🚨 هدف داخل المستطيل الذهبي"
+                              : "منطقة قاعدة الحضور الذهبية (ROI) · نشطة"
+                            : `المستطيل الذهبي (في وضع الانتظار - خارج وقت الجدول: ${scheduleStatus.scheduleLabel})`}
+                        </span>
                       </div>
                     </div>
                   )}
@@ -1239,6 +1418,29 @@ export default function MarsadPage() {
                         {detectedVehicles}
                       </b>
                     </span>
+
+                    {/* Targets inside Golden Box Counter */}
+                    {rule.enabled && (
+                      <span className="flex items-center gap-1">
+                        <Scan
+                          className={`w-3.5 h-3.5 ${
+                            targetsInRoi.people > 0 || targetsInRoi.vehicles > 0
+                              ? "text-amber-600 animate-pulse"
+                              : "text-slate-400"
+                          }`}
+                        />
+                        <span>داخل المستطيل الذهبي:</span>
+                        <b
+                          className={`px-1.5 py-0.2 rounded font-bold ${
+                            targetsInRoi.people > 0 || targetsInRoi.vehicles > 0
+                              ? "bg-amber-100 text-amber-900 text-sm"
+                              : "text-[#152b46]"
+                          }`}
+                        >
+                          {targetsInRoi.people + targetsInRoi.vehicles}
+                        </b>
+                      </span>
+                    )}
 
                     <span>
                       وقت الاستجابة: <b className="text-[#152b46] font-semibold">~{analysisMs} مللي ثانية</b>
@@ -1660,24 +1862,50 @@ export default function MarsadPage() {
                   </div>
 
                   {rule.mode === "schedule" && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[11px] text-slate-600 mb-0.5">من الساعة</label>
-                        <input
-                          type="time"
-                          value={rule.start}
-                          onChange={(e) => setRule({ ...rule, start: e.target.value })}
-                          className="w-full bg-[#fafafa] border border-slate-300 rounded-lg p-1.5 text-center"
-                        />
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[11px] text-slate-600 mb-0.5">من الساعة</label>
+                          <input
+                            type="time"
+                            value={rule.start}
+                            onChange={(e) => setRule({ ...rule, start: e.target.value })}
+                            className="w-full bg-[#fafafa] border border-slate-300 rounded-lg p-1.5 text-center font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] text-slate-600 mb-0.5">إلى الساعة</label>
+                          <input
+                            type="time"
+                            value={rule.end}
+                            onChange={(e) => setRule({ ...rule, end: e.target.value })}
+                            className="w-full bg-[#fafafa] border border-slate-300 rounded-lg p-1.5 text-center font-bold"
+                          />
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-[11px] text-slate-600 mb-0.5">إلى الساعة</label>
-                        <input
-                          type="time"
-                          value={rule.end}
-                          onChange={(e) => setRule({ ...rule, end: e.target.value })}
-                          className="w-full bg-[#fafafa] border border-slate-300 rounded-lg p-1.5 text-center"
-                        />
+
+                      <div
+                        className={`p-2 rounded-lg border text-[11px] font-semibold flex items-center justify-between ${
+                          scheduleStatus.isActive
+                            ? "bg-emerald-50 border-emerald-300 text-emerald-800"
+                            : "bg-amber-50 border-amber-300 text-amber-800"
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              scheduleStatus.isActive ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+                            }`}
+                          />
+                          <span>
+                            {scheduleStatus.isActive
+                              ? `الجدول نشط حالياً (${scheduleStatus.scheduleLabel})`
+                              : `الجدول في وضع الانتظار (${scheduleStatus.scheduleLabel})`}
+                          </span>
+                        </div>
+                        <span className="text-[10px] opacity-75">
+                          الرياض: {scheduleStatus.currentRiyadhTimeStr}
+                        </span>
                       </div>
                     </div>
                   )}

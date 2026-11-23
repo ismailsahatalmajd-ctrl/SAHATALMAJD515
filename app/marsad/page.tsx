@@ -26,6 +26,9 @@ import {
   Activity,
   X,
   ZoomIn,
+  Filter,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 declare global {
@@ -114,6 +117,9 @@ export default function MarsadPage() {
   const [events, setEvents] = useState<CloudAlarm[]>([]);
   const [loadingEvents, setLoadingEvents] = useState<boolean>(false);
   const [selectedEventModal, setSelectedEventModal] = useState<CloudAlarm | null>(null);
+  const [eventFilterType, setEventFilterType] = useState<"all" | "human" | "vehicle">("all");
+  const [eventFilterChannel, setEventFilterChannel] = useState<"all" | "current">("all");
+  const [visibleEventsCount, setVisibleEventsCount] = useState<number>(18);
 
   // Ask Marsad (Visual AI Assistant)
   const [question, setQuestion] = useState<string>("");
@@ -239,7 +245,31 @@ export default function MarsadPage() {
       .catch((e) => console.error("Failed to load devices:", e));
   }, []);
 
-  // Fetch Events
+  // Save Events to Local Storage
+  const saveEventsToStorage = useCallback((updated: CloudAlarm[]) => {
+    try {
+      localStorage.setItem("marsad_events_archive_v1", JSON.stringify(updated.slice(0, 150)));
+    } catch (e) {
+      try {
+        localStorage.setItem("marsad_events_archive_v1", JSON.stringify(updated.slice(0, 40)));
+      } catch (e2) {}
+    }
+  }, []);
+
+  // Load Saved Events on Mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("marsad_events_archive_v1");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setEvents(parsed);
+        }
+      }
+    } catch (e) {}
+  }, []);
+
+  // Fetch Events from Cloud & Merge with Local Archive
   const fetchEvents = useCallback(() => {
     setLoadingEvents(true);
     fetch(`/api/cameras/cloud/alarms?channel=${selectedChannel}&type=all`)
@@ -247,14 +277,18 @@ export default function MarsadPage() {
       .then((data) => {
         if (data.success && data.alarms) {
           setEvents((prev) => {
-            const localOnly = prev.filter((p) => p.id.startsWith("marsad_ai_"));
-            return [...localOnly, ...data.alarms];
+            const existingIds = new Set(prev.map((e) => e.id));
+            const newCloud = data.alarms.filter((a: any) => !existingIds.has(a.id));
+            if (newCloud.length === 0) return prev;
+            const merged = [...prev, ...newCloud].slice(0, 200);
+            saveEventsToStorage(merged);
+            return merged;
           });
         }
       })
       .catch((err) => console.warn("Failed to fetch cloud alarms:", err))
       .finally(() => setLoadingEvents(false));
-  }, [selectedChannel]);
+  }, [selectedChannel, saveEventsToStorage]);
 
   useEffect(() => {
     fetchEvents();
@@ -797,7 +831,11 @@ export default function MarsadPage() {
               confidence: 95,
             };
 
-            setEvents((prev) => [newAlert, ...prev.slice(0, 19)]);
+            setEvents((prev) => {
+              const updated = [newAlert, ...prev.filter((p) => p.id !== newAlert.id)].slice(0, 200);
+              saveEventsToStorage(updated);
+              return updated;
+            });
           } catch (e) {
             console.warn("Could not capture snapshot:", e);
           }
@@ -880,8 +918,11 @@ export default function MarsadPage() {
 
   // Clear Events
   const handleClearEvents = () => {
-    if (confirm("هل ترغب في مسح سجل التنبيهات من الشاشة؟")) {
+    if (confirm("هل ترغب في مسح سجل التنبيهات والصور المحفوظة بالكامل؟")) {
       setEvents([]);
+      try {
+        localStorage.removeItem("marsad_events_archive_v1");
+      } catch (e) {}
     }
   };
 
@@ -1265,25 +1306,91 @@ export default function MarsadPage() {
 
               {/* 3. CLOUD ALARMS & EVENTS LOG */}
               <div className="bg-white border border-[#e1e3e5] rounded-2xl p-5 md:p-6 shadow-sm">
-                <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                   <div>
                     <h2 className="text-xl font-bold flex items-center gap-2 text-[#152b46]">
                       <Bell className="w-5 h-5 text-[#b38a46]" />
                       <span>سجل التنبيهات والأحداث المرصودة</span>
+                      <span className="text-xs bg-amber-100 text-amber-900 font-bold px-2 py-0.5 rounded-full">
+                        {events.length} حدث محفوظ
+                      </span>
                     </h2>
                     <p className="text-xs text-[#687584] mt-0.5">
-                      الأحداث وصورها الملتقطة عند رصد شخص أو مركبة في المنطقة
+                      الأرشيف الدائم للقطات المرصودة عند تحرك الأشخاص أو المركبات (محفوظة في الذاكرة السحابية والمحلية)
                     </p>
                   </div>
-                  <button
-                    onClick={handleClearEvents}
-                    className="inline-flex items-center gap-1 text-xs bg-[#f1f3f5] hover:bg-[#e4e7eb] text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 transition-colors"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 text-slate-500" />
-                    <span>مسح السجل</span>
-                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleClearEvents}
+                      className="inline-flex items-center gap-1 text-xs bg-[#f1f3f5] hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 transition-colors cursor-pointer"
+                      title="مسح سجل الأحداث والصور المحفوظة"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-slate-500 hover:text-rose-600" />
+                      <span>مسح السجل</span>
+                    </button>
+                  </div>
                 </div>
 
+                {/* Filter Bar */}
+                {events.length > 0 && (
+                  <div className="flex flex-wrap items-center justify-between gap-2.5 mb-4 p-2.5 bg-[#fdfbf7] border border-[#f3eee4] rounded-xl text-xs">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-slate-500 font-bold ml-1 flex items-center gap-1">
+                        <Filter className="w-3.5 h-3.5 text-[#b38a46]" />
+                        <span>تصنيف الأهداف:</span>
+                      </span>
+                      <button
+                        onClick={() => setEventFilterType("all")}
+                        className={`px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer ${
+                          eventFilterType === "all"
+                            ? "bg-[#152b46] text-white"
+                            : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+                        }`}
+                      >
+                        الكل ({events.length})
+                      </button>
+                      <button
+                        onClick={() => setEventFilterType("human")}
+                        className={`px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer flex items-center gap-1 ${
+                          eventFilterType === "human"
+                            ? "bg-emerald-600 text-white"
+                            : "bg-white text-emerald-700 hover:bg-emerald-50 border border-slate-200"
+                        }`}
+                      >
+                        <User className="w-3 h-3" />
+                        <span>أشخاص ({events.filter((e) => e.targetType === "human").length})</span>
+                      </button>
+                      <button
+                        onClick={() => setEventFilterType("vehicle")}
+                        className={`px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer flex items-center gap-1 ${
+                          eventFilterType === "vehicle"
+                            ? "bg-cyan-600 text-white"
+                            : "bg-white text-cyan-700 hover:bg-cyan-50 border border-slate-200"
+                        }`}
+                      >
+                        <Truck className="w-3 h-3" />
+                        <span>مركبات وشاحنات ({events.filter((e) => e.targetType === "vehicle").length})</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-500 font-medium">عرض القناة:</span>
+                      <select
+                        value={eventFilterChannel}
+                        onChange={(e) => setEventFilterChannel(e.target.value as "all" | "current")}
+                        className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 cursor-pointer"
+                      >
+                        <option value="all">جميع القنوات ({events.length})</option>
+                        <option value="current">
+                          قناة {selectedChannel} فقط ({events.filter((e) => e.channelNo === selectedChannel).length})
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* Events Content */}
                 {events.length === 0 ? (
                   <div className="py-12 text-center text-slate-400 text-xs">
                     {loadingEvents ? (
@@ -1296,63 +1403,122 @@ export default function MarsadPage() {
                     )}
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mt-3">
-                    {events.slice(0, 9).map((evt) => (
-                      <div
-                        key={evt.id}
-                        onClick={() => setSelectedEventModal(evt)}
-                        className="group border border-[#e1e3e5] rounded-xl overflow-hidden bg-[#fafafa] shadow-xs hover:border-[#b38a46] hover:shadow-md transition-all cursor-pointer relative"
-                        title="اضغط لعرض وتكبير الصورة بالتفصيل"
-                      >
-                        <div className="relative overflow-hidden aspect-video bg-slate-200">
-                          {evt.pictureUrl ? (
-                            <img
-                              src={evt.pictureUrl}
-                              alt={evt.alarmName || "صورة التنبيه"}
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                              loading="lazy"
-                            />
-                          ) : (
-                            <div className="w-full h-full bg-slate-100 flex items-center justify-center text-slate-400 text-xs">
-                              لا توجد لقطة
+                  <>
+                    {(() => {
+                      const filtered = events.filter((evt) => {
+                        if (eventFilterType === "human" && evt.targetType !== "human") return false;
+                        if (eventFilterType === "vehicle" && evt.targetType !== "vehicle") return false;
+                        if (eventFilterChannel === "current" && evt.channelNo && evt.channelNo !== selectedChannel) return false;
+                        return true;
+                      });
+
+                      const displayed = filtered.slice(0, visibleEventsCount);
+
+                      if (filtered.length === 0) {
+                        return (
+                          <div className="py-8 text-center text-slate-400 text-xs">
+                            لا توجد أحداث تطابق الفلتر المختار. جرب تغيير التصنيف إلى "الكل".
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 mt-2">
+                            {displayed.map((evt) => (
+                              <div
+                                key={evt.id}
+                                onClick={() => setSelectedEventModal(evt)}
+                                className="group border border-[#e1e3e5] rounded-xl overflow-hidden bg-[#fafafa] shadow-xs hover:border-[#b38a46] hover:shadow-md transition-all cursor-pointer relative"
+                                title="اضغط لعرض وتكبير الصورة بالتفصيل"
+                              >
+                                <div className="relative overflow-hidden aspect-video bg-slate-200">
+                                  {evt.pictureUrl ? (
+                                    <img
+                                      src={evt.pictureUrl}
+                                      alt={evt.alarmName || "صورة التنبيه"}
+                                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full bg-slate-100 flex items-center justify-center text-slate-400 text-xs">
+                                      لا توجد لقطة
+                                    </div>
+                                  )}
+                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-bold pointer-events-none">
+                                    <ZoomIn className="w-4 h-4 text-white" />
+                                    <span>عرض وتكبير اللقطة</span>
+                                  </div>
+                                </div>
+                                <div className="p-3 text-xs space-y-1">
+                                  <div className="font-bold text-[#152b46] flex items-center justify-between">
+                                    <span className="flex items-center gap-1">
+                                      {evt.targetType === "human" ? (
+                                        <User className="w-3.5 h-3.5 text-emerald-600" />
+                                      ) : (
+                                        <Truck className="w-3.5 h-3.5 text-cyan-600" />
+                                      )}
+                                      <span>
+                                        {evt.targetType === "human"
+                                          ? "رصد شخص"
+                                          : evt.targetType === "vehicle"
+                                          ? "رصد شاحنة/مركبة"
+                                          : evt.alarmName}
+                                      </span>
+                                    </span>
+                                    <span className="text-[10px] bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded font-bold">
+                                      قناة {evt.channelNo || selectedChannel}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-[11px] text-[#687584]">
+                                    <span>{evt.alarmTime || "بتوقيت الرياض"}</span>
+                                    <span className="text-[#b38a46] group-hover:underline flex items-center gap-0.5">
+                                      <span>تكبير</span>
+                                      <ZoomIn className="w-3 h-3 inline" />
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Load More & Pagination Bar */}
+                          <div className="mt-4 pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+                            <div className="text-slate-500 font-medium">
+                              يتم عرض <b className="text-[#152b46]">{displayed.length}</b> من أصل{" "}
+                              <b className="text-[#152b46]">{filtered.length}</b> لقطة محفوظة
                             </div>
-                          )}
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-bold pointer-events-none">
-                            <ZoomIn className="w-4 h-4 text-white" />
-                            <span>عرض وتكبير اللقطة</span>
-                          </div>
-                        </div>
-                        <div className="p-3 text-xs space-y-1">
-                          <div className="font-bold text-[#152b46] flex items-center justify-between">
-                            <span className="flex items-center gap-1">
-                              {evt.targetType === "human" ? (
-                                <User className="w-3.5 h-3.5 text-emerald-600" />
-                              ) : (
-                                <Truck className="w-3.5 h-3.5 text-cyan-600" />
+                            <div className="flex items-center gap-2">
+                              {filtered.length > visibleEventsCount && (
+                                <>
+                                  <button
+                                    onClick={() => setVisibleEventsCount((prev) => prev + 12)}
+                                    className="px-3.5 py-1.5 bg-[#152b46] hover:bg-[#203f67] text-white font-bold rounded-lg transition-colors cursor-pointer shadow-xs"
+                                  >
+                                    عرض المزيد (+12 لقطة)
+                                  </button>
+                                  <button
+                                    onClick={() => setVisibleEventsCount(filtered.length)}
+                                    className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 font-bold rounded-lg border border-slate-300 transition-colors cursor-pointer"
+                                  >
+                                    عرض كل اللقطات ({filtered.length})
+                                  </button>
+                                </>
                               )}
-                              <span>
-                                {evt.targetType === "human"
-                                  ? "رصد شخص"
-                                  : evt.targetType === "vehicle"
-                                  ? "رصد شاحنة/مركبة"
-                                  : evt.alarmName}
-                              </span>
-                            </span>
-                            <span className="text-[10px] bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded font-bold">
-                              قناة {evt.channelNo || selectedChannel}
-                            </span>
+                              {visibleEventsCount > 18 && filtered.length > 18 && (
+                                <button
+                                  onClick={() => setVisibleEventsCount(18)}
+                                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-colors cursor-pointer"
+                                >
+                                  طي السجل (عرض 18 فقط)
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center justify-between text-[11px] text-[#687584]">
-                            <span>{evt.alarmTime || "بتوقيت الرياض"}</span>
-                            <span className="text-[#b38a46] group-hover:underline flex items-center gap-0.5">
-                              <span>تكبير</span>
-                              <ZoomIn className="w-3 h-3 inline" />
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                        </>
+                      );
+                    })()}
+                  </>
                 )}
               </div>
             </div>

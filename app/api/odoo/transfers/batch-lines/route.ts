@@ -213,7 +213,86 @@ export async function POST(request: Request) {
             }
         ]);
 
-        return NextResponse.json({ success: true, lines: approvalLines });
+        // Fetch authoritative prices directly from Odoo product.product (standard_price = cost, list_price = sale)
+        const productIds: number[] = [];
+        const productCodes: string[] = [];
+
+        (approvalLines || []).forEach((l: any) => {
+            const pId = Array.isArray(l.product_id) ? l.product_id[0] : Number(l.product_id);
+            if (pId) productIds.push(pId);
+
+            const desc = Array.isArray(l.product_id) ? l.product_id[1] : (l.description || "");
+            const m = desc.match(/^\[(.*?)\]/);
+            if (m && m[1]) productCodes.push(m[1].trim());
+        });
+
+        const uniqueProductIds = Array.from(new Set(productIds));
+        const uniqueProductCodes = Array.from(new Set(productCodes));
+
+        let productsPriceMapById: Record<number, { standard_price: number; list_price: number }> = {};
+        let productsPriceMapByCode: Record<string, { standard_price: number; list_price: number }> = {};
+
+        if (uniqueProductIds.length > 0 || uniqueProductCodes.length > 0) {
+            try {
+                const domain: any[] = [];
+                if (uniqueProductIds.length > 0 && uniqueProductCodes.length > 0) {
+                    domain.push("|", ["id", "in", uniqueProductIds], ["default_code", "in", uniqueProductCodes]);
+                } else if (uniqueProductIds.length > 0) {
+                    domain.push(["id", "in", uniqueProductIds]);
+                } else {
+                    domain.push(["default_code", "in", uniqueProductCodes]);
+                }
+
+                const odooProducts = await odooCall("object", "execute_kw", [
+                    activeDb, uid, apiKey,
+                    "product.product", "search_read",
+                    [domain],
+                    {
+                        fields: ["id", "default_code", "standard_price", "list_price"],
+                        context: { lang: "en_US" }
+                    }
+                ]);
+
+                if (Array.isArray(odooProducts)) {
+                    for (const p of odooProducts) {
+                        const priceData = {
+                            standard_price: Number(p.standard_price || 0),
+                            list_price: Number(p.list_price || 0)
+                        };
+                        productsPriceMapById[p.id] = priceData;
+                        if (p.default_code) {
+                            productsPriceMapByCode[String(p.default_code).trim()] = priceData;
+                        }
+                    }
+                }
+            } catch (pErr) {
+                console.warn("Could not fetch product prices from Odoo:", pErr);
+            }
+        }
+
+        const linesWithPrices = (approvalLines || []).map((l: any) => {
+            const pId = Array.isArray(l.product_id) ? l.product_id[0] : Number(l.product_id);
+            const desc = Array.isArray(l.product_id) ? l.product_id[1] : (l.description || "");
+            const m = desc.match(/^\[(.*?)\]/);
+            const code = m ? m[1].trim() : "";
+
+            const priceInfo = (pId && productsPriceMapById[pId])
+                || (code && productsPriceMapByCode[code])
+                || { standard_price: 0, list_price: 0 };
+
+            const standard_price = priceInfo.standard_price;
+            const list_price = priceInfo.list_price;
+            const price_unit = standard_price > 0 ? standard_price : (list_price > 0 ? list_price : 0);
+
+            return {
+                ...l,
+                standard_price,
+                list_price,
+                price_unit
+            };
+        });
+
+        return NextResponse.json({ success: true, lines: linesWithPrices });
     } catch (error: any) {
         return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }

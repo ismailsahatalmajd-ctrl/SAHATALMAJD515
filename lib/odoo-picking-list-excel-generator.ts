@@ -8,7 +8,6 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
       let warehouseCategory = "";
       let quantityPerCarton = 1;
       let warehouseQty = line.quantity;
-      let cartonPrice = 0;
       
       try {
         const odooCode = line.code;
@@ -25,9 +24,8 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
 
         if (websiteProduct) {
           warehouseUnit = websiteProduct.unit || "";
-          quantityPerCarton = websiteProduct.quantityPerCarton || 1;
+          quantityPerCarton = Number(websiteProduct.quantityPerCarton) > 0 ? Number(websiteProduct.quantityPerCarton) : 1;
           warehouseQty = line.quantity / quantityPerCarton;
-          cartonPrice = Number(websiteProduct.price || websiteProduct.averagePrice || 0);
           
           if (websiteProduct.category) {
               const cat = await db.categories.get(websiteProduct.category);
@@ -36,20 +34,21 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
         }
       } catch (e) {}
 
-      if (!cartonPrice && line.price_unit) {
-        cartonPrice = Number(line.price_unit || 0);
-      } else if (!cartonPrice && line.price) {
-        cartonPrice = Number(line.price || 0);
-      }
+      // Authoritative Price from Odoo (standard_price = cost per Odoo unit, list_price = sale price)
+      // Note: Never read price from website db.products per user instructions
+      const odooPrice = Number(line.odooPrice ?? line.standard_price ?? line.price_unit ?? line.list_price ?? 0);
 
       warehouseQty = Number.isInteger(warehouseQty) ? warehouseQty : Number(warehouseQty.toFixed(2));
       const odooQty = Number.isInteger(line.quantity) ? line.quantity : Number(line.quantity.toFixed(2));
       
-      // Calculate piece price (price per individual Odoo unit)
-      const piecePrice = quantityPerCarton > 0 ? Number((cartonPrice / quantityPerCarton).toFixed(4)) : cartonPrice;
+      // Price per individual Odoo unit (piece, kg, etc.) from Odoo
+      const piecePrice = odooPrice;
       
-      // Accurate total value: warehouseQty * cartonPrice (which equals odooQty * piecePrice)
-      const totalValue = Number((warehouseQty * cartonPrice).toFixed(2));
+      // Carton price computed from Odoo unit price * quantityPerCarton
+      const cartonPrice = quantityPerCarton > 1 ? Number((odooPrice * quantityPerCarton).toFixed(2)) : odooPrice;
+      
+      // Accurate total value calculated from Odoo price: odooQty * odooPrice (which equals warehouseQty * cartonPrice)
+      const totalValue = Number((odooQty * odooPrice).toFixed(2));
 
       return { 
         ...line, 
@@ -58,8 +57,9 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
         warehouseQty, 
         odooQty,
         quantityPerCarton,
-        cartonPrice,
+        odooPrice,
         piecePrice,
+        cartonPrice,
         totalValue
       };
     }));
@@ -70,7 +70,7 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
     // Define columns
     worksheet.columns = [
       { header: "#", key: "index", width: 5 },
-      { header: "كود | Code", key: "code", width: 15 },
+      { header: "كود | Code", key: "code", width: 16 },
       { header: "المنتج | Product", key: "name", width: 45 },
       { header: "التصنيف | Category", key: "category", width: 25 },
       { header: "مرات الطلب | Order Count", key: "orderCount", width: 18 },
@@ -78,8 +78,8 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
       { header: "وحدة أودو | Odoo Unit", key: "uom", width: 18 },
       { header: "كمية الموقع | WH Qty", key: "warehouseQty", width: 18 },
       { header: "وحدة الموقع | WH Unit", key: "warehouseUnit", width: 20 },
+      { header: "سعر أودو (الوحدة) | Odoo Unit Price", key: "piecePrice", width: 22 },
       { header: "سعر الكرتون | Carton Price", key: "cartonPrice", width: 22 },
-      { header: "سعر الحبة/الوحدة | Piece Price", key: "piecePrice", width: 22 },
       { header: "القيمة الإجمالية | Total Value", key: "totalValue", width: 24 }
     ];
 
@@ -94,7 +94,7 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
     enrichedLines.forEach((item, idx) => {
       worksheet.addRow({
         index: idx + 1,
-        code: (item.code && String(Number(item.code)) === item.code) ? Number(item.code) : (item.code || "-"),
+        code: item.code ? String(item.code) : "-",
         name: item.name || "-",
         category: item.warehouseCategory || "-",
         orderCount: item.orderCount || 1,
@@ -102,8 +102,8 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
         uom: item.uom || "-",
         warehouseQty: item.warehouseQty,
         warehouseUnit: item.warehouseUnit || "-",
-        cartonPrice: item.cartonPrice || 0,
         piecePrice: item.piecePrice || 0,
+        cartonPrice: item.cartonPrice || 0,
         totalValue: item.totalValue || 0
       });
     });
@@ -113,14 +113,16 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
       if (rowNumber > 1) {
         row.alignment = { vertical: "middle", horizontal: "center" };
         row.getCell("name").alignment = { vertical: "middle", horizontal: "right" };
-        row.getCell("code").font = { bold: true };
+        const codeCell = row.getCell("code");
+        codeCell.font = { bold: true };
+        codeCell.numFmt = "@";
         row.getCell("orderCount").font = { bold: true };
         row.getCell("odooQty").font = { bold: true, color: { argb: "FFB91C1C" } };
         row.getCell("warehouseQty").font = { bold: true, color: { argb: "FF1D4ED8" } };
+        row.getCell("piecePrice").font = { color: { argb: "FF475569" } };
+        row.getCell("piecePrice").numFmt = "#,##0.00##";
         row.getCell("cartonPrice").font = { bold: true, color: { argb: "FF0F172A" } };
         row.getCell("cartonPrice").numFmt = "#,##0.00";
-        row.getCell("piecePrice").font = { color: { argb: "FF475569" } };
-        row.getCell("piecePrice").numFmt = "#,##0.00";
         row.getCell("totalValue").font = { bold: true, color: { argb: "FF047857" } };
         row.getCell("totalValue").numFmt = "#,##0.00";
       }
@@ -141,8 +143,8 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
       uom: "",
       warehouseQty: grandTotalWhQty,
       warehouseUnit: "",
-      cartonPrice: "",
       piecePrice: "",
+      cartonPrice: "",
       totalValue: grandTotalValue
     });
 

@@ -575,18 +575,32 @@ export default function OdooTransfersPage() {
                 branchProductCounts[branchName] = (branchProductCounts[branchName] || 0) + 1;
                 
                 const key = code || name;
+                const odooPrice = Number(line.standard_price > 0 ? line.standard_price : (line.price_unit > 0 ? line.price_unit : (line.list_price || 0)));
                 
                 if (allLinesMap.has(key)) {
                     const existing = allLinesMap.get(key);
                     existing.quantity += line.quantity;
                     existing.orderCount += 1;
                     existing.branchQuantities[branchName] = (existing.branchQuantities[branchName] || 0) + line.quantity;
+                    if ((!existing.odooPrice || existing.odooPrice === 0) && odooPrice > 0) {
+                        existing.odooPrice = odooPrice;
+                    }
+                    if (!existing.standard_price && line.standard_price) {
+                        existing.standard_price = line.standard_price;
+                    }
+                    if (!existing.list_price && line.list_price) {
+                        existing.list_price = line.list_price;
+                    }
                 } else {
                     allLinesMap.set(key, {
                         code,
                         name,
                         quantity: line.quantity,
                         uom,
+                        odooPrice,
+                        standard_price: line.standard_price || 0,
+                        list_price: line.list_price || 0,
+                        price_unit: line.price_unit || 0,
                         orderCount: 1,
                         branchQuantities: { [branchName]: line.quantity }
                     });

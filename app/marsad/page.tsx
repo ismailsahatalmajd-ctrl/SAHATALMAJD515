@@ -24,6 +24,8 @@ import {
   Truck,
   Scan,
   Activity,
+  X,
+  ZoomIn,
 } from "lucide-react";
 
 declare global {
@@ -111,6 +113,7 @@ export default function MarsadPage() {
   // Events & Alarms
   const [events, setEvents] = useState<CloudAlarm[]>([]);
   const [loadingEvents, setLoadingEvents] = useState<boolean>(false);
+  const [selectedEventModal, setSelectedEventModal] = useState<CloudAlarm | null>(null);
 
   // Ask Marsad (Visual AI Assistant)
   const [question, setQuestion] = useState<string>("");
@@ -263,6 +266,17 @@ export default function MarsadPage() {
   useEffect(() => {
     const t = setInterval(() => setAgeSeconds((prev) => prev + 1), 1000);
     return () => clearInterval(t);
+  }, []);
+
+  // Close modal on Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSelectedEventModal(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   // Start Stream
@@ -1166,7 +1180,7 @@ export default function MarsadPage() {
               </div>
 
               {/* 2. ASK MARSAD (VISUAL AI ASSISTANT) */}
-              <div className="bg-white border border-[#e1e3e5] rounded-2xl p-5 md:p-6 shadow-sm">
+              <div id="ask-marsad-section" className="bg-white border border-[#e1e3e5] rounded-2xl p-5 md:p-6 shadow-sm">
                 <div className="flex items-center gap-2 mb-2">
                   <div className="p-1.5 bg-amber-100 text-[#b38a46] rounded-lg">
                     <Sparkles className="w-5 h-5" />
@@ -1286,20 +1300,28 @@ export default function MarsadPage() {
                     {events.slice(0, 9).map((evt) => (
                       <div
                         key={evt.id}
-                        className="border border-[#e1e3e5] rounded-xl overflow-hidden bg-[#fafafa] shadow-xs hover:border-[#b38a46] transition-colors"
+                        onClick={() => setSelectedEventModal(evt)}
+                        className="group border border-[#e1e3e5] rounded-xl overflow-hidden bg-[#fafafa] shadow-xs hover:border-[#b38a46] hover:shadow-md transition-all cursor-pointer relative"
+                        title="اضغط لعرض وتكبير الصورة بالتفصيل"
                       >
-                        {evt.pictureUrl ? (
-                          <img
-                            src={evt.pictureUrl}
-                            alt={evt.alarmName || "صورة التنبيه"}
-                            className="w-full aspect-video object-cover bg-slate-200"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="w-full aspect-video bg-slate-100 flex items-center justify-center text-slate-400 text-xs">
-                            لا توجد لقطة
+                        <div className="relative overflow-hidden aspect-video bg-slate-200">
+                          {evt.pictureUrl ? (
+                            <img
+                              src={evt.pictureUrl}
+                              alt={evt.alarmName || "صورة التنبيه"}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-slate-100 flex items-center justify-center text-slate-400 text-xs">
+                              لا توجد لقطة
+                            </div>
+                          )}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-bold pointer-events-none">
+                            <ZoomIn className="w-4 h-4 text-white" />
+                            <span>عرض وتكبير اللقطة</span>
                           </div>
-                        )}
+                        </div>
                         <div className="p-3 text-xs space-y-1">
                           <div className="font-bold text-[#152b46] flex items-center justify-between">
                             <span className="flex items-center gap-1">
@@ -1320,9 +1342,13 @@ export default function MarsadPage() {
                               قناة {evt.channelNo || selectedChannel}
                             </span>
                           </div>
-                          <p className="text-[11px] text-[#687584]">
-                            {evt.alarmTime || "بتوقيت الرياض"}
-                          </p>
+                          <div className="flex items-center justify-between text-[11px] text-[#687584]">
+                            <span>{evt.alarmTime || "بتوقيت الرياض"}</span>
+                            <span className="text-[#b38a46] group-hover:underline flex items-center gap-0.5">
+                              <span>تكبير</span>
+                              <ZoomIn className="w-3 h-3 inline" />
+                            </span>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -1591,6 +1617,117 @@ export default function MarsadPage() {
             </div>
           </div>
         </main>
+
+        {/* EVENT IMAGE LIGHTBOX MODAL */}
+        {selectedEventModal && (
+          <div
+            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-fadeIn"
+            onClick={() => setSelectedEventModal(null)}
+          >
+            <div
+              className="bg-white rounded-2xl max-w-4xl w-full max-h-[92vh] flex flex-col overflow-hidden shadow-2xl border border-slate-700/20"
+              onClick={(e) => e.stopPropagation()}
+              dir="rtl"
+            >
+              {/* Header */}
+              <div className="px-5 py-3.5 bg-[#152b46] text-white flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  {selectedEventModal.targetType === "human" ? (
+                    <User className="w-5 h-5 text-emerald-400" />
+                  ) : (
+                    <Truck className="w-5 h-5 text-cyan-400" />
+                  )}
+                  <div>
+                    <h3 className="font-bold text-sm sm:text-base">
+                      {selectedEventModal.targetType === "human"
+                        ? "لقطة رصد شخص داخل المستطيل الذهبي"
+                        : selectedEventModal.targetType === "vehicle"
+                        ? "لقطة رصد شاحنة / مركبة"
+                        : selectedEventModal.alarmName}
+                    </h3>
+                    <div className="flex items-center gap-2 text-xs text-slate-300 mt-0.5">
+                      <span>قناة {selectedEventModal.channelNo || selectedChannel}</span>
+                      <span>•</span>
+                      <span>{selectedEventModal.alarmTime || "بتوقيت الرياض"}</span>
+                      {selectedEventModal.confidence && (
+                        <>
+                          <span>•</span>
+                          <span className="text-amber-300 font-semibold">نسبة الثقة: {selectedEventModal.confidence}%</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedEventModal(null)}
+                  className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer"
+                  title="إغلاق"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Image Body */}
+              <div className="flex-1 bg-slate-950 p-2 sm:p-4 flex items-center justify-center overflow-auto min-h-[260px]">
+                {selectedEventModal.pictureUrl ? (
+                  <img
+                    src={selectedEventModal.pictureUrl}
+                    alt={selectedEventModal.alarmName || "صورة التنبيه"}
+                    className="max-h-[68vh] w-auto max-w-full object-contain rounded-lg shadow-lg border border-white/10"
+                  />
+                ) : (
+                  <div className="text-slate-400 text-sm py-12">لا توجد صورة متوفرة لهذا الحدث</div>
+                )}
+              </div>
+
+              {/* Footer Actions */}
+              <div className="px-5 py-3.5 bg-[#fafafa] border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="text-slate-600 font-medium">
+                  {selectedEventModal.id.startsWith("marsad_")
+                    ? "تم الالتقاط تلقائياً بواسطة محرك الرصد الذكي لمرصد"
+                    : "سجل أحداث هيكفيجن السحابي"}
+                </div>
+                <div className="flex items-center gap-2">
+                  {selectedEventModal.pictureUrl && (
+                    <>
+                      <a
+                        href={selectedEventModal.pictureUrl}
+                        download={`marsad_event_${selectedEventModal.channelNo || selectedChannel}_${Date.now()}.jpg`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 rounded-lg border border-slate-300 font-bold transition-colors cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5 text-[#b38a46]" />
+                        <span>تحميل الصورة بدقة كاملة</span>
+                      </a>
+                      <button
+                        onClick={() => {
+                          if (selectedEventModal.pictureUrl) {
+                            lastFrameBase64Ref.current = selectedEventModal.pictureUrl;
+                            setQuestion("وش تلاحظ في هذه اللقطة المرصودة ومن يتحرك فيها؟");
+                            setSelectedEventModal(null);
+                            const el = document.getElementById("ask-marsad-section");
+                            el?.scrollIntoView({ behavior: "smooth" });
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#b38a46] hover:bg-[#9a7438] text-white rounded-lg font-bold shadow-xs transition-colors cursor-pointer"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-white" />
+                        <span>اسأل مرصد عن هذه اللقطة</span>
+                      </button>
+                    </>
+                  )}
+                  <button
+                    onClick={() => setSelectedEventModal(null)}
+                    className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg font-bold transition-colors cursor-pointer"
+                  >
+                    إغلاق
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

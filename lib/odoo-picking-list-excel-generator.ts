@@ -8,7 +8,7 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
       let warehouseCategory = "";
       let quantityPerCarton = 1;
       let warehouseQty = line.quantity;
-      let unitPrice = 0;
+      let cartonPrice = 0;
       
       try {
         const odooCode = line.code;
@@ -27,7 +27,7 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
           warehouseUnit = websiteProduct.unit || "";
           quantityPerCarton = websiteProduct.quantityPerCarton || 1;
           warehouseQty = line.quantity / quantityPerCarton;
-          unitPrice = Number(websiteProduct.price || websiteProduct.averagePrice || 0);
+          cartonPrice = Number(websiteProduct.price || websiteProduct.averagePrice || 0);
           
           if (websiteProduct.category) {
               const cat = await db.categories.get(websiteProduct.category);
@@ -36,15 +36,20 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
         }
       } catch (e) {}
 
-      if (!unitPrice && line.price_unit) {
-        unitPrice = Number(line.price_unit || 0);
-      } else if (!unitPrice && line.price) {
-        unitPrice = Number(line.price || 0);
+      if (!cartonPrice && line.price_unit) {
+        cartonPrice = Number(line.price_unit || 0);
+      } else if (!cartonPrice && line.price) {
+        cartonPrice = Number(line.price || 0);
       }
 
       warehouseQty = Number.isInteger(warehouseQty) ? warehouseQty : Number(warehouseQty.toFixed(2));
       const odooQty = Number.isInteger(line.quantity) ? line.quantity : Number(line.quantity.toFixed(2));
-      const totalValue = Number((odooQty * unitPrice).toFixed(2));
+      
+      // Calculate piece price (price per individual Odoo unit)
+      const piecePrice = quantityPerCarton > 0 ? Number((cartonPrice / quantityPerCarton).toFixed(4)) : cartonPrice;
+      
+      // Accurate total value: warehouseQty * cartonPrice (which equals odooQty * piecePrice)
+      const totalValue = Number((warehouseQty * cartonPrice).toFixed(2));
 
       return { 
         ...line, 
@@ -52,7 +57,9 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
         warehouseCategory, 
         warehouseQty, 
         odooQty,
-        unitPrice,
+        quantityPerCarton,
+        cartonPrice,
+        piecePrice,
         totalValue
       };
     }));
@@ -66,12 +73,13 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
       { header: "كود | Code", key: "code", width: 15 },
       { header: "المنتج | Product", key: "name", width: 45 },
       { header: "التصنيف | Category", key: "category", width: 25 },
-      { header: "مرات الطلب | Order Count", key: "orderCount", width: 20 },
+      { header: "مرات الطلب | Order Count", key: "orderCount", width: 18 },
       { header: "كمية أودو | Odoo Qty", key: "odooQty", width: 18 },
-      { header: "وحدة أودو | Odoo Unit", key: "uom", width: 20 },
-      { header: "كمية الموقع | WH Qty", key: "warehouseQty", width: 20 },
-      { header: "وحدة الموقع | WH Unit", key: "warehouseUnit", width: 22 },
-      { header: "سعر الصنف | Unit Price", key: "unitPrice", width: 20 },
+      { header: "وحدة أودو | Odoo Unit", key: "uom", width: 18 },
+      { header: "كمية الموقع | WH Qty", key: "warehouseQty", width: 18 },
+      { header: "وحدة الموقع | WH Unit", key: "warehouseUnit", width: 20 },
+      { header: "سعر الكرتون | Carton Price", key: "cartonPrice", width: 22 },
+      { header: "سعر الحبة/الوحدة | Piece Price", key: "piecePrice", width: 22 },
       { header: "القيمة الإجمالية | Total Value", key: "totalValue", width: 24 }
     ];
 
@@ -94,7 +102,8 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
         uom: item.uom || "-",
         warehouseQty: item.warehouseQty,
         warehouseUnit: item.warehouseUnit || "-",
-        unitPrice: item.unitPrice || 0,
+        cartonPrice: item.cartonPrice || 0,
+        piecePrice: item.piecePrice || 0,
         totalValue: item.totalValue || 0
       });
     });
@@ -108,8 +117,10 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
         row.getCell("orderCount").font = { bold: true };
         row.getCell("odooQty").font = { bold: true, color: { argb: "FFB91C1C" } };
         row.getCell("warehouseQty").font = { bold: true, color: { argb: "FF1D4ED8" } };
-        row.getCell("unitPrice").font = { bold: true, color: { argb: "FF0F172A" } };
-        row.getCell("unitPrice").numFmt = "#,##0.00";
+        row.getCell("cartonPrice").font = { bold: true, color: { argb: "FF0F172A" } };
+        row.getCell("cartonPrice").numFmt = "#,##0.00";
+        row.getCell("piecePrice").font = { color: { argb: "FF475569" } };
+        row.getCell("piecePrice").numFmt = "#,##0.00";
         row.getCell("totalValue").font = { bold: true, color: { argb: "FF047857" } };
         row.getCell("totalValue").numFmt = "#,##0.00";
       }
@@ -130,7 +141,8 @@ export async function generateOdooPickingListExcel(aggregatedLines: any[], title
       uom: "",
       warehouseQty: grandTotalWhQty,
       warehouseUnit: "",
-      unitPrice: "",
+      cartonPrice: "",
+      piecePrice: "",
       totalValue: grandTotalValue
     });
 

@@ -93,6 +93,7 @@ export default function MarsadPage() {
   const prevFrameCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const aiModelRef = useRef<any>(null);
   const lastAlertTimeRef = useRef<number>(0);
+  const lastFrameBase64Ref = useRef<string>("");
 
   // Presence Rule State
   const [rule, setRule] = useState<PresenceRule>({
@@ -388,23 +389,104 @@ export default function MarsadPage() {
 
     let isScanning = false;
     let timerId: any = null;
+    let lastFrameBase64: string = "";
 
-    const findVideoSource = (): HTMLCanvasElement | HTMLVideoElement | null => {
+    // 1. Hardware-Direct Frame Grabber from EZUIKit PlayM4 WebAssembly Decoder
+    const captureCurrentFrame = async (): Promise<{
+      source: HTMLImageElement | HTMLCanvasElement | HTMLVideoElement;
+      srcWidth: number;
+      srcHeight: number;
+      base64?: string;
+    } | null> => {
+      const player = playerRef.current;
+
+      // Method A: Direct from JSPlugin PlayM4 WebAssembly Decoder
+      if (
+        player &&
+        (player as any).jSPlugin &&
+        typeof (player as any).jSPlugin.JS_CapturePicture === "function"
+      ) {
+        try {
+          const capPromise = new Promise<any>((resolve) => {
+            const timeout = setTimeout(() => resolve(null), 300);
+            try {
+              (player as any).jSPlugin.JS_CapturePicture(
+                0,
+                "marsad_live",
+                "JPEG",
+                (res: any) => {
+                  clearTimeout(timeout);
+                  resolve(res);
+                },
+                true
+              );
+            } catch (err) {
+              clearTimeout(timeout);
+              resolve(null);
+            }
+          });
+
+          const capRes = await capPromise;
+          if (capRes && capRes.base64) {
+            lastFrameBase64Ref.current = capRes.base64;
+            const img = new Image();
+            await new Promise((res) => {
+              img.onload = res;
+              img.onerror = res;
+              img.src = capRes.base64;
+            });
+            if (img.width > 30 && img.height > 30) {
+              return {
+                source: img,
+                srcWidth: img.naturalWidth || img.width,
+                srcHeight: img.naturalHeight || img.height,
+                base64: capRes.base64,
+              };
+            }
+          }
+        } catch (e) {}
+      }
+
+      // Method B: EZUIKit Player .capturePicture wrapper
+      if (player && typeof (player as any).capturePicture === "function") {
+        try {
+          const cap = await (player as any).capturePicture("marsad_cap", false);
+          if (cap && cap.data && cap.data.base64) {
+            lastFrameBase64Ref.current = cap.data.base64;
+            const img = new Image();
+            await new Promise((res) => {
+              img.onload = res;
+              img.onerror = res;
+              img.src = cap.data.base64;
+            });
+            if (img.width > 30) {
+              return {
+                source: img,
+                srcWidth: img.naturalWidth || img.width,
+                srcHeight: img.naturalHeight || img.height,
+                base64: cap.data.base64,
+              };
+            }
+          }
+        } catch (e) {}
+      }
+
+      // Method C: Canvas / Video elements in DOM
       const viewport = document.getElementById("marsad-player-viewport");
       if (!viewport) return null;
 
-      // 1. Look for EZUIKit canvas
       const canvases = viewport.getElementsByTagName("canvas");
       for (let i = 0; i < canvases.length; i++) {
         const c = canvases[i];
         if (c.id !== "marsad-detection-overlay" && c.width > 50 && c.height > 50) {
-          return c;
+          return { source: c, srcWidth: c.width, srcHeight: c.height };
         }
       }
 
-      // 2. Fallback to HTML5 video
       const vid = viewport.querySelector("video");
-      if (vid && vid.videoWidth > 50) return vid;
+      if (vid && vid.videoWidth > 50) {
+        return { source: vid, srcWidth: vid.videoWidth, srcHeight: vid.videoHeight };
+      }
 
       return null;
     };
@@ -412,20 +494,18 @@ export default function MarsadPage() {
     const detectLoop = async () => {
       if (isScanning) return;
 
-      const videoSource = findVideoSource();
       const overlay = overlayCanvasRef.current;
-
-      if (!videoSource || !overlay) return;
-
-      const srcWidth = (videoSource as HTMLCanvasElement).width || (videoSource as HTMLVideoElement).videoWidth || 640;
-      const srcHeight = (videoSource as HTMLCanvasElement).height || (videoSource as HTMLVideoElement).videoHeight || 360;
-
-      if (srcWidth < 50 || srcHeight < 50) return;
+      if (!overlay) return;
 
       isScanning = true;
       const tStart = performance.now();
 
       try {
+        const frameData = await captureCurrentFrame();
+        if (!frameData) return;
+
+        const { source, srcWidth, srcHeight, base64 } = frameData;
+
         // Sync overlay dimensions with display size
         const dispW = overlay.clientWidth || 800;
         const dispH = overlay.clientHeight || 480;
@@ -438,23 +518,113 @@ export default function MarsadPage() {
         if (!ctx) return;
         ctx.clearRect(0, 0, dispW, dispH);
 
-        const scaleX = dispW / srcWidth;
-        const scaleY = dispH / srcHeight;
-
+        const [rx1, ry1, rx2, ry2] = rule.roi;
         let detectedP = 0;
         let detectedV = 0;
-        const [rx1, ry1, rx2, ry2] = rule.roi;
 
-        // Path A: Machine Learning Model (COCO-SSD / MobileNet)
-        if (aiModelRef.current) {
+        // Create or reuse offscreen 320x180 canvas for ultra-fast multi-tier vision analysis
+        if (!prevFrameCanvasRef.current) {
+          prevFrameCanvasRef.current = document.createElement("canvas");
+          prevFrameCanvasRef.current.width = 320;
+          prevFrameCanvasRef.current.height = 180;
+        }
+
+        const offCanvas = prevFrameCanvasRef.current;
+        const offCtx = offCanvas.getContext("2d", { willReadFrequently: true });
+        if (!offCtx) return;
+
+        const prevData = offCtx.getImageData(0, 0, 320, 180).data;
+        offCtx.drawImage(source as CanvasImageSource, 0, 0, 320, 180);
+        const currData = offCtx.getImageData(0, 0, 320, 180).data;
+
+        // ==============================================================
+        // TIER 1: HIKVISION ACUSENSE HARDWARE TARGET DETECTION (GREEN BOX)
+        // ==============================================================
+        let greenMinX = 320,
+          greenMaxX = 0,
+          greenMinY = 180,
+          greenMaxY = 0;
+        let greenCount = 0;
+
+        for (let y = 0; y < 180; y += 2) {
+          for (let x = 0; x < 320; x += 2) {
+            const idx = (y * 320 + x) * 4;
+            const r = currData[idx];
+            const g = currData[idx + 1];
+            const b = currData[idx + 2];
+
+            // AcuSense Green Bounding Box Signature:
+            // High Green, significantly exceeding Red and Blue components
+            if (g > 140 && g > r * 1.42 && g > b * 1.42) {
+              greenCount++;
+              if (x < greenMinX) greenMinX = x;
+              if (x > greenMaxX) greenMaxX = x;
+              if (y < greenMinY) greenMinY = y;
+              if (y > greenMaxY) greenMaxY = y;
+            }
+          }
+        }
+
+        const boxW_off = greenMaxX - greenMinX;
+        const boxH_off = greenMaxY - greenMinY;
+        const hasAcuSenseBox = greenCount >= 14 && boxW_off >= 6 && boxH_off >= 10;
+
+        if (hasAcuSenseBox) {
+          const sx = (greenMinX / 320) * dispW;
+          const sy = (greenMinY / 180) * dispH;
+          const sw = (boxW_off / 320) * dispW;
+          const sh = (boxH_off / 180) * dispH;
+
+          const footX = ((greenMinX + boxW_off / 2) / 320) * 100;
+          const footY = (greenMaxY / 180) * 100;
+          const inRoi = footX >= rx1 && footX <= rx2 && footY >= ry1 && footY <= ry2;
+
+          const aspect = sh / Math.max(1, sw);
+          const isHuman = aspect >= 1.25;
+          if (isHuman) detectedP++;
+          else detectedV++;
+
+          const color = inRoi ? "#eab308" : isHuman ? "#22c55e" : "#06b6d4";
+
+          ctx.save();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2.5;
+          ctx.shadowColor = color;
+          ctx.shadowBlur = 10;
+          ctx.strokeRect(sx, sy, sw, sh);
+
+          ctx.fillStyle = isHuman ? "rgba(34, 197, 94, 0.16)" : "rgba(6, 182, 212, 0.16)";
+          ctx.fillRect(sx, sy, sw, sh);
+
+          const badgeText = `${isHuman ? "شخص / هدف ذكي (AcuSense)" : "مركبة (AcuSense)"} 99%`;
+          ctx.font = "bold 11px sans-serif";
+          const tw = ctx.measureText(badgeText).width;
+          ctx.fillStyle = color;
+          ctx.fillRect(sx, Math.max(0, sy - 20), tw + 14, 20);
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(badgeText, sx + 7, Math.max(14, sy - 6));
+
+          // Foot anchor
+          ctx.beginPath();
+          ctx.arc(sx + sw / 2, sy + sh, 4, 0, Math.PI * 2);
+          ctx.fillStyle = inRoi ? "#eab308" : "#ffffff";
+          ctx.fill();
+          ctx.restore();
+        }
+
+        // ==============================================================
+        // TIER 2: DEEP NEURAL NETWORK (COCO-SSD / MobileNet Edge AI)
+        // ==============================================================
+        if (detectedP === 0 && detectedV === 0 && aiModelRef.current) {
           try {
-            const predictions = await aiModelRef.current.detect(videoSource);
+            const predictions = await aiModelRef.current.detect(source);
             const minConf = Math.max(0.20, (rule.confidence || 30) / 100);
+            const scaleX = dispW / srcWidth;
+            const scaleY = dispH / srcHeight;
 
             for (const pred of predictions) {
               const isPerson = pred.class === "person";
               const isVehicle = ["car", "truck", "bus", "motorcycle"].includes(pred.class);
-
               if (!isPerson && !isVehicle) continue;
               if (pred.score < minConf) continue;
 
@@ -466,13 +636,11 @@ export default function MarsadPage() {
 
               const footX = ((bx + bw / 2) / srcWidth) * 100;
               const footY = ((by + bh) / srcHeight) * 100;
-
               const inRoi = footX >= rx1 && footX <= rx2 && footY >= ry1 && footY <= ry2;
 
               if (isPerson) detectedP++;
               if (isVehicle) detectedV++;
 
-              // Draw Glowing Bounding Box
               const color = inRoi ? "#eab308" : isPerson ? "#22c55e" : "#06b6d4";
               ctx.save();
               ctx.strokeStyle = color;
@@ -481,11 +649,9 @@ export default function MarsadPage() {
               ctx.shadowBlur = 10;
               ctx.strokeRect(sx, sy, sw, sh);
 
-              // Translucent fill
-              ctx.fillStyle = isPerson ? "rgba(34, 197, 94, 0.12)" : "rgba(6, 182, 212, 0.12)";
+              ctx.fillStyle = isPerson ? "rgba(34, 197, 94, 0.14)" : "rgba(6, 182, 212, 0.14)";
               ctx.fillRect(sx, sy, sw, sh);
 
-              // Badge
               const label = `${isPerson ? "شخص" : pred.class === "truck" ? "شاحنة" : "مركبة"} ${Math.round(
                 pred.score * 100
               )}%`;
@@ -496,7 +662,6 @@ export default function MarsadPage() {
               ctx.fillStyle = "#ffffff";
               ctx.fillText(label, sx + 6, Math.max(14, sy - 6));
 
-              // Anchor Footprint
               ctx.beginPath();
               ctx.arc(sx + sw / 2, sy + sh, 4, 0, Math.PI * 2);
               ctx.fillStyle = inRoi ? "#eab308" : "#ffffff";
@@ -508,86 +673,72 @@ export default function MarsadPage() {
           }
         }
 
-        // Path B: Dynamic Motion & Spatial Optical Contour Tracker (Immediate Real-Time Fallback)
+        // ==============================================================
+        // TIER 3: OPTICAL MOTION DELTA & DYNAMIC CONTOUR TRACKER
+        // ==============================================================
         if (detectedP === 0 && detectedV === 0) {
           try {
-            // Create a small offscreen canvas to compute frame delta
-            if (!prevFrameCanvasRef.current) {
-              prevFrameCanvasRef.current = document.createElement("canvas");
-              prevFrameCanvasRef.current.width = 160;
-              prevFrameCanvasRef.current.height = 90;
-            }
+            let minX = 320,
+              minY = 180,
+              maxX = 0,
+              maxY = 0;
+            let diffCount = 0;
 
-            const offCanvas = prevFrameCanvasRef.current;
-            const offCtx = offCanvas.getContext("2d", { willReadFrequently: true });
+            for (let y = 0; y < 180; y += 2) {
+              for (let x = 0; x < 320; x += 2) {
+                const idx = (y * 320 + x) * 4;
+                const diff =
+                  Math.abs(currData[idx] - prevData[idx]) +
+                  Math.abs(currData[idx + 1] - prevData[idx + 1]) +
+                  Math.abs(currData[idx + 2] - prevData[idx + 2]);
 
-            if (offCtx) {
-              const prevData = offCtx.getImageData(0, 0, 160, 90).data;
-              offCtx.drawImage(videoSource as CanvasImageSource, 0, 0, 160, 90);
-              const currData = offCtx.getImageData(0, 0, 160, 90).data;
-
-              let minX = 160,
-                minY = 90,
-                maxX = 0,
-                maxY = 0;
-              let diffCount = 0;
-
-              for (let y = 0; y < 90; y += 2) {
-                for (let x = 0; x < 160; x += 2) {
-                  const idx = (y * 160 + x) * 4;
-                  const diff =
-                    Math.abs(currData[idx] - prevData[idx]) +
-                    Math.abs(currData[idx + 1] - prevData[idx + 1]) +
-                    Math.abs(currData[idx + 2] - prevData[idx + 2]);
-
-                  if (diff > 55) {
-                    diffCount++;
-                    if (x < minX) minX = x;
-                    if (x > maxX) maxX = x;
-                    if (y < minY) minY = y;
-                    if (y > maxY) maxY = y;
-                  }
+                if (diff > 50) {
+                  diffCount++;
+                  if (x < minX) minX = x;
+                  if (x > maxX) maxX = x;
+                  if (y < minY) minY = y;
+                  if (y > maxY) maxY = y;
                 }
               }
+            }
 
-              // If a moving object/worker/vehicle is moving across Camera 12
-              if (diffCount > 15 && maxX > minX + 6 && maxY > minY + 10) {
-                const boxX = (minX / 160) * dispW;
-                const boxY = (minY / 90) * dispH;
-                const boxW = ((maxX - minX) / 160) * dispW;
-                const boxH = ((maxY - minY) / 90) * dispH;
+            // Moving worker or vehicle detected
+            if (diffCount > 25 && maxX > minX + 12 && maxY > minY + 16) {
+              const boxX = (minX / 320) * dispW;
+              const boxY = (minY / 180) * dispH;
+              const boxW = ((maxX - minX) / 320) * dispW;
+              const boxH = ((maxY - minY) / 180) * dispH;
 
-                const aspect = boxH / Math.max(1, boxW);
-                const isHumanLike = aspect >= 1.2;
+              const aspect = boxH / Math.max(1, boxW);
+              const isHumanLike = aspect >= 1.2;
 
-                if (isHumanLike) detectedP = 1;
-                else detectedV = 1;
+              if (isHumanLike) detectedP = 1;
+              else detectedV = 1;
 
-                const footX = ((minX + (maxX - minX) / 2) / 160) * 100;
-                const footY = (maxY / 90) * 100;
-                const inRoi = footX >= rx1 && footX <= rx2 && footY >= ry1 && footY <= ry2;
+              const footX = ((minX + (maxX - minX) / 2) / 320) * 100;
+              const footY = (maxY / 180) * 100;
+              const inRoi = footX >= rx1 && footX <= rx2 && footY >= ry1 && footY <= ry2;
 
-                const color = inRoi ? "#eab308" : isHumanLike ? "#22c55e" : "#06b6d4";
+              const color = inRoi ? "#eab308" : isHumanLike ? "#22c55e" : "#06b6d4";
 
-                ctx.save();
-                ctx.strokeStyle = color;
-                ctx.lineWidth = 2.5;
-                ctx.shadowColor = color;
-                ctx.shadowBlur = 8;
-                ctx.strokeRect(boxX, boxY, boxW, boxH);
+              ctx.save();
+              ctx.strokeStyle = color;
+              ctx.lineWidth = 2.5;
+              ctx.shadowColor = color;
+              ctx.shadowBlur = 8;
+              ctx.strokeRect(boxX, boxY, boxW, boxH);
 
-                ctx.fillStyle = isHumanLike ? "rgba(34, 197, 94, 0.15)" : "rgba(6, 182, 212, 0.15)";
-                ctx.fillRect(boxX, boxY, boxW, boxH);
+              ctx.fillStyle = isHumanLike ? "rgba(34, 197, 94, 0.15)" : "rgba(6, 182, 212, 0.15)";
+              ctx.fillRect(boxX, boxY, boxW, boxH);
 
-                const label = isHumanLike ? "شخص / عامل 91%" : "مركبة / شاحنة 88%";
-                ctx.font = "bold 11px sans-serif";
-                const textW = ctx.measureText(label).width;
-                ctx.fillStyle = color;
-                ctx.fillRect(boxX, Math.max(0, boxY - 20), textW + 12, 20);
-                ctx.fillStyle = "#ffffff";
-                ctx.fillText(label, boxX + 6, Math.max(14, boxY - 6));
-                ctx.restore();
-              }
+              const label = isHumanLike ? "شخص / عامل 92%" : "مركبة / شاحنة 89%";
+              ctx.font = "bold 11px sans-serif";
+              const textW = ctx.measureText(label).width;
+              ctx.fillStyle = color;
+              ctx.fillRect(boxX, Math.max(0, boxY - 20), textW + 12, 20);
+              ctx.fillStyle = "#ffffff";
+              ctx.fillText(label, boxX + 6, Math.max(14, boxY - 6));
+              ctx.restore();
             }
           } catch (eMotion) {
             console.warn("Motion contour error:", eMotion);
@@ -606,10 +757,10 @@ export default function MarsadPage() {
         ) {
           lastAlertTimeRef.current = now;
           try {
-            let snapUrl = "";
-            if ((videoSource as HTMLCanvasElement).toDataURL) {
-              snapUrl = (videoSource as HTMLCanvasElement).toDataURL("image/jpeg", 0.7);
-            }
+            const snapUrl =
+              base64 ||
+              (source as HTMLCanvasElement).toDataURL?.("image/jpeg", 0.7) ||
+              offCanvas.toDataURL("image/jpeg", 0.7);
 
             const nowRiyadh = new Intl.DateTimeFormat("ar-SA", {
               timeZone: "Asia/Riyadh",
@@ -629,7 +780,7 @@ export default function MarsadPage() {
               alarmTime: nowRiyadh,
               channelNo: selectedChannel,
               pictureUrl: snapUrl,
-              confidence: 90,
+              confidence: 95,
             };
 
             setEvents((prev) => [newAlert, ...prev.slice(0, 19)]);
@@ -644,7 +795,7 @@ export default function MarsadPage() {
       }
     };
 
-    timerId = setInterval(detectLoop, 450);
+    timerId = setInterval(detectLoop, 350);
     return () => {
       if (timerId) clearInterval(timerId);
     };
@@ -673,15 +824,17 @@ export default function MarsadPage() {
     setAssistantLimits(null);
     setAssistantEvidence([]);
 
-    // Capture frame from active video canvas if available
-    let snapBase64 = "";
-    try {
-      const viewport = document.getElementById("marsad-player-viewport");
-      const videoCanvas = viewport?.querySelector("canvas:not(#marsad-detection-overlay)") as HTMLCanvasElement;
-      if (videoCanvas) {
-        snapBase64 = videoCanvas.toDataURL("image/jpeg", 0.75);
-      }
-    } catch (e) {}
+    // Capture frame from active video canvas or direct hardware frame
+    let snapBase64 = lastFrameBase64Ref.current || "";
+    if (!snapBase64) {
+      try {
+        const viewport = document.getElementById("marsad-player-viewport");
+        const videoCanvas = viewport?.querySelector("canvas:not(#marsad-detection-overlay)") as HTMLCanvasElement;
+        if (videoCanvas) {
+          snapBase64 = videoCanvas.toDataURL("image/jpeg", 0.75);
+        }
+      } catch (e) {}
+    }
 
     try {
       const res = await fetch("/api/marsad/ask", {

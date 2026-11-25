@@ -2,9 +2,18 @@
 
 import { useI18n } from "@/components/language-provider"
 import { DualText } from "@/components/ui/dual-text"
+import { usePathname } from "next/navigation"
 
 export function Footer() {
   const { t } = useI18n()
+  const pathname = usePathname()
+  const currentPath = (typeof window !== "undefined" ? window.location.pathname : "") || pathname || ""
+
+  // Completely hide footer on Marsad and camera public pages
+  if (currentPath.includes("marsad") || currentPath.includes("partner-cameras")) {
+    return null
+  }
+
   const year = new Date().getFullYear()
   return (
     <footer className="border-t bg-card" suppressHydrationWarning>

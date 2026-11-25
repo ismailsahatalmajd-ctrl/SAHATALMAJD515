@@ -14,6 +14,8 @@ export function FirebaseSyncManager() {
     const [isUploading, setIsUploading] = useState(false)
     const [uploadProgress, setUploadProgress] = useState("")
     const pathname = usePathname()
+    const currentPath = (typeof window !== "undefined" ? window.location.pathname : "") || pathname || ""
+    const isMarsad = currentPath.includes("marsad") || currentPath.includes("partner-cameras")
     const isBranchesPage = pathname === '/branches' || pathname.startsWith('/branches/')
 
     const [logs, setLogs] = useState<string[]>([])
@@ -21,6 +23,7 @@ export function FirebaseSyncManager() {
     const addLog = (msg: string) => setLogs(prev => [msg, ...prev].slice(0, 5))
 
     useEffect(() => {
+        if (isMarsad) return;
         const init = async () => {
             try {
                 // Start listening immediately without waiting for anonymous auth roundtrip
@@ -146,6 +149,11 @@ export function FirebaseSyncManager() {
         } finally {
             setIsUploading(false);
         }
+    }
+
+    // Hide completely on Marsad and camera public pages
+    if (isMarsad) {
+        return null;
     }
 
     // Collapsed View

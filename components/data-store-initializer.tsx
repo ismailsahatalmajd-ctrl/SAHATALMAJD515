@@ -14,14 +14,22 @@ export function DataStoreInitializer({ children }: { children: React.ReactNode }
   const [message, setMessage] = useState("Starting upload...<br/>بدء التحميل...")
   const pathname = usePathname()
 
-  const isLoginPage = 
-    pathname === "/login" || 
-    pathname === "/logout" || 
-    pathname.includes("branch-login") ||
-    pathname === "/marsad" ||
-    pathname?.startsWith("/marsad") ||
-    pathname === "/partner-cameras" ||
-    pathname?.startsWith("/partner-cameras")
+  const currentPath = 
+    (typeof window !== "undefined" ? window.location.pathname : "") || 
+    pathname || 
+    ""
+
+  const isBypassPage = 
+    currentPath.includes("login") || 
+    currentPath.includes("logout") || 
+    currentPath.includes("branch-login") ||
+    currentPath.includes("marsad") ||
+    currentPath.includes("partner-cameras")
+
+  // For public/camera pages and login, render immediately without waiting for database initialization
+  if (isBypassPage) {
+    return <>{children}</>
+  }
 
   useEffect(() => {
     // Safety timeout: 10 seconds
@@ -52,7 +60,7 @@ export function DataStoreInitializer({ children }: { children: React.ReactNode }
     return () => clearTimeout(safetyTimer);
   }, []);
 
-  if (!initialized && !isLoginPage) {
+  if (!initialized && !isBypassPage) {
     return (
       <div className="fixed inset-0 flex flex-col items-center justify-center bg-background text-foreground z-50" dir="rtl">
         <div className="w-full max-w-sm px-4 flex flex-col items-center gap-6">

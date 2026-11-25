@@ -10,22 +10,31 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     const router = useRouter()
     const pathname = usePathname()
 
-    // Derived Logic - No useState needed for this
+    // Determine current path safely (works during SSR, hydration, and with trailing slashes)
+    const currentPath = 
+        (typeof window !== "undefined" ? window.location.pathname : "") || 
+        pathname || 
+        ""
+
     const isPublicPage = 
-        pathname === "/login" || 
-        pathname === "/logout" || 
-        pathname === "/marsad" || 
-        pathname?.startsWith("/marsad") ||
-        pathname === "/partner-cameras" ||
-        pathname?.startsWith("/partner-cameras")
+        currentPath.includes("marsad") || 
+        currentPath.includes("partner-cameras") ||
+        currentPath.includes("login") || 
+        currentPath.includes("logout")
+
+    // If it's a public page, NEVER block or redirect! Render children immediately!
+    if (isPublicPage) {
+        return <>{children}</>
+    }
 
     const unauthenticated = !loading && !user
-    const shouldRedirectToLogin = unauthenticated && !isPublicPage
+    const shouldRedirectToLogin = unauthenticated
 
     const authenticated = !loading && user
-    const shouldRedirectHome = authenticated && pathname === "/login"
+    const shouldRedirectHome = authenticated && currentPath === "/login"
 
     useEffect(() => {
+        if (isPublicPage) return
         if (loading) return
 
         if (shouldRedirectToLogin) {
@@ -33,13 +42,13 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
             router.replace("/login")
         } else if (shouldRedirectHome) {
             console.log("AuthGuard: Redirecting Home")
-            if ((user as any).role === 'branch') {
+            if ((user as any)?.role === 'branch') {
                 router.replace('/branch-requests')
             } else {
                 router.replace('/')
             }
         }
-    }, [user, loading, pathname, router, shouldRedirectToLogin, shouldRedirectHome])
+    }, [user, loading, currentPath, router, shouldRedirectToLogin, shouldRedirectHome, isPublicPage])
 
     // Show Loader if:
     // 1. Auth is loading

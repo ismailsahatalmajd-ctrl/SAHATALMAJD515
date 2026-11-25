@@ -11,8 +11,16 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     const pathname = usePathname()
 
     // Derived Logic - No useState needed for this
+    const isPublicPage = 
+        pathname === "/login" || 
+        pathname === "/logout" || 
+        pathname === "/marsad" || 
+        pathname?.startsWith("/marsad") ||
+        pathname === "/partner-cameras" ||
+        pathname?.startsWith("/partner-cameras")
+
     const unauthenticated = !loading && !user
-    const shouldRedirectToLogin = unauthenticated && pathname !== "/login" && pathname !== "/logout"
+    const shouldRedirectToLogin = unauthenticated && !isPublicPage
 
     const authenticated = !loading && user
     const shouldRedirectHome = authenticated && pathname === "/login"

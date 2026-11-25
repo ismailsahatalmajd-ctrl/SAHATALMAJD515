@@ -14,7 +14,14 @@ export function DataStoreInitializer({ children }: { children: React.ReactNode }
   const [message, setMessage] = useState("Starting upload...<br/>بدء التحميل...")
   const pathname = usePathname()
 
-  const isLoginPage = pathname === "/login" || pathname === "/logout" || pathname.includes("branch-login")
+  const isLoginPage = 
+    pathname === "/login" || 
+    pathname === "/logout" || 
+    pathname.includes("branch-login") ||
+    pathname === "/marsad" ||
+    pathname?.startsWith("/marsad") ||
+    pathname === "/partner-cameras" ||
+    pathname?.startsWith("/partner-cameras")
 
   useEffect(() => {
     // Safety timeout: 10 seconds

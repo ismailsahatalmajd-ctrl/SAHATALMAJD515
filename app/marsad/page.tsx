@@ -1159,15 +1159,6 @@ export default function MarsadPage() {
                 <Activity className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
                 <span>{aiStatusText}</span>
               </div>
-
-              <Link
-                href="/partner-cameras"
-                className="inline-flex items-center gap-1.5 text-xs bg-[#213f64] hover:bg-[#2b517e] text-white px-3 py-1.5 rounded-lg border border-[#335c8d] transition-colors"
-              >
-                <Layers className="w-3.5 h-3.5 text-[#b38a46]" />
-                <span>منصة الكاميرات الشاملة</span>
-                <ExternalLink className="w-3 h-3 opacity-70" />
-              </Link>
             </div>
           </div>
         </header>
